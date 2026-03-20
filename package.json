@@ -1,0 +1,10 @@
+{
+	"dependencies": {
+		"@mariozechner/pi-coding-agent": "^0.61.0"
+	},
+	"scripts": {
+		"format": "biome format --write .",
+		"lint": "biome lint .",
+		"check": "biome check ."
+	}
+}
