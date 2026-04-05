@@ -1,19 +1,27 @@
 {
-	"name": "pi-agent-mod",
-	"version": "1.0.0",
-	"keywords": ["pi-package"],
-	"pi": {
-		"extensions": [".pi/extensions"]
-	},
-	"peerDependencies": {
-		"@mariozechner/pi-coding-agent": "*"
-	},
-	"dependencies": {
-		"@mariozechner/pi-coding-agent": "^0.61.0"
-	},
-	"scripts": {
-		"format": "biome format --write .",
-		"lint": "biome lint .",
-		"check": "biome check ."
-	}
+  "name": "pi-agent-mod",
+  "version": "1.0.0",
+  "keywords": [
+    "pi-package"
+  ],
+  "pi": {
+    "extensions": [
+      "./extensions"
+    ],
+    "prompts": [
+      "./prompts"
+    ]
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "*"
+  },
+  "devDependencies": {
+    "@mariozechner/pi-coding-agent": "^0.65.0"
+  },
+  "scripts": {
+    "format": "biome format --write .",
+    "lint": "biome lint .",
+    "check": "biome check .",
+    "typecheck": "tsc --noEmit"
+  }
 }

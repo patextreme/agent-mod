@@ -2,3 +2,6 @@ node_modules/
 
 # bv (beads viewer) local config and caches
 .bv/
+
+# Developer-local pi settings
+.pi/settings.json
