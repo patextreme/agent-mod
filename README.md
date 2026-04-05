@@ -7,7 +7,7 @@ Extensions and prompt templates for the [Pi coding agent](https://github.com/bad
 | Name | Type | Description |
 |------|------|-------------|
 | [permission](./extensions/permission.ts) | Extension | Permission control for bash commands with whitelist/blacklist rules |
-| [AGENTS.md](./AGENTS.md) | Config | Beads workflow integration for AI agents |
+| [AGENTS.md](./AGENTS.md) | Config | Agent conventions and project layout guide |
 
 ## Installation
 
