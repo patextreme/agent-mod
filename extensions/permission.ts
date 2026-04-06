@@ -32,7 +32,7 @@ const PERMISSION_RULES: PermissionRule[] = [
 ];
 
 function findMatchingRule(command: string): PermissionRule | undefined {
-  for (const rule of [...PERMISSION_RULES].reverse()) {
+  for (const rule of [...PERMISSION_RULES]) {
     if (rule.regex.test(command)) return rule;
   }
   return undefined;
