@@ -1,0 +1,24 @@
+description: Review the codebase to see if it aligns with the task definition
+loop: 20
+steps:
+  - prompt: |
+      Read the full details of backlog task $ARGUMENTS, including its description, acceptance criteria, implementation plan, notes, and definition of done.
+      Then review the codebase to check whether it correctly implements the task.
+
+      For any issues you find, rank them by severity from 1 to 10 (10 = most severe):
+      - 9-10 Critical: Core acceptance criteria are not met; implementation fundamentally contradicts the task specification.
+      - 7-8 High: Significant logic bugs, missing major behavior, or broken tests.
+      - 5-6 Medium: Minor behavioral deviation, missing edge-case handling, or incomplete finalization.
+      - 3-4 Low: Style or clarity improvements that don't affect correctness.
+      - 1-2 Trivial: Cosmetic or preferential suggestions.
+
+      List all issues (with severity) and propose fixes. Don't make any changes yet; wait for my approval.
+  - type: exitPrompt
+    exitPrompt: There are no issues with severity >= 5
+  - prompt: |
+      Proceed with fixing the most severe remaining issue (severity >= 5).
+
+      For code issues, make the fix and run relevant tests to verify.
+      For task-record issues, prefer using the backlog MCP over directly editing files.
+      Fix one issue per iteration so each change can be reviewed.
+handoffTarget: backlog-finalize

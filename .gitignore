@@ -1,5 +1,9 @@
 node_modules/
 dist/
+result
+
+# Extension local dependencies
+extensions/chain/node_modules/
 
 # bv (beads viewer) local config and caches
 .bv/

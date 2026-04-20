@@ -1,0 +1,5 @@
+description: Execute backlog task
+steps:
+  - prompt: Start working on $ARGUMENTS. Research what needs to be done and propose a plan. Then wait for my approval.
+  - prompt: Go ahead
+handoffTarget: backlog-verify

@@ -1,0 +1,24 @@
+description: Align backlog tasks with the task creation guidelines
+loop: 20
+steps:
+  - prompt: |
+      Review backlog items based on user input and verify their alignment with the backlog task creation guidelines.
+
+      For any fixable issues you find, rank them by severity from 1 to 10 (10 = most severe):
+      - 9-10 Critical: Task is fundamentally broken or unworkable for an implementing agent.
+      - 7-8 High: Task will likely cause significant rework or blocking confusion.
+      - 5-6 Medium: Task may cause minor confusion or small rework but is still actionable.
+      - 3-4 Low: Style or clarity improvements that don't affect correctness.
+      - 1-2 Trivial: Cosmetic or preferential suggestions.
+
+      Some issues are acceptable and do not need fixing, such as:
+      - missing implementation plan
+      - missing implementation note
+      Exclude acceptable issues from your severity ranking entirely — do not assign them a score.
+
+      ---
+      User input: $ARGUMENTS
+      ---
+  - type: exitPrompt
+    exitPrompt: There are no issues with severity >= 6
+  - prompt: Proceed to fix the issues with severity >= 6. Prefer using the backlog MCP to edit the task details instead of directly manipulating the file.

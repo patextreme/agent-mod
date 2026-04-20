@@ -12,6 +12,7 @@
 
       imports = [
         ./nix/modules/devshells.nix
+        ./nix/modules/pi-package.nix
       ];
     };
 }
