@@ -2,28 +2,27 @@ description: Review the task record to see if it is properly finalized
 loop: 20
 steps:
   - prompt: |
-      Read the full details of backlog task $ARGUMENTS, including its description, acceptance criteria, implementation plan, notes, and definition of done.
-      Then review the task record to check whether it has been properly finalized.
+      Review task $ARGUMENTS for finalization issues.
 
-      In particular, check whether:
-      - Every acceptance criterion is verified and checked off
-      - Every definition of done item is verified and checked off
-      - An implementation plan exists and reflects the final solution
-      - A final summary has been written
-      - The task status reflects the true state of the work
+      1. Read the workflow guide: `backlog://workflow/task-finalization`
+      2. Use `task_view` to read the full task details
+      3. Check all acceptance criteria and Definition of Done items are verified and checked off
+      4. Verify an implementation plan exists and reflects the final solution
+      5. Verify a Final Summary has been written
+      6. Confirm task status reflects the true state of the work
 
-      For any issues you find, rank them by severity from 1 to 10 (10 = most severe):
-      - 9-10 Critical: Task record is fundamentally incomplete or misleading.
-      - 7-8 High: Major finalization steps missing (e.g., no summary, unchecked critical acceptance criteria).
-      - 5-6 Medium: Minor gaps (e.g., missing edge-case verification, incomplete definition of done).
-      - 3-4 Low: Style or clarity improvements that don't affect correctness.
-      - 1-2 Trivial: Cosmetic or preferential suggestions.
+      If any issues are found, rank by severity (1-10, 10 = most severe):
+      - 9-10 Critical: Task record is fundamentally incomplete or misleading
+      - 7-8 High: Major finalization steps missing (no summary, unchecked critical criteria)
+      - 5-6 Medium: Minor gaps (missing edge-case verification, incomplete DoD)
+      - 3-4 Low: Style or clarity improvements
+      - 1-2 Trivial: Cosmetic suggestions
 
-      List all issues (with severity) and propose fixes. Don't make any changes yet; wait for my approval.
+      List all issues with severity and proposed fixes. Wait for my approval before making changes.
   - type: exitPrompt
     exitPrompt: There are no issues with severity >= 5
   - prompt: |
-      Proceed with fixing the most severe remaining finalization issue (severity >= 5).
+      Proceed with fixing all remaining finalization issues with severity >= 5.
 
-      Prefer using the backlog MCP over directly editing files.
-      Fix one issue per iteration so each change can be reviewed.
+      Prefer using the backlog MCP tools (`task_edit`) over directly editing files.
+      Fix all qualifying issues before reporting completion.

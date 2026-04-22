@@ -1,0 +1,8 @@
+description: Review the codebase to see if it aligns with the task definition
+loop: 3
+steps:
+  - prompt: Hello, my name is $ARGUMENTS
+  - type: exitPrompt
+    exitPrompt: The name of the user is Alice
+  - prompt: Nice to meet you
+  - prompt: Goodbye

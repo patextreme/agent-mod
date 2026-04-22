@@ -1,5 +1,24 @@
 description: Execute backlog task
 steps:
-  - prompt: Start working on $ARGUMENTS. Research what needs to be done and propose a plan. Then wait for my approval.
-  - prompt: Go ahead
+  - prompt: |
+      Execute task $ARGUMENTS following the task execution workflow.
+
+      1. Read the workflow guide: `backlog://workflow/task-execution`
+      2. Plan: use `task_view` → draft plan → present for approval → record with `task_edit` (planSet) → mark In Progress
+      3. Implement in short loops, verifying and checking off acceptance criteria with `task_edit` as you go
+      4. Log progress with `task_edit` (notesAppend)
+
+      Non-negotiables:
+      - Do NOT write code until the plan is approved and recorded
+      - Never silently expand scope — if new work is discovered, stop and ask
+      - Keep the task record as the single source of truth
+  - prompt: |
+      Continue implementing the approved plan.
+
+      As each section is completed:
+      - Verify acceptance criteria are met
+      - Check off acceptance criteria with `task_edit` (acceptanceCriteriaCheck)
+      - Log progress with `task_edit` (notesAppend)
+
+      When implementation is complete, confirm readiness for verification phase.
 handoffTarget: backlog-verify

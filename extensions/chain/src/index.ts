@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 import { join } from "node:path";
 import type {
   AgentToolResult,
@@ -10,14 +11,6 @@ import { type ChainState, disableTool, executeChain } from "./execution.js";
 import { type ChainDefinition, loadChainDefinitions } from "./loader.js";
 
 export default function chainExtension(pi: ExtensionAPI): void {
-  const chainsDir = join(process.cwd(), ".pi", "chains");
-  let loadWarnings: string[] = [];
-  const chainDefinitions: Record<string, ChainDefinition> =
-    loadChainDefinitions(
-      chainsDir,
-      (msg) => (loadWarnings = [...loadWarnings, msg]),
-    );
-
   // Shared mutable state for the chain_exit tool and abort detection.
   // isExitToolCalled is reset at the start of each executeChain call.
   // isUserAborted is reset in the command handler before the initial executeChain call,
@@ -27,21 +20,54 @@ export default function chainExtension(pi: ExtensionAPI): void {
     isExitToolCalled: false,
   };
 
-  // Surface chain loading warnings on session start/reload/fork.
-  // Commands are registered once at init, so we only reload for warnings —
-  // the definitions themselves don't need updating.
-  pi.on("resources_discover", (_event, ctx) => {
-    loadWarnings = [];
-    loadChainDefinitions(
-      chainsDir,
-      (msg) => (loadWarnings = [...loadWarnings, msg]),
+  let loadWarnings: string[] = [];
+  let chainDefinitions: Record<string, ChainDefinition> = {};
+  const registeredChains = new Set<string>();
+
+  function refreshChainDefinitions(cwd: string) {
+    const globalChainsDir = join(homedir(), ".pi", "chains");
+    const localChainsDir = join(cwd, ".pi", "chains");
+
+    let globalWarnings: string[] = [];
+    const globalChains = loadChainDefinitions(
+      globalChainsDir,
+      (msg) => (globalWarnings = [...globalWarnings, msg]),
     );
-    if (loadWarnings.length > 0) {
-      ctx.ui.setStatus("chain", loadWarnings[0]);
-    } else {
-      ctx.ui.setStatus("chain", undefined);
+
+    let localWarnings: string[] = [];
+    const localChains = loadChainDefinitions(
+      localChainsDir,
+      (msg) => (localWarnings = [...localWarnings, msg]),
+    );
+
+    loadWarnings = [...globalWarnings, ...localWarnings];
+    chainDefinitions = { ...globalChains, ...localChains };
+  }
+
+  function registerMissingChainCommands() {
+    for (const [name, definition] of Object.entries(chainDefinitions)) {
+      if (registeredChains.has(name)) {
+        continue;
+      }
+      registeredChains.add(name);
+      pi.registerCommand(`chain-${name}`, {
+        description: definition.description,
+        handler: async (args, ctx) => {
+          const def = chainDefinitions[name];
+          if (!def) {
+            ctx.ui.notify(`Chain "${name}" is no longer available.`, "error");
+            return;
+          }
+
+          // Reset abort state for each new command invocation.
+          // Must be fresh so a previous command's abort doesn't carry over.
+          // (isExitToolCalled is reset inside executeChain.)
+          state.isUserAborted = false;
+          await executeChain(pi, name, def, args, ctx, state, chainDefinitions);
+        },
+      });
     }
-  });
+  }
 
   pi.registerTool({
     name: "chain_exit",
@@ -62,8 +88,15 @@ export default function chainExtension(pi: ExtensionAPI): void {
     },
   });
 
-  pi.on("session_start", () => {
-    disableTool(pi, "chain_exit");
+  // Re-scan chains whenever resources are discovered (startup / reload).
+  pi.on("resources_discover", (event, ctx) => {
+    refreshChainDefinitions(event.cwd);
+    registerMissingChainCommands();
+    if (loadWarnings.length > 0) {
+      ctx.ui.setStatus("chain", loadWarnings[0]);
+    } else {
+      ctx.ui.setStatus("chain", undefined);
+    }
   });
 
   pi.on("turn_end", async (event: TurnEndEvent, _ctx: ExtensionContext) => {
@@ -74,25 +107,4 @@ export default function chainExtension(pi: ExtensionAPI): void {
       state.isUserAborted = true;
     }
   });
-
-  for (const [name, definition] of Object.entries(chainDefinitions)) {
-    pi.registerCommand(`chain-${name}`, {
-      description: definition.description,
-      handler: async (args, ctx) => {
-        // Reset abort state for each new command invocation.
-        // Must be fresh so a previous command's abort doesn't carry over.
-        // (isExitToolCalled is reset inside executeChain.)
-        state.isUserAborted = false;
-        await executeChain(
-          pi,
-          name,
-          definition,
-          args,
-          ctx,
-          state,
-          chainDefinitions,
-        );
-      },
-    });
-  }
 }
