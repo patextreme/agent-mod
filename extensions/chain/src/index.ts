@@ -7,7 +7,7 @@ import type {
   TurnEndEvent,
 } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import { type ChainState, disableTool, executeChain } from "./execution.js";
+import { type ChainState, executeChain } from "./execution.js";
 import { type ChainDefinition, loadChainDefinitions } from "./loader.js";
 
 export default function chainExtension(pi: ExtensionAPI): void {
