@@ -2,7 +2,7 @@ description: Review the codebase to see if it aligns with the task definition
 loop: 20
 steps:
   - prompt: |
-      Read the full details of backlog task $ARGUMENTS, including its description, acceptance criteria, implementation plan, notes, and definition of done.
+      Read the full details of the following backlog task, including its description, acceptance criteria, implementation plan, notes, and Definition of Done.
       Then review the codebase to check whether it correctly implements the task.
 
       For any issues you find, rank them by severity from 1 to 10 (10 = most severe):
@@ -12,11 +12,15 @@ steps:
       - 3-4 Low: Style or clarity improvements that don't affect correctness.
       - 1-2 Trivial: Cosmetic or preferential suggestions.
 
-      List all issues (with severity) and propose fixes. Don't make any changes yet; wait for my approval.
+      List all issues (with severity) in table format. Don't make any changes yet; wait for my approval.
+
+      ---
+      User input: $ARGUMENTS
+      ---
   - type: exitPrompt
-    exitPrompt: There are no issues with severity >= 5
+    exitPrompt: There are no issues with severity >= 6
   - prompt: |
-      Proceed with fixing the most severe remaining issue (severity >= 5).
+      Proceed with fixing the most severe remaining issue (severity >= 6).
 
       For code issues, make the fix and run relevant tests to verify.
       For task-record issues, prefer using the backlog MCP over directly editing files.

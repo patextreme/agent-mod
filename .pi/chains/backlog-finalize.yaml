@@ -2,27 +2,42 @@ description: Review the task record to see if it is properly finalized
 loop: 20
 steps:
   - prompt: |
-      Review task $ARGUMENTS for finalization issues.
+      Review the following backlog task record for finalization completeness.
 
-      1. Read the workflow guide: `backlog://workflow/task-finalization`
+      This review is strictly about whether the backlog record itself is properly closed out — NOT about verifying the codebase or implementation quality.
+
+      1. Read the finalization guide: `backlog_get_task_finalization_guide`
       2. Use `task_view` to read the full task details
-      3. Check all acceptance criteria and Definition of Done items are verified and checked off
-      4. Verify an implementation plan exists and reflects the final solution
-      5. Verify a Final Summary has been written
-      6. Confirm task status reflects the true state of the work
+      3. Check the backlog record for proper finalization:
+         - All acceptance criteria checkboxes are checked
+         - All Definition of Done items are checked
+         - Implementation plan is present and reflects the final approach
+         - Implementation notes capture key progress/decisions
+         - Final Summary is written (PR-style: what changed, why, tests, risks/follow-ups)
+         - Task status is set to "Done"
 
-      If any issues are found, rank by severity (1-10, 10 = most severe):
-      - 9-10 Critical: Task record is fundamentally incomplete or misleading
-      - 7-8 High: Major finalization steps missing (no summary, unchecked critical criteria)
-      - 5-6 Medium: Minor gaps (missing edge-case verification, incomplete DoD)
-      - 3-4 Low: Style or clarity improvements
+      If any finalization gaps are found, rank by severity (1-10, 10 = most severe):
+      - 9-10 Critical: Task record is fundamentally incomplete (e.g., status not Done, no final summary)
+      - 7-8 High: Major finalization steps missing (unchecked acceptance criteria, missing plan)
+      - 5-6 Medium: Minor gaps (incomplete DoD checklist, sparse implementation notes)
+      - 3-4 Low: Style or clarity improvements (summary could be more descriptive)
       - 1-2 Trivial: Cosmetic suggestions
 
-      List all issues with severity and proposed fixes. Wait for my approval before making changes.
+      List all issues with severity in table format. Wait for my approval before making changes.
+
+      ---
+      User input: $ARGUMENTS
+      ---
   - type: exitPrompt
     exitPrompt: There are no issues with severity >= 5
   - prompt: |
-      Proceed with fixing all remaining finalization issues with severity >= 5.
+      Proceed with fixing all remaining backlog record finalization issues with severity >= 5.
 
-      Prefer using the backlog MCP tools (`task_edit`) over directly editing files.
+      Use backlog MCP tools (`task_edit`) to close out the task record:
+      - Check off acceptance criteria and DoD items
+      - Set or improve the final summary
+      - Update the plan or notes if missing
+      - Set status to "Done" if not already
+
+      Do NOT review or modify any codebase files. Only update the backlog task record.
       Fix all qualifying issues before reporting completion.
