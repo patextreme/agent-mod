@@ -20,5 +20,5 @@ steps:
       User input: $ARGUMENTS
       ---
   - type: exitPrompt
-    exitPrompt: There are no issues with severity >= 6
-  - prompt: Proceed to fix the issues with severity >= 6. Prefer using the backlog MCP to edit the task details instead of directly manipulating the file.
+    exitPrompt: There are no issues with severity >= 7
+  - prompt: Proceed to fix the issues with severity >= 7. Prefer using the backlog MCP to edit the task details instead of directly manipulating the file.
