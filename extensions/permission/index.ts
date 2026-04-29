@@ -8,7 +8,7 @@ interface PermissionRule {
   action: PermissionAction;
 }
 
-// Rules processed in reverse order - later patterns override earlier ones
+// Rules processed in forward order - first matching rule wins
 const PERMISSION_RULES: PermissionRule[] = [
   { id: 1, regex: /git commit/, action: "ask" },
   { id: 2, regex: /git push/, action: "ask" },
