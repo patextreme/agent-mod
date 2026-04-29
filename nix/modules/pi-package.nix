@@ -13,6 +13,17 @@
         '';
       };
 
+      # Build node_modules for the root (pi SDK types, typescript, etc.)
+      rootNodeModules = pkgs.buildNpmPackage {
+        name = "pi-root-node-modules";
+        src = ./../..;
+        npmDepsHash = "sha256-5tp6Nus8hQNwTlNm9jqT2GiQQlEXrBuOh+AvwKrUaO0=";
+        dontNpmBuild = true;
+        installPhase = ''
+          cp -r ./node_modules $out
+        '';
+      };
+
       pi-permission = pkgs.stdenv.mkDerivation {
         name = "pi-permission";
         src = ./../../extensions/permission;
@@ -64,6 +75,40 @@
           cp $src/*.md $out/
         '';
       };
+
+      biome-check = pkgs.stdenv.mkDerivation {
+        name = "biome-check";
+        src = ./../..;
+        nativeBuildInputs = [ pkgs.biome ];
+        phases = [ "unpackPhase" "buildPhase" "installPhase" ];
+        buildPhase = ''
+          biome check .
+        '';
+        installPhase = ''
+          touch $out
+        '';
+      };
+
+      tsc-check = pkgs.stdenv.mkDerivation {
+        name = "tsc-check";
+        src = ./../..;
+        nativeBuildInputs = [ pkgs.nodejs ];
+        phases = [ "unpackPhase" "buildPhase" "installPhase" ];
+        buildPhase = ''
+          # Provide root node_modules for pi SDK types and typescript
+          cp -r ${rootNodeModules} node_modules
+          chmod -R u+w node_modules
+
+          # Provide chain extension node_modules for zod
+          cp -r ${chainNodeModules} extensions/chain/node_modules
+          chmod -R u+w extensions/chain/node_modules
+
+          ./node_modules/.bin/tsc --noEmit
+        '';
+        installPhase = ''
+          touch $out
+        '';
+      };
     in
     {
       packages = {
@@ -72,6 +117,7 @@
 
       checks = {
         inherit pi-permission pi-chain pi-prompts;
+        inherit biome-check tsc-check;
       };
     };
 }
