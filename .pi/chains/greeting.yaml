@@ -1,4 +1,4 @@
-description: Review the codebase to see if it aligns with the task definition
+description: Test chain for greeting and introduction interactions
 loop: 3
 steps:
   - prompt: Hello, my name is $ARGUMENTS

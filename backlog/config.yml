@@ -2,7 +2,7 @@ project_name: "agent-mod"
 default_status: "To Do"
 statuses: ["To Do", "In Progress", "Done"]
 labels: []
-definition_of_done: ["Passes npm run format", "Passes npm run lint", "Passes npm run typecheck"]
+definition_of_done: ["Passes npm run format", "Passes npm run lint", "Passes npm run typecheck", "Passes nix flake check"]
 date_format: yyyy-mm-dd
 max_column_width: 20
 auto_open_browser: true
