@@ -84,8 +84,11 @@ function isAssistantMessage(message: unknown): message is AssistantMessage {
   return true;
 }
 
-function formatNumber(num: number): string {
-  return num.toLocaleString();
+function formatCompact(n: number): string {
+  if (n >= 1_000_000)
+    return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1).replace(/\.0$/, "")}k`;
+  return String(n);
 }
 
 /**
@@ -157,8 +160,12 @@ function composeDisplayString(t: TurnTelemetry): string {
     parts.push(`TTFT ${formatDuration(t.timing.ttftMs / 1000)}`);
   }
   parts.push(formatDuration(t.timing.totalMs / 1000));
-  parts.push(`out ${formatNumber(t.tokens.output)}`);
-  parts.push(`in ${formatNumber(t.tokens.input)}`);
+  parts.push(`out ${formatCompact(t.tokens.output)}`);
+  parts.push(`in ${formatCompact(t.tokens.input)}`);
+  if (t.tokens.cacheRead > 0)
+    parts.push(`cache ${formatCompact(t.tokens.cacheRead)}`);
+  if (t.tokens.cacheWrite > 0)
+    parts.push(`cacheW ${formatCompact(t.tokens.cacheWrite)}`);
   if (t.timing.stallMs > 0) {
     const stallStr = formatDuration(t.timing.stallMs / 1000);
     parts.push(`stall ${stallStr}×${t.timing.stallCount}`);
