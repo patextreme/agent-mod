@@ -17,7 +17,7 @@
       rootNodeModules = pkgs.buildNpmPackage {
         name = "pi-root-node-modules";
         src = ./../..;
-        npmDepsHash = "sha256-H8nZp5kkAWUoyQqmi+5ZcxmLMeH8uMk6KUTACxpEmRQ=";
+        npmDepsHash = "sha256-nZrX0u9SRZ9A2RGTYw/XsJ0AgvlaIfgOYhcr7kqMEj4=";
         dontNpmBuild = true;
         installPhase = ''
           cp -r ./node_modules $out
