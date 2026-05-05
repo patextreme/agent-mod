@@ -10,9 +10,18 @@ npm run format         # biome format --write .
 npm run lint           # biome lint .
 npm run check          # biome check . (lint + format check combined)
 npm run typecheck      # tsc --noEmit
+nix flake check        # nix build checks (biome, tsc, package builds)
 ```
 
 No test suite. Verify with: `format → lint → typecheck`.
+
+**Before committing changes that touch `package*.json` or `nix/`**, also run:
+
+```bash
+nix flake check
+```
+
+(This verifies Nix package builds, the flake checks mirror the JS checks, and catches stale `npmDepsHash` values after dependency changes.)
 
 **Biome is NOT in `node_modules`** — the `format`/`lint`/`check` scripts require biome in PATH. Use `nix develop` (provides nodejs, typescript, biome, git) or have biome installed globally.
 
