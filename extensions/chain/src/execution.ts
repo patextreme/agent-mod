@@ -2,7 +2,7 @@ import type {
   ExtensionAPI,
   ExtensionCommandContext,
   ExtensionContext,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 import type { ChainDefinition, ChainStep } from "./loader.js";
 
 export async function waitForTurnStart(ctx: ExtensionContext) {

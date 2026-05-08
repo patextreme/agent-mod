@@ -9,10 +9,10 @@
     ]
   },
   "dependencies": {
-    "yaml": "^2.8.3",
-    "zod": "^4"
+    "yaml": "^2.8.4",
+    "zod": "^4.4.3"
   },
   "peerDependencies": {
-    "@mariozechner/pi-coding-agent": "^0.72.0"
+    "@earendil-works/pi-coding-agent": "^0.74.0"
   }
 }

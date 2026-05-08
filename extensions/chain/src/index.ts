@@ -5,7 +5,7 @@ import type {
   ExtensionAPI,
   ExtensionContext,
   TurnEndEvent,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { type ChainState, executeChain } from "./execution.js";
 import { type ChainDefinition, loadChainDefinitions } from "./loader.js";
