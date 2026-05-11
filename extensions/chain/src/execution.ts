@@ -105,9 +105,10 @@ export async function executeChain(
   ctx: ExtensionCommandContext,
   state: ChainState,
   chainDefinitions: Record<string, ChainDefinition>,
+  options?: { depth?: number },
 ): Promise<void> {
   // Reset exit state for each chain invocation.
-  // isUserAborted is NOT reset here — it must propagate across chain handoffs.
+  // isUserAborted is NOT reset here — it must propagate across callChain invocations.
   // It is reset in the command handler before the initial executeChain call.
   state.isExitToolCalled = false;
 
@@ -124,10 +125,19 @@ export async function executeChain(
         prompt: step.prompt.replaceAll("$ARGUMENTS", args),
       };
     }
-    return {
-      ...step,
-      exitPrompt: step.exitPrompt.replaceAll("$ARGUMENTS", args),
-    };
+    if (step.type === "exitPrompt") {
+      return {
+        ...step,
+        exitPrompt: step.exitPrompt.replaceAll("$ARGUMENTS", args),
+      };
+    }
+    if (step.type === "callChain") {
+      return {
+        ...step,
+        argument: (step.argument ?? "").replaceAll("$ARGUMENTS", args),
+      };
+    }
+    return step;
   });
 
   const loopN = definition.loop ?? 1;
@@ -151,7 +161,7 @@ export async function executeChain(
         pi.sendUserMessage(step.prompt);
         await waitForTurnStart(ctx);
         await waitForIdleAndEmptyQueue(ctx);
-      } else {
+      } else if (step.type === "exitPrompt") {
         // Evaluate exit prompt (step-level)
         const exitCalled = await evaluateStepExitPrompt(
           pi,
@@ -160,76 +170,51 @@ export async function executeChain(
           step.exitPrompt,
         );
         if (exitCalled) break; // Break out of steps loop only — don't affect handoff
+      } else if (step.type === "callChain") {
+        // Invoke target chain as a subroutine
+        const depth = options?.depth ?? 0;
+        if (depth >= 10) {
+          ctx.ui.notify(
+            `[chain] callChain depth limit exceeded (${depth} >= 10), skipping step`,
+            "error",
+          );
+          continue;
+        }
+
+        const targetDef = chainDefinitions[step.name];
+        if (!targetDef) {
+          ctx.ui.notify(
+            `[chain] callChain target "${step.name}" not found, skipping step`,
+            "error",
+          );
+          continue;
+        }
+
+        const parentLeafId = ctx.sessionManager.getLeafId() ?? chainRootLeafId;
+        const savedExitState: boolean = state.isExitToolCalled;
+        state.isExitToolCalled = false;
+
+        await executeChain(
+          pi,
+          step.name,
+          targetDef,
+          step.argument ?? "",
+          ctx,
+          state,
+          chainDefinitions,
+          { depth: depth + 1 },
+        );
+
+        state.isExitToolCalled = savedExitState;
+        resetContext(ctx, parentLeafId);
       }
     }
 
     if (state.isUserAborted || state.isExitToolCalled) break;
   }
 
-  // Cleanup: disable chain_exit after step execution
+  // Cleanup: ensure chain_exit is disabled after chain execution,
+  // regardless of how the loop exited (normal completion, exit prompt,
+  // or abort mid-evaluation).
   disableTool(pi, "chain_exit");
-
-  // Reset exit state after loop — step-level exit only breaks the loop,
-  // it should not prevent handoff
-  state.isExitToolCalled = false;
-
-  // Handle handoff
-  if (state.isUserAborted) return;
-
-  const handoffTarget = definition.handoffTarget;
-  if (handoffTarget === undefined) return; // No handoff — chain stops normally
-
-  // Conditional handoff: evaluate handoffExitPrompt if present
-  if (definition.handoffExitPrompt !== undefined) {
-    const handoffCondition = definition.handoffExitPrompt.replaceAll(
-      "$ARGUMENTS",
-      args,
-    );
-
-    // Reset exit state before evaluating handoff condition
-    state.isExitToolCalled = false;
-    const exitCalled = await evaluateExitPrompt(
-      pi,
-      ctx,
-      state,
-      handoffCondition,
-    );
-    disableTool(pi, "chain_exit");
-    if (exitCalled) {
-      // Handoff skipped — workflow aborts
-      return;
-    }
-    if (state.isUserAborted) {
-      // User aborted during handoff evaluation — stop the workflow
-      return;
-    }
-  }
-
-  // Look up target chain
-  const targetDefinition = chainDefinitions[handoffTarget];
-  if (targetDefinition === undefined) {
-    ctx.ui.setStatus("chain", `chain: ${name} → ${handoffTarget} (not found)`);
-    return;
-  }
-
-  // Show handoff transition
-  ctx.ui.setStatus("chain", `chain: ${name} → ${handoffTarget}`);
-
-  if (state.isUserAborted) return;
-
-  // Reset context to this chain's root before handing off, giving the
-  // target chain a clean slate (also clears any handoffExitPrompt
-  // evaluation messages from the tree)
-  resetContext(ctx, chainRootLeafId);
-
-  // Recurse into the target chain
-  await executeChain(
-    pi,
-    handoffTarget,
-    targetDefinition,
-    args,
-    ctx,
-    state,
-    chainDefinitions,
-  );
 }

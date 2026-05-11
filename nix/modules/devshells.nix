@@ -1,10 +1,11 @@
-_:
+{ ... }:
 
 {
   perSystem =
     { pkgs, ... }:
     {
-      devShells.default = pkgs.mkShell {
+      devshells.default = {
+        name = "agent-mod";
         packages = with pkgs; [
           nodejs
           typescript

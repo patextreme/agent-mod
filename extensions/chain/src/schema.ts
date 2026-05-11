@@ -10,6 +10,12 @@ export const chainStepExitPromptSchema = z.strictObject({
   exitPrompt: z.string().trim().min(1),
 });
 
+export const chainStepCallChainSchema = z.strictObject({
+  type: z.literal("callChain"),
+  name: z.string().trim().min(1),
+  argument: z.string().optional(),
+});
+
 export const chainStepSchema = z.preprocess(
   (data) => {
     if (typeof data === "object" && data !== null && !("type" in data)) {
@@ -20,27 +26,15 @@ export const chainStepSchema = z.preprocess(
   z.discriminatedUnion("type", [
     chainStepPromptSchema,
     chainStepExitPromptSchema,
+    chainStepCallChainSchema,
   ]),
 );
 
-export const chainDefinitionSchema = z
-  .strictObject({
-    description: z.string().trim().min(1),
-    loop: z.number().int().positive().optional(),
-    steps: z.array(chainStepSchema).min(1),
-    handoffTarget: z.string().trim().min(1).optional(),
-    handoffExitPrompt: z.string().trim().min(1).optional(),
-  })
-  .refine(
-    (data) =>
-      !(
-        data.handoffExitPrompt !== undefined && data.handoffTarget === undefined
-      ),
-    {
-      message: "handoffExitPrompt requires handoffTarget to be present",
-      path: ["handoffExitPrompt"],
-    },
-  );
+export const chainDefinitionSchema = z.strictObject({
+  description: z.string().trim().min(1),
+  loop: z.number().int().positive().optional(),
+  steps: z.array(chainStepSchema).min(1),
+});
 
 export type ChainStep = z.infer<typeof chainStepSchema>;
 

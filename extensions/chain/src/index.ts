@@ -14,7 +14,7 @@ export default function chainExtension(pi: ExtensionAPI): void {
   // Shared mutable state for the chain_exit tool and abort detection.
   // isExitToolCalled is reset at the start of each executeChain call.
   // isUserAborted is reset in the command handler before the initial executeChain call,
-  // and propagates across chain handoffs (not reset in executeChain).
+  // and propagates across callChain invocations (not reset in executeChain).
   const state: ChainState = {
     isUserAborted: false,
     isExitToolCalled: false,

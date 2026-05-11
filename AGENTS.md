@@ -55,17 +55,17 @@ Chains are JSON/YAML files in `.pi/chains/` (local, project-scoped) and `~/.pi/c
 - **Same-stem priority:** `.yaml` > `.yml` > `.json` is applied *per directory*, not across directories
 - **No cross-directory shadowing warnings:** no warnings are emitted when a chain exists in both directories (only same-stem priority warnings within a single directory)
 
-Schema details and handoff behavior are defined in `extensions/chain/src/schema.ts` and `extensions/chain/src/execution.ts`. In short:
+Schema details and execution behavior are defined in `extensions/chain/src/schema.ts` and `extensions/chain/src/execution.ts`. In short:
 
 - `description` (required), `steps` (required, ≥1)
 - Each step is either:
   - Prompt step: `prompt` string (default if `type` omitted)
   - Exit step: `type: exitPrompt`, `exitPrompt` string — agent calls `chain_exit` to break the loop
+  - Call chain step: `type: callChain`, `name` string (target chain), `argument` string (optional, default empty)
 - `loop` (optional, integer, default 1) — repeats step sequence
-- `handoffTarget` (optional) — chain name to hand off to after completion
-- `handoffExitPrompt` (optional) — condition evaluated after completion; if agent calls `chain_exit`, handoff is skipped
-- Step-level `exitPrompt` only breaks the loop; it never prevents handoff
-- Context resets between chains during handoff
+- `callChain` invokes the target chain as a subroutine with context isolation (parent leaf restored after child returns) and scoped exit state (child's `chain_exit` does not propagate to parent)
+- Nesting depth limit of 10 levels; exceeded calls produce an error notification and skip the step
+- Step-level `exitPrompt` only breaks the loop
 - Malformed/invalid files are skipped with descriptive warnings
 
 `.pi/settings.json` is gitignored and controls what pi loads locally.

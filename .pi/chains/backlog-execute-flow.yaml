@@ -1,0 +1,11 @@
+description: Backlog execute, verify, and finalize
+steps:
+  - type: callChain
+    name: backlog-execute
+    argument: $ARGUMENTS
+  - type: callChain
+    name: backlog-verify
+    argument: $ARGUMENTS
+  - type: callChain
+    name: backlog-finalize
+    argument: $ARGUMENTS

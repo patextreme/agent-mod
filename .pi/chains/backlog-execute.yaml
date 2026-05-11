@@ -25,4 +25,3 @@ steps:
       - Log progress with `task_edit` (notesAppend)
 
       When implementation is complete, confirm readiness for the verification phase.
-handoffTarget: backlog-verify

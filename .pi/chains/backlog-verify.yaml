@@ -25,4 +25,3 @@ steps:
       For code issues, make the fix and run relevant tests to verify.
       For task-record issues, prefer using the backlog MCP over directly editing files.
       Fix one issue per iteration so each change can be reviewed.
-handoffTarget: backlog-finalize

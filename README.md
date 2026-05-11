@@ -35,10 +35,12 @@ This registers all extensions and prompts declared in [`package.json`](./package
 
 | Chain | Description |
 |-------|-------------|
-| [`backlog-execute`](./.pi/chains/backlog-execute.yaml) | Execute a backlog task following the full task execution workflow, with handoff to `backlog-verify` |
+| [`backlog-execute`](./.pi/chains/backlog-execute.yaml) | Execute a backlog task following the full task execution workflow |
 | [`backlog-verify`](./.pi/chains/backlog-verify.yaml) | Verify completed backlog tasks |
 | [`backlog-finalize`](./.pi/chains/backlog-finalize.yaml) | Finalize completed backlog tasks |
 | [`backlog-groom`](./.pi/chains/backlog-groom.yaml) | Groom backlog items |
+| [`backlog-execute-flow`](./.pi/chains/backlog-execute-flow.yaml) | Orchestrate execute → verify → finalize via `callChain` steps |
+| [`backlog-verify-flow`](./.pi/chains/backlog-verify-flow.yaml) | Orchestrate verify → finalize via `callChain` steps |
 | [`greeting`](./.pi/chains/greeting.yaml) | Example chain demonstrating loop, $ARGUMENTS substitution, and exit prompts |
 
 Chains are loaded from `.pi/chains/` (local, project-scoped) and `~/.pi/chains/` (global). When a chain is registered, it becomes the `chain-<name>` command in pi.
@@ -72,8 +74,7 @@ Loads chain definitions from `.pi/chains/` (YAML or JSON) and registers each as 
 - **Multi-step chains** — sequential prompt steps with `$ARGUMENTS` substitution
 - **Exit prompts** — `type: exitPrompt` steps that evaluate a condition and break the loop when the agent calls `chain_exit`
 - **Loop support** — repeat the step sequence N times (`loop` field)
-- **Chain handoff** — after completion, transfer execution to another chain (`handoffTarget`)
-- **Conditional handoff** — evaluate `handoffExitPrompt` to skip handoff
+- **Call chain steps** — `type: callChain` steps invoke another chain as a subroutine with context isolation and scoped exit state (nesting depth limit of 10)
 - **Priority-based loading** — same-stem files: `.yaml` > `.yml` > `.json` within a directory; local `.pi/chains/` shadows global `~/.pi/chains/`
 - **`chain_exit` tool** — an agent-callable tool injected during chain execution to exit early
 
