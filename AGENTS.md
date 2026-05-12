@@ -57,7 +57,7 @@ Chains are JSON/YAML files in `.pi/chains/` (local, project-scoped) and `~/.pi/c
 
 Schema details and execution behavior are defined in `extensions/chain/src/schema.ts` and `extensions/chain/src/execution.ts`. In short:
 
-- `description` (required), `steps` (required, ≥1)
+- `steps` (required, ≥1), `description` (optional, default: command name used), `loop` (optional)
 - Each step is either:
   - Prompt step: `prompt` string (default if `type` omitted)
   - Exit step: `type: exitPrompt`, `exitPrompt` string — agent calls `chain_exit` to break the loop
