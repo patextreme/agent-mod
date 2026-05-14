@@ -30,6 +30,7 @@ nix flake check
 - `extensions/permission/index.ts` — Permission extension (single-file, no `package.json`)
 - `extensions/chain/` — Chain extension (package-with-dependencies). Owns `zod ^4` and `yaml ^2.8.3` in its own `package.json`
 - `extensions/tps/index.ts` — TPS (tokens-per-second) tracking extension (single-file, no `package.json`)
+- `extensions/crof-usage/index.ts` — CrofAI usage tracking extension (single-file, no `package.json`). Registers the `/usage-crof` command
 - `prompts/` — Pi prompt templates (Markdown + YAML frontmatter). Naming convention: `category-name.md`
 - `.pi/chains/` — Chain definitions (JSON or YAML). Each file becomes a `chain-<name>` command
 - `nix/` — Flake devshell and package build config
