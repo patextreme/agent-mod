@@ -7,7 +7,7 @@ import type {
   TurnEndEvent,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { type ChainState, executeChain } from "./execution.js";
+import { disableTool, type ChainState, executeChain } from "./execution.js";
 import { type ChainDefinition, loadChainDefinitions } from "./loader.js";
 
 export default function chainExtension(pi: ExtensionAPI): void {
@@ -90,6 +90,9 @@ export default function chainExtension(pi: ExtensionAPI): void {
 
   // Re-scan chains whenever resources are discovered (startup / reload).
   pi.on("resources_discover", (event, ctx) => {
+    // Ensure chain_exit is disabled at startup/reload — Pi's tool registry
+    // auto-activates newly registered tools, so we must opt out explicitly.
+    disableTool(pi, "chain_exit");
     refreshChainDefinitions(event.cwd);
     registerMissingChainCommands();
     if (loadWarnings.length > 0) {

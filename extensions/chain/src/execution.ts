@@ -64,17 +64,19 @@ export async function evaluateExitPrompt(
   if (!messageLeafId) return false;
 
   enableTool(pi, "chain_exit");
-  const evalPrompt = `You will check the following condition. If the condition is met, please call the chain_exit tool; otherwise, do nothing.
+  try {
+    const evalPrompt = `You will check the following condition. If the condition is met, please call the chain_exit tool; otherwise, do nothing.
 
 ---
 Condition: ${condition}
 ---`;
-  pi.sendUserMessage(evalPrompt);
-  await waitForTurnStart(ctx);
-  await waitForIdleAndEmptyQueue(ctx);
-  disableTool(pi, "chain_exit");
-
-  return state.isExitToolCalled;
+    pi.sendUserMessage(evalPrompt);
+    await waitForTurnStart(ctx);
+    await waitForIdleAndEmptyQueue(ctx);
+    return state.isExitToolCalled;
+  } finally {
+    disableTool(pi, "chain_exit");
+  }
 }
 
 /**
@@ -118,103 +120,106 @@ export async function executeChain(
   const chainRootLeafId = ctx.sessionManager.getLeafId();
   if (!chainRootLeafId) return;
 
-  const steps: ChainStep[] = definition.steps.map((step) => {
-    if (step.type === "prompt") {
-      return {
-        ...step,
-        prompt: step.prompt.replaceAll("$ARGUMENTS", args),
-      };
-    }
-    if (step.type === "exitPrompt") {
-      return {
-        ...step,
-        exitPrompt: step.exitPrompt.replaceAll("$ARGUMENTS", args),
-      };
-    }
-    if (step.type === "callChain") {
-      return {
-        ...step,
-        argument: (step.argument ?? "").replaceAll("$ARGUMENTS", args),
-      };
-    }
-    return step;
-  });
+  try {
+    const steps: ChainStep[] = definition.steps.map((step) => {
+      if (step.type === "prompt") {
+        return {
+          ...step,
+          prompt: step.prompt.replaceAll("$ARGUMENTS", args),
+        };
+      }
+      if (step.type === "exitPrompt") {
+        return {
+          ...step,
+          exitPrompt: step.exitPrompt.replaceAll("$ARGUMENTS", args),
+        };
+      }
+      if (step.type === "callChain") {
+        return {
+          ...step,
+          argument: (step.argument ?? "").replaceAll("$ARGUMENTS", args),
+        };
+      }
+      return step;
+    });
 
-  const loopN = definition.loop ?? 1;
-  const totalSteps = steps.length;
+    const loopN = definition.loop ?? 1;
+    const totalSteps = steps.length;
 
-  // Execute step/loop
-  for (let loopIdx = 0; loopIdx < loopN; loopIdx++) {
-    resetContext(ctx, chainRootLeafId);
+    // Execute step/loop
+    for (let loopIdx = 0; loopIdx < loopN; loopIdx++) {
+      resetContext(ctx, chainRootLeafId);
 
-    await waitForIdleAndEmptyQueue(ctx);
-    for (const [stepIdx, step] of steps.entries()) {
-      ctx.ui.setStatus(
-        "chain",
-        `chain: ${name} ${stepIdx + 1}/${totalSteps} step ${loopIdx + 1}/${loopN} loop`,
-      );
+      await waitForIdleAndEmptyQueue(ctx);
+      for (const [stepIdx, step] of steps.entries()) {
+        ctx.ui.setStatus(
+          "chain",
+          `chain: ${name} ${stepIdx + 1}/${totalSteps} step ${loopIdx + 1}/${loopN} loop`,
+        );
+
+        if (state.isUserAborted || state.isExitToolCalled) break;
+
+        if (step.type === "prompt") {
+          // Send prompt message
+          pi.sendUserMessage(step.prompt);
+          await waitForTurnStart(ctx);
+          await waitForIdleAndEmptyQueue(ctx);
+        } else if (step.type === "exitPrompt") {
+          // Evaluate exit prompt (step-level)
+          const exitCalled = await evaluateStepExitPrompt(
+            pi,
+            ctx,
+            state,
+            step.exitPrompt,
+          );
+          if (exitCalled) break; // Break out of steps loop only — don't affect handoff
+        } else if (step.type === "callChain") {
+          // Invoke target chain as a subroutine
+          const depth = options?.depth ?? 0;
+          if (depth >= 10) {
+            ctx.ui.notify(
+              `[chain] callChain depth limit exceeded (${depth} >= 10), skipping step`,
+              "error",
+            );
+            continue;
+          }
+
+          const targetDef = chainDefinitions[step.name];
+          if (!targetDef) {
+            ctx.ui.notify(
+              `[chain] callChain target "${step.name}" not found, skipping step`,
+              "error",
+            );
+            continue;
+          }
+
+          const parentLeafId =
+            ctx.sessionManager.getLeafId() ?? chainRootLeafId;
+          const savedExitState: boolean = state.isExitToolCalled;
+          state.isExitToolCalled = false;
+
+          await executeChain(
+            pi,
+            step.name,
+            targetDef,
+            step.argument ?? "",
+            ctx,
+            state,
+            chainDefinitions,
+            { depth: depth + 1 },
+          );
+
+          state.isExitToolCalled = savedExitState;
+          resetContext(ctx, parentLeafId);
+        }
+      }
 
       if (state.isUserAborted || state.isExitToolCalled) break;
-
-      if (step.type === "prompt") {
-        // Send prompt message
-        pi.sendUserMessage(step.prompt);
-        await waitForTurnStart(ctx);
-        await waitForIdleAndEmptyQueue(ctx);
-      } else if (step.type === "exitPrompt") {
-        // Evaluate exit prompt (step-level)
-        const exitCalled = await evaluateStepExitPrompt(
-          pi,
-          ctx,
-          state,
-          step.exitPrompt,
-        );
-        if (exitCalled) break; // Break out of steps loop only — don't affect handoff
-      } else if (step.type === "callChain") {
-        // Invoke target chain as a subroutine
-        const depth = options?.depth ?? 0;
-        if (depth >= 10) {
-          ctx.ui.notify(
-            `[chain] callChain depth limit exceeded (${depth} >= 10), skipping step`,
-            "error",
-          );
-          continue;
-        }
-
-        const targetDef = chainDefinitions[step.name];
-        if (!targetDef) {
-          ctx.ui.notify(
-            `[chain] callChain target "${step.name}" not found, skipping step`,
-            "error",
-          );
-          continue;
-        }
-
-        const parentLeafId = ctx.sessionManager.getLeafId() ?? chainRootLeafId;
-        const savedExitState: boolean = state.isExitToolCalled;
-        state.isExitToolCalled = false;
-
-        await executeChain(
-          pi,
-          step.name,
-          targetDef,
-          step.argument ?? "",
-          ctx,
-          state,
-          chainDefinitions,
-          { depth: depth + 1 },
-        );
-
-        state.isExitToolCalled = savedExitState;
-        resetContext(ctx, parentLeafId);
-      }
     }
-
-    if (state.isUserAborted || state.isExitToolCalled) break;
+  } finally {
+    // Cleanup: ensure chain_exit is disabled after chain execution,
+    // regardless of how the loop exited (normal completion, exit prompt,
+    // abort mid-evaluation, or unhandled exception).
+    disableTool(pi, "chain_exit");
   }
-
-  // Cleanup: ensure chain_exit is disabled after chain execution,
-  // regardless of how the loop exited (normal completion, exit prompt,
-  // or abort mid-evaluation).
-  disableTool(pi, "chain_exit");
 }
