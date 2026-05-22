@@ -31,7 +31,7 @@ export const chainStepSchema = z.preprocess(
 );
 
 export const chainDefinitionSchema = z.strictObject({
-  description: z.string().trim().min(1),
+  description: z.string().trim().min(1).optional(),
   loop: z.number().int().positive().optional(),
   steps: z.array(chainStepSchema).min(1),
 });

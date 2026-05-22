@@ -18,7 +18,8 @@ This registers all extensions and prompts declared in [`package.json`](./package
 |-----------|-------------|
 | [Permission](./extensions/permission/index.ts) | Intercepts `bash` tool calls and applies regex-based permission rules |
 | [Chain](./extensions/chain/src/index.ts) | Loads and executes multi-step prompt chains from `.pi/chains/` definitions |
-| [TPS](./extensions/tps/index.ts) | Tracks tokens-per-second, TTFT, stalls, and cost per LLM turn; persists telemetry to session; provides `/tps-export` command |
+| [TPS](./extensions/tps/index.ts) | Tracks tokens-per-second, TTFT, stalls, and cost per LLM turn; persists telemetry to session for rehydration |
+| [CrofAI Usage](./extensions/crof-usage/index.ts) | Checks remaining CrofAI usage (requests and credits) via the `/usage-crof` command |
 
 ### Prompt Templates
 
@@ -94,9 +95,6 @@ Captures structured telemetry at every LLM turn: tokens, timing, TPS, and cost.
 **Displays:** A compact notification bar entry after each turn, e.g.:
 
 > `TPS 42.3 tok/s · TTFT 1.2s · 8.4s · out 356 · in 1,280`
-
-**Command:**
-- `/tps-export [--full] [customType]` — export telemetry as JSONL. Defaults to current branch; `--full` exports the entire session tree. Optionally filter by custom entry type. Structural entries (model changes, branch points) are always included so the exported tree is self-contained.
 
 ## Development
 

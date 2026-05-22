@@ -30,6 +30,7 @@ nix flake check
 - `extensions/permission/index.ts` — Permission extension (single-file, no `package.json`)
 - `extensions/chain/` — Chain extension (package-with-dependencies). Owns `zod ^4` and `yaml ^2.8.3` in its own `package.json`
 - `extensions/tps/index.ts` — TPS (tokens-per-second) tracking extension (single-file, no `package.json`)
+- `extensions/crof-usage/index.ts` — CrofAI usage tracking extension (single-file, no `package.json`). Registers the `/usage-crof` command
 - `prompts/` — Pi prompt templates (Markdown + YAML frontmatter). Naming convention: `category-name.md`
 - `.pi/chains/` — Chain definitions (JSON or YAML). Each file becomes a `chain-<name>` command
 - `nix/` — Flake devshell and package build config
@@ -57,7 +58,7 @@ Chains are JSON/YAML files in `.pi/chains/` (local, project-scoped) and `~/.pi/c
 
 Schema details and execution behavior are defined in `extensions/chain/src/schema.ts` and `extensions/chain/src/execution.ts`. In short:
 
-- `description` (required), `steps` (required, ≥1)
+- `steps` (required, ≥1), `description` (optional, default: command name used), `loop` (optional)
 - Each step is either:
   - Prompt step: `prompt` string (default if `type` omitted)
   - Exit step: `type: exitPrompt`, `exitPrompt` string — agent calls `chain_exit` to break the loop

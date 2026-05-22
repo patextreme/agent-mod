@@ -9,14 +9,9 @@
  * Originally from: https://github.com/badlogic/pi-mono/blob/main/.pi/extensions/tps.ts
  */
 
-import { mkdirSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
-
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type {
   ExtensionAPI,
-  ExtensionCommandContext,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 
@@ -252,9 +247,6 @@ export default function tpsExtension(pi: ExtensionAPI) {
   // Current turn timing state
   let currentTiming: TurnTiming | null = null;
 
-  // Cached session entries for argument completion (captured on session_start / session_tree)
-  let cachedEntries: Array<{ type?: string; customType?: string }> = [];
-
   // ── Rehydration ─────────────────────────────────────────────────────────
 
   /**
@@ -295,13 +287,11 @@ export default function tpsExtension(pi: ExtensionAPI) {
   // Restore notification on session start/resume — skip only brand-new sessions
   pi.on("session_start", (_event, ctx) => {
     // Restore for all reasons including startup/reload (they may continue a previous session)
-    cachedEntries = ctx.sessionManager.getEntries();
     restoreTPSNotification(ctx);
   });
 
   // Restore notification after /tree navigation (same session, different branch)
   pi.on("session_tree", (_event, ctx) => {
-    cachedEntries = ctx.sessionManager.getEntries();
     restoreTPSNotification(ctx);
   });
 
@@ -416,115 +406,5 @@ export default function tpsExtension(pi: ExtensionAPI) {
 
     // Persist structured telemetry to session for export and rehydration
     pi.appendEntry("tps", telemetry);
-
-    // Keep argument completion cache in sync with new entries
-    cachedEntries.push({ type: "custom", customType: "tps" });
-  });
-
-  // ── Export command ──────────────────────────────────────────────────────
-
-  pi.registerCommand("tps-export", {
-    description:
-      "Export telemetry + session structure (model changes, branch points) as JSONL (--full for all branches, filter by customType)",
-    getArgumentCompletions: (argumentPrefix: string) => {
-      // Offer --full flag
-      if ("--full".startsWith(argumentPrefix)) {
-        return [
-          { value: "--full", label: "--full (all branches, not just current)" },
-        ];
-      }
-      // Collect all unique customType values from cached session entries
-      const customTypes = new Set<string>();
-      for (const entry of cachedEntries) {
-        if (entry.type === "custom" && entry.customType) {
-          customTypes.add(entry.customType);
-        }
-      }
-      return Array.from(customTypes)
-        .filter((ct) => ct.startsWith(argumentPrefix))
-        .map((ct) => ({ value: ct, label: ct }));
-    },
-    handler: async (args: string, ctx: ExtensionCommandContext) => {
-      // Default: current branch. --full: entire session.
-      const tokens = args.trim().split(/\s+/).filter(Boolean);
-      const full = tokens.includes("--full");
-      const filterType = tokens.filter((t) => t !== "--full").join(" ") || null;
-
-      // Collect entries: custom entries (+ optional customType filter) + structural entries
-      // Structural entries (model_change, branch_summary) are always included so the
-      // exported parentId tree is fully resolvable and the web inspector can show
-      // model switches and branch points.
-      const entries = full
-        ? ctx.sessionManager.getEntries()
-        : ctx.sessionManager.getBranch();
-      const isStructural = (e: { type: string }) =>
-        e.type === "model_change" || e.type === "branch_summary";
-
-      const exportedEntries = entries.filter(
-        (e) =>
-          isStructural(e) ||
-          (e.type === "custom" && (!filterType || e.customType === filterType)),
-      );
-
-      if (exportedEntries.length === 0) {
-        const scope = full ? "all-entries" : "current-branch";
-        ctx.ui.notify(`No matching entries found in ${scope}`, "warning");
-        return;
-      }
-
-      // Re-chain parentIds so the exported entries form a valid tree.
-      // Original parentIds often point to message entries (not in the export).
-      // We walk up the full session tree until we find the nearest ancestor
-      // that IS in the export, giving us a self-contained tree structure.
-      const byId = new Map<string, (typeof entries)[number]>(
-        entries.map((e) => [e.id, e]),
-      );
-      const exportedIds = new Set(exportedEntries.map((e) => e.id));
-
-      const rechainParentId = (
-        entry: (typeof exportedEntries)[number],
-      ): string | null => {
-        let current: string | null = entry.parentId;
-        while (current) {
-          if (exportedIds.has(current)) return current;
-          const parent = byId.get(current);
-          current = parent?.parentId ?? null;
-        }
-        return null;
-      };
-
-      const rechained = exportedEntries.map((e) => ({
-        ...e,
-        parentId: rechainParentId(e),
-      }));
-
-      // Write to tmp directory
-      const cacheBase = process.env.XDG_CACHE_HOME || join(homedir(), ".cache");
-      const dir = join(cacheBase, "pi-telemetry");
-      mkdirSync(dir, { recursive: true });
-
-      const sessionId = ctx.sessionManager.getSessionId?.() ?? "unknown";
-      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-      const scopeParts = [full ? "full" : "branch", filterType].filter(Boolean);
-      const scope = scopeParts.join("-");
-      const filename = `pi-telemetry-${scope}-${sessionId.slice(0, 8)}-${timestamp}.jsonl`;
-      const filepath = join(dir, filename);
-
-      const content = `${rechained.map((e) => JSON.stringify(e)).join("\n")}\n`;
-      writeFileSync(filepath, content);
-
-      const structuralCount = exportedEntries.filter((e) =>
-        isStructural(e),
-      ).length;
-      const customCount = exportedEntries.length - structuralCount;
-      const parts: string[] = [];
-      if (customCount > 0) parts.push(`${customCount} telemetry`);
-      if (structuralCount > 0) parts.push(`${structuralCount} structural`);
-      const summary =
-        parts.length > 0
-          ? parts.join(" + ")
-          : `${exportedEntries.length} entries`;
-      ctx.ui.notify(`Exported ${summary} → ${filepath}`, "info");
-    },
   });
 }
