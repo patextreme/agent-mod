@@ -13,11 +13,13 @@
     ]
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "^0.74.0"
+    "@earendil-works/pi-coding-agent": "^0.75.4"
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "^0.74.0",
+    "@earendil-works/pi-ai": "^0.75.4",
+    "@earendil-works/pi-coding-agent": "^0.75.4",
     "tsx": "^4.21.0",
+    "typebox": "^1.1.38",
     "typescript": "^6.0.3"
   },
   "scripts": {
