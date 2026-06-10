@@ -143,9 +143,21 @@ export default function permissionExtension(pi: ExtensionAPI): void {
     alwaysAllowed.clear();
   });
 
-  // Ring the bell when the agent loop ends, so the user knows it's
-  // their turn again without watching the screen.
-  pi.on("agent_end", () => {
+  // Ring the bell when the agent loop ends naturally, so the user knows
+  // it's their turn again without watching the screen. Suppress the bell
+  // when the user aborted the run — they already know they stopped it.
+  // event.messages always contains at least one assistant message: a
+  // normal run ends on a final assistant turn, and a failure before any
+  // response is synthesized in handleRunFailure with stopReason "aborted"
+  // or "error", so iterating from the end is reliable.
+  pi.on("agent_end", (event) => {
+    for (let i = event.messages.length - 1; i >= 0; i--) {
+      const message = event.messages[i];
+      if (message.role === "assistant") {
+        if (message.stopReason === "aborted") return;
+        break;
+      }
+    }
     playBell();
   });
 }
