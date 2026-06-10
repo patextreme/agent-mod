@@ -26,6 +26,7 @@
     "format": "biome format --write .",
     "lint": "biome lint .",
     "check": "biome check .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test extensions/permission/rules.test.ts"
   }
 }

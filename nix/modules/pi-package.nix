@@ -33,6 +33,7 @@
         installPhase = ''
           mkdir -p $out
           cp $src/index.ts $out/index.ts
+          cp $src/rules.ts $out/rules.ts
         '';
       };
 
@@ -131,6 +132,23 @@
           touch $out
         '';
       };
+
+      permission-test = pkgs.stdenv.mkDerivation {
+        name = "permission-test";
+        src = ./../..;
+        nativeBuildInputs = [ pkgs.nodejs ];
+        phases = [ "unpackPhase" "buildPhase" "installPhase" ];
+        buildPhase = ''
+          # Provide root node_modules for tsx and typescript
+          cp -r ${rootNodeModules} node_modules
+          chmod -R u+w node_modules
+
+          ./node_modules/.bin/tsx --test extensions/permission/rules.test.ts
+        '';
+        installPhase = ''
+          touch $out
+        '';
+      };
     in
     {
       packages = {
@@ -139,7 +157,7 @@
 
       checks = {
         inherit pi-permission pi-tps pi-chain pi-prompts pi-crof-usage;
-        inherit biome-check tsc-check;
+        inherit biome-check tsc-check permission-test;
       };
     };
 }

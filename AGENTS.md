@@ -10,10 +10,11 @@ npm run format         # biome format --write .
 npm run lint           # biome lint .
 npm run check          # biome check . (lint + format check combined)
 npm run typecheck      # tsc --noEmit
-nix flake check        # nix build checks (biome, tsc, package builds)
+npm test              # tsx --test (permission rules)
+nix flake check        # nix build checks (biome, tsc, permission tests, package builds)
 ```
 
-No test suite. Verify with: `format → lint → typecheck`.
+Quality gates: `format → lint → typecheck → test`.
 
 **Before committing changes that touch `package*.json` or `nix/`**, also run:
 
@@ -27,7 +28,9 @@ nix flake check
 
 ## Repo Layout
 
-- `extensions/permission/index.ts` — Permission extension (single-file, no `package.json`)
+- `extensions/permission/index.ts` — Permission extension (imports from `./rules.js`). Registers the `/permission-list-always-allow` and `/permission-reset` commands
+- `extensions/permission/rules.ts` — Permission rules and `findMatchingRule` logic (dependency-free, testable)
+- `extensions/permission/rules.test.ts` — Permission rules test suite (65 tests)
 - `extensions/chain/` — Chain extension (package-with-dependencies). Owns `zod ^4` and `yaml ^2.8.3` in its own `package.json`
 - `extensions/tps/index.ts` — TPS (tokens-per-second) tracking extension (single-file, no `package.json`)
 - `extensions/crof-usage/index.ts` — CrofAI usage tracking extension (single-file, no `package.json`). Registers the `/usage-crof` command

@@ -1,42 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-
-type PermissionAction = "allow" | "ask" | "deny";
-
-interface PermissionRule {
-  id: number;
-  regex: RegExp;
-  action: PermissionAction;
-}
-
-// Rules processed in forward order - first matching rule wins
-const PERMISSION_RULES: PermissionRule[] = [
-  { id: 1, regex: /git commit/, action: "ask" },
-  { id: 2, regex: /git push/, action: "ask" },
-  { id: 3, regex: /git rebase/, action: "ask" },
-  { id: 4, regex: /gh repo view/, action: "allow" },
-  { id: 5, regex: /gh repo list/, action: "allow" },
-  { id: 6, regex: /gh issue view/, action: "allow" },
-  { id: 7, regex: /gh issue list/, action: "allow" },
-  { id: 8, regex: /gh pr view/, action: "allow" },
-  { id: 9, regex: /gh pr list/, action: "allow" },
-  { id: 10, regex: /gh pr checks/, action: "allow" },
-  { id: 11, regex: /gh pr diff/, action: "allow" },
-  { id: 12, regex: /gh release view/, action: "allow" },
-  { id: 13, regex: /gh release list/, action: "allow" },
-  { id: 14, regex: /gh workflow view/, action: "allow" },
-  { id: 15, regex: /gh workflow list/, action: "allow" },
-  { id: 16, regex: /gh run view/, action: "allow" },
-  { id: 17, regex: /gh run list/, action: "allow" },
-  { id: 18, regex: /gh run watch/, action: "allow" },
-  { id: 19, regex: /gh /, action: "ask" },
-];
-
-function findMatchingRule(command: string): PermissionRule | undefined {
-  for (const rule of [...PERMISSION_RULES]) {
-    if (rule.regex.test(command)) return rule;
-  }
-  return undefined;
-}
+import { findMatchingRule, PERMISSION_RULES } from "./rules.js";
 
 export default function permissionExtension(pi: ExtensionAPI): void {
   const isSandbox = process.env.PI_SANDBOX === "true";
