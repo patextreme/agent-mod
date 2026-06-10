@@ -1,5 +1,28 @@
+import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { findMatchingRule, PERMISSION_RULES } from "./rules.js";
+
+// Play the vendored bell sound via pw-play. Best-effort: any failure
+// (missing binary, audio daemon down, etc.) is swallowed so audio can
+// never block or break the permission prompt.
+function playBell(): void {
+  try {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const soundPath = join(here, "sounds", "message.oga");
+    const data = readFileSync(soundPath);
+    const proc = spawn("pw-play", ["-"], {
+      stdio: ["pipe", "ignore", "ignore"],
+    });
+    proc.on("error", () => {});
+    proc.stdin.on("error", () => {});
+    proc.stdin.end(data);
+  } catch {
+    // ignore
+  }
+}
 
 export default function permissionExtension(pi: ExtensionAPI): void {
   const isSandbox = process.env.PI_SANDBOX === "true";
@@ -35,6 +58,7 @@ export default function permissionExtension(pi: ExtensionAPI): void {
         };
       }
 
+      playBell();
       const choice = await ctx.ui.select(
         `⚠️ Command matches permission rule ${rule.regex}:\n\n  ${command}\n\nAllow?`,
         ["Yes", "Always allow", "No"],
@@ -69,6 +93,7 @@ export default function permissionExtension(pi: ExtensionAPI): void {
       };
     }
 
+    playBell();
     const choice = await ctx.ui.select(
       `⚠️ No permission rule matches command:\n\n  ${command}\n\nAllow?`,
       ["Yes", "No"],
@@ -116,5 +141,11 @@ export default function permissionExtension(pi: ExtensionAPI): void {
   // Reset always-allow permissions when a new session starts
   pi.on("session_start", async () => {
     alwaysAllowed.clear();
+  });
+
+  // Ring the bell when the agent loop ends, so the user knows it's
+  // their turn again without watching the screen.
+  pi.on("agent_end", () => {
+    playBell();
   });
 }
