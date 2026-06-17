@@ -58,6 +58,16 @@
         '';
       };
 
+      pi-list-skills = pkgs.stdenv.mkDerivation {
+        name = "pi-list-skills";
+        src = ./../../extensions/list-skills;
+        phases = [ "installPhase" ];
+        installPhase = ''
+          mkdir -p $out
+          cp $src/index.ts $out/index.ts
+        '';
+      };
+
       pi-chain =
         let
           chainDefinitions = pkgs.stdenv.mkDerivation {
@@ -153,11 +163,11 @@
     in
     {
       packages = {
-        inherit pi-permission pi-tps pi-chain pi-prompts pi-crof-usage;
+        inherit pi-permission pi-tps pi-chain pi-prompts pi-crof-usage pi-list-skills;
       };
 
       checks = {
-        inherit pi-permission pi-tps pi-chain pi-prompts pi-crof-usage;
+        inherit pi-permission pi-tps pi-chain pi-prompts pi-crof-usage pi-list-skills;
         inherit biome-check tsc-check permission-test;
       };
     };
