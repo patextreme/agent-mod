@@ -19,7 +19,6 @@ This registers all extensions and prompts declared in [`package.json`](./package
 | [Permission](./extensions/permission/index.ts) | Intercepts `bash` tool calls and applies regex-based permission rules |
 | [Chain](./extensions/chain/src/index.ts) | Loads and executes multi-step prompt chains from `.pi/chains/` definitions |
 | [TPS](./extensions/tps/index.ts) | Tracks tokens-per-second, TTFT, stalls, and cost per LLM turn; persists telemetry to session for rehydration |
-| [CrofAI Usage](./extensions/crof-usage/index.ts) | Checks remaining CrofAI usage (requests and credits) via the `/usage-crof` command |
 
 ### Prompt Templates
 

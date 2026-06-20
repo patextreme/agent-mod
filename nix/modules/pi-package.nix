@@ -6,7 +6,7 @@
       chainNodeModules = pkgs.buildNpmPackage {
         name = "pi-chain-ext-node-modules";
         src = ./../../extensions/chain;
-        npmDepsHash = "sha256-OxpVP0QyJghEvF0lXWgGNSQ8HapRQ6PunU06A6aCoBc=";
+        npmDepsHash = "sha256-3M3F6+0uLiTtw/4in5t8ij66DczRmkoFtvZ5uKiYsF0=";
         makeCacheWritable = true;
         dontNpmBuild = true;
         installPhase = ''
@@ -18,7 +18,7 @@
       rootNodeModules = pkgs.buildNpmPackage {
         name = "pi-root-node-modules";
         src = ./../..;
-        npmDepsHash = "sha256-45MpmlFrkKdH9VqAG8Whc5RoNWIdFHdD1M2YHM/Iq6w=";
+        npmDepsHash = "sha256-c3JjnOme+PPRk/jitl/w88aYZARylqwwQq95gy7/DT4=";
         makeCacheWritable = true;
         dontNpmBuild = true;
         installPhase = ''
@@ -41,16 +41,6 @@
       pi-tps = pkgs.stdenv.mkDerivation {
         name = "pi-tps";
         src = ./../../extensions/tps;
-        phases = [ "installPhase" ];
-        installPhase = ''
-          mkdir -p $out
-          cp $src/index.ts $out/index.ts
-        '';
-      };
-
-      pi-crof-usage = pkgs.stdenv.mkDerivation {
-        name = "pi-crof-usage";
-        src = ./../../extensions/crof-usage;
         phases = [ "installPhase" ];
         installPhase = ''
           mkdir -p $out
@@ -153,11 +143,11 @@
     in
     {
       packages = {
-        inherit pi-permission pi-tps pi-chain pi-prompts pi-crof-usage;
+        inherit pi-permission pi-tps pi-chain pi-prompts;
       };
 
       checks = {
-        inherit pi-permission pi-tps pi-chain pi-prompts pi-crof-usage;
+        inherit pi-permission pi-tps pi-chain pi-prompts;
         inherit biome-check tsc-check permission-test;
       };
     };
