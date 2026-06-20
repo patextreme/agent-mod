@@ -1,5 +1,5 @@
 {
-  description = "Beads";
+  description = "Agent Mod";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
