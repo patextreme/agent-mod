@@ -33,7 +33,6 @@ nix flake check
 - `extensions/permission/rules.test.ts` — Permission rules test suite (65 tests)
 - `extensions/chain/` — Chain extension (package-with-dependencies). Owns `zod ^4` and `yaml ^2.8.3` in its own `package.json`
 - `extensions/tps/index.ts` — TPS (tokens-per-second) tracking extension (single-file, no `package.json`)
-- `extensions/crof-usage/index.ts` — CrofAI usage tracking extension (single-file, no `package.json`). Registers the `/usage-crof` command
 - `extensions/list-skills/index.ts` — Skill disclosure tool extension (single-file, no `package.json`). Registers the `list-skills` tool that displays available skills in the same XML format as the system prompt skill disclosure, so models that don't attend to the system prompt can still discover skills
 - `prompts/` — Pi prompt templates (Markdown + YAML frontmatter). Naming convention: `category-name.md`
 - `.pi/chains/` — Chain definitions (JSON or YAML). Each file becomes a `chain-<name>` command

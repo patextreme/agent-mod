@@ -48,16 +48,6 @@
         '';
       };
 
-      pi-crof-usage = pkgs.stdenv.mkDerivation {
-        name = "pi-crof-usage";
-        src = ./../../extensions/crof-usage;
-        phases = [ "installPhase" ];
-        installPhase = ''
-          mkdir -p $out
-          cp $src/index.ts $out/index.ts
-        '';
-      };
-
       pi-list-skills = pkgs.stdenv.mkDerivation {
         name = "pi-list-skills";
         src = ./../../extensions/list-skills;
@@ -163,11 +153,11 @@
     in
     {
       packages = {
-        inherit pi-permission pi-tps pi-chain pi-prompts pi-crof-usage pi-list-skills;
+        inherit pi-permission pi-tps pi-chain pi-prompts pi-list-skills;
       };
 
       checks = {
-        inherit pi-permission pi-tps pi-chain pi-prompts pi-crof-usage pi-list-skills;
+        inherit pi-permission pi-tps pi-chain pi-prompts pi-list-skills;
         inherit biome-check tsc-check permission-test;
       };
     };
