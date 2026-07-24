@@ -6,7 +6,7 @@
       chainNodeModules = pkgs.buildNpmPackage {
         name = "pi-chain-ext-node-modules";
         src = ./../../extensions/chain;
-        npmDepsHash = "sha256-c5AGQxu2OIu08pYK+q1XS1yGxlwN3aX0aQiOz5oe8Io=";
+        npmDepsHash = "sha256-OFSnxkzSD8wlm2pzGE3mMJoN8Eg/U1Y6v2JZq6yOvVg=";
         makeCacheWritable = true;
         dontNpmBuild = true;
         installPhase = ''
@@ -18,7 +18,7 @@
       rootNodeModules = pkgs.buildNpmPackage {
         name = "pi-root-node-modules";
         src = ./../..;
-        npmDepsHash = "sha256-FWruEXXZEk6V3kfNdYZuWzBgZDU5Bb2bxClkuS0XXvU=";
+        npmDepsHash = "sha256-W8wmLd640AvHkyPHvkKranllMPScHzGKD5Se7HvKsIY=";
         makeCacheWritable = true;
         dontNpmBuild = true;
         installPhase = ''
