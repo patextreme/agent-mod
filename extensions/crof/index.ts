@@ -98,7 +98,11 @@ export default function crofExtension(pi: ExtensionAPI): void {
   ): Notification | null {
     if (result.credits !== null) {
       lastCredits = result.credits;
-      ctx.ui.setStatus(STATUS_KEY, formatCredits(result.credits));
+      // Dimmed so the footer reads as a quiet background detail, not a headline.
+      ctx.ui.setStatus(
+        STATUS_KEY,
+        ctx.ui.theme.fg("dim", formatCredits(result.credits)),
+      );
       return null;
     }
 
@@ -121,7 +125,7 @@ export default function crofExtension(pi: ExtensionAPI): void {
       };
     }
 
-    ctx.ui.setStatus(STATUS_KEY, UNKNOWN_TEXT);
+    ctx.ui.setStatus(STATUS_KEY, ctx.ui.theme.fg("dim", UNKNOWN_TEXT));
     return {
       message: `Failed to fetch CrofAI balance: ${result.error}`,
       level: "error",
@@ -129,10 +133,16 @@ export default function crofExtension(pi: ExtensionAPI): void {
   }
 
   // Initial balance on session start. The slot is rebuilt on /new, /resume,
-  // and /fork, so this re-seeds it each time.
-  pi.on("session_start", async (_event, ctx) => {
+  // and /fork, so this re-seeds it each time. Fire-and-forget: a slow or
+  // unreachable endpoint must not block session startup, so the slot simply
+  // fills in whenever the fetch resolves. Rejections (a stale ctx if the user
+  // moved to another session mid-fetch) are swallowed — the new session's own
+  // handler re-seeds the slot.
+  pi.on("session_start", (_event, ctx) => {
     if (!ctx.hasUI) return;
-    await applyResult(ctx, await fetchCredits(ctx));
+    void fetchCredits(ctx)
+      .then((result) => applyResult(ctx, result))
+      .catch(() => {});
   });
 
   // Manual refresh. Since the user asked explicitly, always report the outcome

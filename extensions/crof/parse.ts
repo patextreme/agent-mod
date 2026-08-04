@@ -4,12 +4,14 @@
 // (index.ts) is the only intended runtime consumer.
 
 /**
- * Status-slot text shown in the footer for a known balance, at full precision.
+ * Status-slot text shown in the footer for a known balance, always padded to
+ * exactly 4 decimal places (e.g. `crof: $5.0000`), so the column width stays
+ * stable regardless of the balance's native precision.
  *
  * @internal Exported for testing only.
  */
 export function formatCredits(credits: number): string {
-  return `crof: $${credits}`;
+  return `crof: $${credits.toFixed(4)}`;
 }
 
 /**

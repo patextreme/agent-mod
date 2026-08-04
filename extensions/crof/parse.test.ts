@@ -71,11 +71,16 @@ describe("formatCredits", () => {
     assert.strictEqual(formatCredits(15.0324), "crof: $15.0324");
   });
 
-  it("formats an integer balance without trailing decimals", () => {
-    assert.strictEqual(formatCredits(5), "crof: $5");
+  it("pads a short fraction to 4 decimal places", () => {
+    assert.strictEqual(formatCredits(12.3), "crof: $12.3000");
+    assert.strictEqual(formatCredits(12.345), "crof: $12.3450");
+  });
+
+  it("formats an integer balance with 4 trailing zeros", () => {
+    assert.strictEqual(formatCredits(5), "crof: $5.0000");
   });
 
   it("formats zero", () => {
-    assert.strictEqual(formatCredits(0), "crof: $0");
+    assert.strictEqual(formatCredits(0), "crof: $0.0000");
   });
 });
