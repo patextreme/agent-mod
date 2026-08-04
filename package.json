@@ -13,11 +13,11 @@
     ]
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "^0.81.1"
+    "@earendil-works/pi-coding-agent": "^0.83.0"
   },
   "devDependencies": {
-    "@earendil-works/pi-ai": "^0.81.1",
-    "@earendil-works/pi-coding-agent": "^0.81.1",
+    "@earendil-works/pi-ai": "^0.83.0",
+    "@earendil-works/pi-coding-agent": "^0.83.0",
     "tsx": "^4.21.0",
     "typebox": "^1.1.38",
     "typescript": "^6.0.3"
@@ -27,6 +27,6 @@
     "lint": "biome lint .",
     "check": "biome check .",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test extensions/permission/rules.test.ts"
+    "test": "tsx --test extensions/permission/rules.test.ts extensions/crof/parse.test.ts"
   }
 }
