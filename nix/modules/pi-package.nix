@@ -48,6 +48,17 @@
         '';
       };
 
+      pi-crof = pkgs.stdenv.mkDerivation {
+        name = "pi-crof";
+        src = ./../../extensions/crof;
+        phases = [ "installPhase" ];
+        installPhase = ''
+          mkdir -p $out
+          cp $src/index.ts $out/index.ts
+          cp $src/parse.ts $out/parse.ts
+        '';
+      };
+
       pi-chain =
         let
           chainDefinitions = pkgs.stdenv.mkDerivation {
@@ -140,15 +151,32 @@
           touch $out
         '';
       };
+
+      crof-test = pkgs.stdenv.mkDerivation {
+        name = "crof-test";
+        src = ./../..;
+        nativeBuildInputs = [ pkgs.nodejs ];
+        phases = [ "unpackPhase" "buildPhase" "installPhase" ];
+        buildPhase = ''
+          # Provide root node_modules for tsx and typescript
+          cp -r ${rootNodeModules} node_modules
+          chmod -R u+w node_modules
+
+          ./node_modules/.bin/tsx --test extensions/crof/parse.test.ts
+        '';
+        installPhase = ''
+          touch $out
+        '';
+      };
     in
     {
       packages = {
-        inherit pi-permission pi-tps pi-chain pi-prompts;
+        inherit pi-permission pi-tps pi-crof pi-chain pi-prompts;
       };
 
       checks = {
-        inherit pi-permission pi-tps pi-chain pi-prompts;
-        inherit biome-check tsc-check permission-test;
+        inherit pi-permission pi-tps pi-crof pi-chain pi-prompts;
+        inherit biome-check tsc-check permission-test crof-test;
       };
     };
 }

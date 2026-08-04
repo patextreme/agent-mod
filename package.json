@@ -27,6 +27,6 @@
     "lint": "biome lint .",
     "check": "biome check .",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test extensions/permission/rules.test.ts"
+    "test": "tsx --test extensions/permission/rules.test.ts extensions/crof/parse.test.ts"
   }
 }
