@@ -104,7 +104,7 @@ created mid-session.
 
 **Safety:** project scripts only run when the project is trusted; `.ts`/`.js` sources are syntax-validated before execution and `.ts` is type-checked against the shipped `agentflow.d.ts` declarations.
 
-See the [`agentflow` skill](./skills/agentflow/SKILL.md) and the [`reviewcode` example](./extensions/agentflow/examples/reviewcode.ts).
+See the [`agentflow` skill](./extensions/agentflow/skills/agentflow/SKILL.md) and the [`reviewcode` example](./extensions/agentflow/examples/reviewcode.ts).
 
 ## Development
 

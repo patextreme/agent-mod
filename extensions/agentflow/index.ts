@@ -27,9 +27,18 @@ import {
 import { runNonTuiFlow, runTuiFlow } from "./orchestrator.js";
 import { executeFlowScript, FlowRunner } from "./runtime.js";
 
-/** Absolute path to this extension's directory (for `agentflow.d.ts`). */
+/** Absolute path to this extension's directory. */
 const here = dirname(fileURLToPath(import.meta.url));
 const DECLARATIONS_PATH = join(here, "agentflow.d.ts");
+/**
+ * Directory containing the bundled agentflow authoring skill (`SKILL.md`).
+ * Relative to the extension so it resolves identically in the repo (npm) and
+ * in the Nix-built package output, where the extension and its skill ship
+ * together. pi recurses into subdirectories looking for `SKILL.md`, so this
+ * points at the `skills/` root and picks up `skills/agentflow/SKILL.md`.
+ * Contributed to pi via `resources_discover` (skillPaths).
+ */
+const SKILLS_PATH = join(here, "skills");
 
 /**
  * Run an AgentFlow script end-to-end: resolve, validate, gate on trust,
@@ -221,6 +230,13 @@ function registerFlowCommands(pi: ExtensionAPI, cwd: string): void {
 }
 
 export default function agentFlowExtension(pi: ExtensionAPI): void {
+  // Make pi load the bundled authoring skill whenever this extension is loaded
+  // (Nix mounts the extension dir standalone, so the package.json `pi.skills`
+  // manifest isn't consulted there; this hook is the single discovery path).
+  pi.on("resources_discover", () => ({
+    skillPaths: [SKILLS_PATH],
+  }));
+
   pi.registerCommand("af", {
     description:
       "Run an AgentFlow script (usage: /af <flow-name>). Resolves .pi/agentflow/<name>.(ts|js) then ~/.pi/agentflow/<name>.(ts|js).",

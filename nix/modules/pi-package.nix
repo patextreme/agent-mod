@@ -50,6 +50,7 @@
       pi-agentflow = pkgs.stdenv.mkDerivation {
         name = "pi-agentflow";
         src = ./../../extensions/agentflow;
+        nodeModules = rootNodeModules;
         phases = [ "installPhase" ];
         installPhase = ''
           mkdir -p $out
@@ -58,6 +59,15 @@
           cp $src/runtime.ts $out/runtime.ts
           cp $src/orchestrator.ts $out/orchestrator.ts
           cp $src/agentflow.d.ts $out/agentflow.d.ts
+          # Bundle the authoring skill so the extension can contribute it via
+          # the resources_discover event (skillPaths) when mounted standalone.
+          mkdir -p $out/skills/agentflow
+          cp $src/skills/agentflow/SKILL.md $out/skills/agentflow/SKILL.md
+          # Bundle the jiti runtime dependency (self-contained, no deps) so the
+          # extension resolves it when mounted standalone — the Nix path has no
+          # npm install step, so runtime deps must ship inside the output.
+          mkdir -p $out/node_modules
+          cp -r $nodeModules/jiti $out/node_modules/jiti
         '';
       };
 
