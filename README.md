@@ -98,7 +98,7 @@ then `~/.pi/agentflow/<name>.ts` (global), with `.js` fallbacks. Per-flow
 start, mirroring pi-taskflow; `/af <name>` remains the fallback for flows
 created mid-session.
 
-**Scripting surface:** a single injected `af` global — `af.createAgent(config)`, `sendPrompt`/`sendSteer`/`sendFollowUp` on the returned handle, `af.log(...)`, `af.result(value)`, and `af.cwd`. Scripts have no other imports or globals.
+**Scripting surface:** a single injected `af` global — `af.createAgent(config)`, `sendMessage(text, opts?)` on the returned handle, `af.log(...)`, `af.result(value)`, and `af.cwd`. Scripts have no other imports or globals.
 
 **UX:** in TUI mode the run appears as a blocking full-screen Orchestrator (live agent overview, streamed `af.log`, tap-in to view a running agent's conversation, steer, and stop). In non-TUI modes the flow runs without the UI and still delivers its result.
 

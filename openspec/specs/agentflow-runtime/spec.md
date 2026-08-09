@@ -57,16 +57,20 @@ The system SHALL execute the script with a single global `af` object injected in
 - **WHEN** a script calls `af.createAgent({ name, model, tools, systemPrompt, cwd, persist: true })`
 - **THEN** the sub-agent session uses the overridden model, tools, system prompt, and cwd, and is persisted to a session file
 
-### Requirement: Flow-agent prompt steps
-The handle returned by `af.createAgent` SHALL expose `sendPrompt(text, opts?)`, `sendSteer(text)`, and `sendFollowUp(text)`, each SHALL send a message to the sub-agent and block until the step fully completes, resolving with the final assistant text. Sequential `sendPrompt` calls SHALL share the same sub-agent conversation. `sendSteer` SHALL deliver with steering behavior and `sendFollowUp` with follow-up behavior.
+### Requirement: Flow-agent message steps
+The handle returned by `af.createAgent` SHALL expose `sendMessage(text, opts?)`, which SHALL send a message to the sub-agent and block until the step fully completes, resolving with the final assistant text. Sequential `sendMessage` calls SHALL share the same sub-agent conversation. When the agent is already streaming, `sendMessage` SHALL queue the message for delivery after the current work settles rather than failing. The public `FlowAgent` interface SHALL NOT expose `sendPrompt`, `sendFollowUp`, or `sendSteer`.
 
-#### Scenario: Sequential prompts share context
-- **WHEN** a script calls `sendPrompt("Task A")` and then `sendPrompt("Task B")` on the same handle
+#### Scenario: Sequential messages share context
+- **WHEN** a script calls `sendMessage("Task A")` and then `sendMessage("Task B")` on the same handle
 - **THEN** Task B runs in the same sub-agent conversation and sees Task A's context
 
-#### Scenario: Steer and follow-up delivery modes
-- **WHEN** a script calls `sendSteer` and `sendFollowUp` on a handle
-- **THEN** the messages are delivered with steering and follow-up streaming behavior respectively
+#### Scenario: Message queued while busy
+- **WHEN** a script calls `sendMessage` while the agent is already streaming a previous step
+- **THEN** the message is queued and delivered after the current work settles, and the call resolves with the final assistant text
+
+#### Scenario: Steering not exposed to scripts
+- **WHEN** a flow script is type-checked against the public `FlowAgent` declarations
+- **THEN** no `sendSteer`, `sendPrompt`, or `sendFollowUp` method is available on the handle
 
 ### Requirement: Flow-agent lifecycle control
 The handle SHALL expose `result` (the last step's final assistant text or undefined), `sessionFile` (the session file when persisted, else undefined), `abort()` (cancel the sub-agent mid-run), and `dispose()` (release the sub-session).

@@ -1,6 +1,6 @@
 ---
 name: agentflow
-description: Author and modify AgentFlow orchestration scripts for pi. Use when the user wants to create, edit, or run a flow that spawns isolated sub-agents (e.g. reviewcode, multi-step workflows). Covers the injected `af` surface (createAgent, sendPrompt/sendSteer/sendFollowUp, log, result, cwd), authoring conventions, the validation workflow, and the worked example.
+description: Author and modify AgentFlow orchestration scripts for pi. Use when the user wants to create, edit, or run a flow that spawns isolated sub-agents (e.g. reviewcode, multi-step workflows). Covers the injected `af` surface (createAgent, sendMessage, log, result, cwd), authoring conventions, the validation workflow, and the worked example.
 ---
 
 # AgentFlow — Authoring Guide
@@ -43,9 +43,7 @@ Spawns an isolated sub-agent session. Config:
 
 ```ts
 const agent = await af.createAgent({ name: "reviewer" });
-const answer = await agent.sendPrompt("Do the thing."); // blocks, returns final text
-await agent.sendSteer("No — focus on edge cases.");     // interrupt mid-run
-await agent.sendFollowUp("Now summarize.");             // queue after current work
+const answer = await agent.sendMessage("Do the thing."); // blocks, returns final text
 answer;            // last step's final assistant text
 agent.result;      // same as above
 agent.sessionFile; // set only when persist: true
@@ -53,13 +51,16 @@ await agent.abort(); // cancel mid-run
 agent.dispose();    // release the sub-session
 ```
 
-Sequential `sendPrompt` calls on the same handle **share one conversation**, so
-task B sees task A's context. Parallelism is ordinary JS:
+Sequential `sendMessage` calls on the same handle **share one conversation**, so
+task B sees task A's context. Messages are always delivered **in order**: if the
+agent is already streaming a previous step, the message is queued and delivered
+after the current work settles — `sendMessage` never fails on a busy agent.
+Parallelism is ordinary JS:
 
 ```ts
 const [a, b] = await Promise.all([
-  x.sendPrompt("Task A"),
-  y.sendPrompt("Task B"),
+  x.sendMessage("Task A"),
+  y.sendMessage("Task B"),
 ]);
 ```
 
@@ -116,9 +117,13 @@ const styleCoach = await af.createAgent({
 });
 
 af.log("Asking reviewer to review src/core.ts");
-const review = await reviewer.sendPrompt("Review src/core.ts for correctness.");
+const review = await reviewer.sendMessage(
+  "Review src/core.ts for correctness.",
+);
 af.log("Asking style coach to assess the same file");
-const style = await styleCoach.sendPrompt("Assess the style of src/core.ts.");
+const style = await styleCoach.sendMessage(
+  "Assess the style of src/core.ts.",
+);
 
 af.result(`## Code Review\n\n### Correctness\n${review}\n\n### Style\n${style}`);
 ```

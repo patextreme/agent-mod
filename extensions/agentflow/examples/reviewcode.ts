@@ -3,7 +3,7 @@
  *
  * Copy this file to `.pi/agentflow/reviewcode.ts` (project) to run it with
  * `/af reviewcode`. It demonstrates the `af` surface: `af.createAgent`,
- * sequential `sendPrompt` steps, `af.log`, and `af.result`.
+ * sequential `sendMessage` steps, `af.log`, and `af.result`.
  *
  * The file uses top-level `await` (no wrapper IIFE): the AgentFlow runtime
  * executes the script body inside its own async function, so do not wrap the
@@ -22,12 +22,12 @@ const styleCoach = await af.createAgent({
 });
 
 af.log("Asking reviewer to review src/core.ts");
-const review = await reviewer.sendPrompt(
+const review = await reviewer.sendMessage(
   "Review src/core.ts for correctness and edge cases.",
 );
 
 af.log("Asking style coach to assess the same file");
-const style = await styleCoach.sendPrompt(
+const style = await styleCoach.sendMessage(
   "Assess the style and naming of src/core.ts.",
 );
 

@@ -17,7 +17,7 @@ import type {
   AgentFlow,
   FlowAgent,
   FlowAgentConfig,
-  PromptStepOptions,
+  SendMessageOptions,
 } from "./agentflow.js";
 
 /** Live status of a flow-agent, as shown in the Orchestrator. */
@@ -75,42 +75,37 @@ export class FlowAgentHandle implements FlowAgent {
     return this.session.sessionFile;
   }
 
-  /** Send a prompt and block until the step completes; returns the final text. */
-  async sendPrompt(
+  /**
+   * Send a message and block until the step fully completes; returns the final
+   * text. Always delivers in order: while the agent is streaming, the message
+   * is queued (streamingBehavior "followUp") and `waitForIdle()` provides the
+   * blocking until the current work settles.
+   */
+  async sendMessage(
     text: string,
-    opts?: PromptStepOptions,
+    opts?: SendMessageOptions,
   ): Promise<string> {
     if (this.disposed)
       throw new Error(`AgentFlow: "${this.name}" is disposed.`);
     const images = opts?.images?.length ? opts.images : undefined;
-    await this.session.prompt(text, images ? { images } : undefined);
-    this.lastResult = this.session.getLastAssistantText();
-    return this.lastResult ?? "";
-  }
-
-  /** Send a steering message and wait for the step to settle. */
-  async sendSteer(text: string): Promise<string> {
-    if (this.disposed)
-      throw new Error(`AgentFlow: "${this.name}" is disposed.`);
-    if (this.session.isStreaming) {
-      await this.session.steer(text);
-    } else {
-      await this.session.prompt(text);
-    }
+    await this.session.prompt(text, {
+      images,
+      streamingBehavior: "followUp",
+    });
     await this.session.waitForIdle();
     this.lastResult = this.session.getLastAssistantText();
     return this.lastResult ?? "";
   }
 
-  /** Send a follow-up message and wait for the step to settle. */
-  async sendFollowUp(text: string): Promise<string> {
+  /**
+   * Internal steering only (used by the Orchestrator to forward a main-session
+   * message into a running sub-agent). Not part of the public `FlowAgent`
+   * interface, so flow scripts cannot steer.
+   */
+  async sendSteer(text: string): Promise<string> {
     if (this.disposed)
       throw new Error(`AgentFlow: "${this.name}" is disposed.`);
-    if (this.session.isStreaming) {
-      await this.session.followUp(text);
-    } else {
-      await this.session.prompt(text);
-    }
+    await this.session.prompt(text, { streamingBehavior: "steer" });
     await this.session.waitForIdle();
     this.lastResult = this.session.getLastAssistantText();
     return this.lastResult ?? "";

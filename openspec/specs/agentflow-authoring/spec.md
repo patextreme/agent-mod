@@ -28,7 +28,7 @@ The system SHALL ship a skill that documents the `af` scripting surface, the scr
 - **THEN** it can load the shipped skill to learn the `af` surface and conventions
 
 ### Requirement: Example flow script
-The system SHALL ship a working example flow script (a `reviewcode` flow) that demonstrates `af.createAgent`, sequential `sendPrompt` steps, `af.log`, and `af.result`, and that type-checks and runs correctly.
+The system SHALL ship a working example flow script (a `reviewcode` flow) that demonstrates `af.createAgent`, sequential `sendMessage` steps, `af.log`, and `af.result`, and that type-checks and runs correctly.
 
 #### Scenario: Example script runs
 - **WHEN** the shipped example flow is invoked

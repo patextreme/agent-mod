@@ -30,41 +30,33 @@ export interface FlowAgentConfig {
   persist?: boolean;
 }
 
-/** An image attachment to include with a `sendPrompt`. */
+/** An image attachment to include with a `sendMessage`. */
 export interface FlowImageContent {
   type: "image";
   data: string;
   mimeType: string;
 }
 
-/** Optional per-step options for `sendPrompt`. */
-export interface PromptStepOptions {
-  /** Image attachments to include with the prompt. */
+/** Optional per-step options for `sendMessage`. */
+export interface SendMessageOptions {
+  /** Image attachments to include with the message. */
   images?: FlowImageContent[];
 }
 
 /**
  * A single flow-agent: a thin handle wrapping one isolated sub-agent session.
- * Sequential `sendPrompt` calls share the same conversation.
+ * Sequential `sendMessage` calls share the same conversation.
  */
 export interface FlowAgent {
   /** The agent name given to `af.createAgent`. */
   readonly name: string;
   /**
-   * Send a prompt to the agent and block until the step fully completes,
-   * resolving with the final assistant text.
+   * Send a message to the agent and block until the step fully completes,
+   * resolving with the final assistant text. Messages are always delivered in
+   * order: when the agent is already streaming, the message is queued and
+   * delivered after the current work settles rather than failing.
    */
-  sendPrompt(text: string, opts?: PromptStepOptions): Promise<string>;
-  /**
-   * Deliver a steering message (interrupting the agent's current work) and
-   * block until the step completes, resolving with the final assistant text.
-   */
-  sendSteer(text: string): Promise<string>;
-  /**
-   * Deliver a follow-up message (processed after the current work) and block
-   * until the step completes, resolving with the final assistant text.
-   */
-  sendFollowUp(text: string): Promise<string>;
+  sendMessage(text: string, opts?: SendMessageOptions): Promise<string>;
   /** The last step's final assistant text, or undefined if no step has run. */
   readonly result: string | undefined;
   /** The session file path when the agent is persisted, else undefined. */
