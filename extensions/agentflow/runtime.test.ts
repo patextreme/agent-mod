@@ -352,6 +352,78 @@ test("cancel() is idempotent", () => {
   assert.equal(runner.isCancelled, true);
 });
 
+// ─── Disposal & clock-freezing (lifecycle) ────────────────────────────────
+
+test("markDisposed() retires an agent: freezes the clock and sets status disposed", () => {
+  const runner = mockRunner();
+  const record = fakeRecord(runner, "worker");
+  assert.equal(record.completedAt, undefined);
+
+  const updates: FlowAgentRecord[] = [];
+  runner.subscribe((event) => {
+    if (event.type === "agent_updated") updates.push(event.record);
+  });
+
+  runner.markDisposed(record.id);
+
+  assert.equal(record.status, "disposed");
+  assert.equal(record.activity, "disposed");
+  assert.ok(record.completedAt !== undefined, "completedAt is stamped");
+  assert.equal(updates.length, 1);
+  assert.equal(updates[0], record);
+});
+
+test("markDisposed() does not override a stopped or errored agent", () => {
+  const runner = mockRunner();
+  const stopped = fakeRecord(runner, "stopped-one");
+  stopped.status = "stopped";
+  stopped.completedAt = Date.now();
+  const stoppedAt = stopped.completedAt;
+
+  const errored = fakeRecord(runner, "errored-one");
+  errored.status = "error";
+
+  runner.markDisposed(stopped.id);
+  runner.markDisposed(errored.id);
+
+  assert.equal(stopped.status, "stopped");
+  assert.equal(stopped.completedAt, stoppedAt);
+  assert.equal(errored.status, "error");
+});
+
+test("complete() freezes the clock for agents that were never disposed", () => {
+  const runner = mockRunner();
+  const live = fakeRecord(runner, "live");
+  fakeRecord(runner, "also-live");
+  assert.equal(live.completedAt, undefined);
+
+  runner.complete();
+
+  assert.ok(
+    live.completedAt !== undefined,
+    "live agent clock is frozen at completion",
+  );
+  for (const r of runner.agents) {
+    assert.ok(r.completedAt !== undefined, "every agent has a completedAt");
+  }
+});
+
+test("FlowAgentHandle.dispose() fires the onDispose hook once (runner wiring)", () => {
+  let disposed = 0;
+  const handle = new FlowAgentHandle(
+    "a",
+    mockSession(),
+    createSubmissionSlot(),
+    undefined,
+    () => {
+      disposed++;
+    },
+  );
+  handle.dispose();
+  handle.dispose(); // idempotent — hook must not fire again
+  assert.equal(disposed, 1);
+});
+
 // ─── Display rendering ─────────────────────────────────────────────────────
 
 test("renderFlowValue passes strings through and JSON-renders objects", () => {

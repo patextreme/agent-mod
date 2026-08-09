@@ -47,18 +47,27 @@ function fmtElapsed(startedAt: number, completedAt?: number): string {
   return `${Math.round(ms / 1000)}s`;
 }
 
+/** Braille spinner frames for a "running" agent; advances each render. */
+const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
+function spinnerFrame(): string {
+  return SPINNER_FRAMES[Math.floor(Date.now() / 100) % SPINNER_FRAMES.length];
+}
+
 function statusIcon(status: FlowAgentRecord["status"], theme: Theme): string {
   switch (status) {
     case "running":
-      return theme.fg("accent", "●");
+      return theme.fg("accent", spinnerFrame());
     case "idle":
       return theme.fg("dim", "○");
     case "stopped":
       return theme.fg("warning", "■");
     case "error":
       return theme.fg("error", "✗");
-    default:
-      return theme.fg("dim", "○");
+    case "disposed":
+      return theme.fg("dim", "✓");
+    default: // created
+      return theme.fg("dim", "◌");
   }
 }
 
@@ -72,6 +81,8 @@ function statusLabel(status: FlowAgentRecord["status"]): string {
       return "stopped";
     case "error":
       return "error";
+    case "disposed":
+      return "disposed";
     default:
       return "created";
   }
@@ -635,10 +646,9 @@ export class AgentFlowFleet {
   private roster(): FleetEntry[] {
     return [
       { kind: "main" },
-      ...this.runner.agents.map((record) => ({
-        kind: "agent" as const,
-        record,
-      })),
+      ...this.runner.agents
+        .filter((record) => record.status !== "disposed")
+        .map((record) => ({ kind: "agent" as const, record })),
     ];
   }
 
@@ -902,12 +912,14 @@ export class AgentFlowFleet {
     lines.push(truncateToWidth(`  ${hint}`, width));
     lines.push("");
 
-    // Roster (windowed so the selection stays visible).
-    const bullet = (i: number) =>
-      i === sel ? th.fg("accent", "●") : th.fg("dim", "○");
+    // Roster (windowed so the selection stays visible). The cursor (❯) marks
+    // the selected row; the status glyph (spinner/○/■/✓) marks agent state —
+    // distinct shapes so selection and status never read as the same dot.
+    const cursor = (i: number) =>
+      this.active && i === sel ? th.fg("accent", "❯") : " ";
     lines.push(
       truncateToWidth(
-        `  ${bullet(0)} main  ${th.fg("dim", "(this session · enter for log)")}`,
+        `  ${cursor(0)}   ${th.bold("main")}  ${th.fg("dim", "(this session · enter for log)")}`,
         width,
       ),
     );
@@ -923,7 +935,7 @@ export class AgentFlowFleet {
     }
     for (let a = start; a < start + visible; a++) {
       const r = agents[a].record;
-      const leftPart = `  ${bullet(a + 1)} ${statusIcon(r.status, th)} ${th.bold(r.name)}  ${th.fg("muted", statusLabel(r.status))} · ${th.fg("dim", r.activity)}`;
+      const leftPart = `  ${cursor(a + 1)} ${statusIcon(r.status, th)} ${th.bold(r.name)}  ${th.fg("dim", `· ${r.activity}`)}`;
       const rightPart = th.fg("dim", fmtElapsed(r.startedAt, r.completedAt));
       lines.push(rightAlign(leftPart, rightPart, width));
     }
@@ -933,6 +945,18 @@ export class AgentFlowFleet {
           `  ${th.fg("dim", `↓ ${agents.length - start - visible} more`)}`,
           width,
         ),
+      );
+    }
+
+    // Disposed agents are hidden from the roster (their session is gone, so the
+    // conversation viewer is dead too). Summarize them in one footer line so
+    // long loops still convey progress.
+    const finished = this.runner.agents.filter(
+      (a) => a.status === "disposed",
+    ).length;
+    if (finished > 0) {
+      lines.push(
+        truncateToWidth(`    ${th.fg("dim", `✓ ${finished} finished`)}`, width),
       );
     }
     return lines;

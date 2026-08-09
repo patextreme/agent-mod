@@ -27,7 +27,13 @@ import {
 } from "./submit.js";
 
 /** Live status of a flow-agent, as shown in the fleet UI. */
-export type AgentStatus = "created" | "running" | "idle" | "stopped" | "error";
+export type AgentStatus =
+  | "created"
+  | "running"
+  | "idle"
+  | "stopped"
+  | "error"
+  | "disposed";
 
 /**
  * Render a flow-provided value for display: strings verbatim, everything else
@@ -235,14 +241,16 @@ export class FlowRunner {
     });
     session.setSessionName(name);
 
+    const id = `agent${this.nextId++}`;
     const handle = new FlowAgentHandle<T>(
       name,
       session,
       submission,
       () => this.isCancelled,
+      () => this.markDisposed(id),
     );
     const record: FlowAgentRecord = {
-      id: `agent${this.nextId++}`,
+      id,
       name,
       status: "created",
       model: config.model,
@@ -301,6 +309,21 @@ export class FlowRunner {
     this.emit({ type: "agent_updated", record });
   }
 
+  /**
+   * Mark an agent disposed (post-`dispose()`): freezes its elapsed clock and
+   * retires it from the fleet. Terminal statuses (stopped/error) win over a
+   * late dispose so the reason the agent ended stays visible.
+   */
+  markDisposed(agentId: string): void {
+    const record = this.agents.find((a) => a.id === agentId);
+    if (!record) return;
+    if (record.status === "stopped" || record.status === "error") return;
+    record.status = "disposed";
+    record.activity = "disposed";
+    record.completedAt = Date.now();
+    this.emit({ type: "agent_updated", record });
+  }
+
   /** True once the user cancelled the run from the fleet UI. */
   get isCancelled(): boolean {
     return this.cancelled;
@@ -331,6 +354,12 @@ export class FlowRunner {
   /** Record the final outcome and signal completion. */
   complete(error?: string): void {
     this.completed = true;
+    // Freeze any still-ticking clocks so no agent's elapsed time outlives the
+    // run (e.g. agents the script never explicitly disposed).
+    const now = Date.now();
+    for (const record of this.agents) {
+      if (record.completedAt === undefined) record.completedAt = now;
+    }
     // A cancelled run always reports the cancellation — the script's unwind
     // errors (e.g. "agent was stopped") are consequences of it, not the
     // outcome the user needs to see.

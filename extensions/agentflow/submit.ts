@@ -113,17 +113,21 @@ export class FlowAgentHandle<T = unknown> implements FlowAgent<T> {
   private submission: SubmissionSlot;
   /** Live check for flow-level cancellation (wired by the FlowRunner). */
   private isFlowCancelled: (() => boolean) | undefined;
+  /** Notified once on dispose so the runner can retire the record. */
+  private onDispose?: () => void;
 
   constructor(
     name: string,
     session: AgentSession,
     submission: SubmissionSlot = createSubmissionSlot(),
     isFlowCancelled?: () => boolean,
+    onDispose?: () => void,
   ) {
     this.name = name;
     this.session = session;
     this.submission = submission;
     this.isFlowCancelled = isFlowCancelled;
+    this.onDispose = onDispose;
   }
 
   /** True once the Orchestrator stopped this agent. */
@@ -224,10 +228,11 @@ export class FlowAgentHandle<T = unknown> implements FlowAgent<T> {
     await this.abort();
   }
 
-  /** Release the underlying sub-session. */
+  /** Release the underlying sub-session and notify the runner to retire it. */
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
     this.session.dispose();
+    this.onDispose?.();
   }
 }
