@@ -6,6 +6,7 @@ Pi is a terminal coding agent. This package augments it with:
 
 - **Guardrails** — a permission extension that intercepts shell commands and asks before running anything destructive (`git push`, `git rebase`, unknown `gh` calls, …), while auto-allowing safe read-only commands.
 - **Observability** — a TPS extension that reports tokens/sec, time-to-first-token, stalls, and cost after every LLM turn.
+- **Orchestration** — an AgentFlow extension that runs imperative TypeScript/JavaScript flow scripts which spawn and drive isolated sub-agents under a live full-screen orchestrator, and deliver a result back to the main session.
 
 Install it once and every Pi session in the project gets permission prompts and per-turn performance telemetry automatically.
 
@@ -29,6 +30,7 @@ This registers all extensions and prompts declared in [`package.json`](./package
 |-----------|-------------|
 | [Permission](./extensions/permission/index.ts) | Intercepts `bash` tool calls and applies regex-based permission rules; plays a bell on prompts and when the agent finishes |
 | [TPS](./extensions/tps/index.ts) | Tracks tokens-per-second, TTFT, stalls, and cost per LLM turn; persists telemetry to session for rehydration |
+| [AgentFlow](./extensions/agentflow/index.ts) | Runs `/af <name>` flow scripts (`.pi/agentflow/`) that orchestrate isolated sub-agent sessions via an injected `af` API, under a blocking full-screen Orchestrator |
 
 ### Prompt Templates
 
@@ -85,6 +87,25 @@ Captures structured telemetry at every LLM turn: tokens, timing, TPS, and cost.
 
 Telemetry is persisted to the session JSONL so the last notification can be restored on resume.
 
+## AgentFlow Extension
+
+Runs repeatable, multi-step workflows as imperative scripts that drive *isolated sub-agent sessions* and return a result to the main session.
+
+**Invocation:** `/af <flow-name>` (or `/af:<flow-name>` for any flow already on
+disk at session start) — resolves `.pi/agentflow/<name>.ts` (project, trusted)
+then `~/.pi/agentflow/<name>.ts` (global), with `.js` fallbacks. Per-flow
+`/af:<name>` shortcuts are registered for every discoverable flow on session
+start, mirroring pi-taskflow; `/af <name>` remains the fallback for flows
+created mid-session.
+
+**Scripting surface:** a single injected `af` global — `af.createAgent(config)`, `sendPrompt`/`sendSteer`/`sendFollowUp` on the returned handle, `af.log(...)`, `af.result(value)`, and `af.cwd`. Scripts have no other imports or globals.
+
+**UX:** in TUI mode the run appears as a blocking full-screen Orchestrator (live agent overview, streamed `af.log`, tap-in to view a running agent's conversation, steer, and stop). In non-TUI modes the flow runs without the UI and still delivers its result.
+
+**Safety:** project scripts only run when the project is trusted; `.ts`/`.js` sources are syntax-validated before execution and `.ts` is type-checked against the shipped `agentflow.d.ts` declarations.
+
+See the [`agentflow` skill](./skills/agentflow/SKILL.md) and the [`reviewcode` example](./extensions/agentflow/examples/reviewcode.ts).
+
 ## Development
 
 ```bash
@@ -93,7 +114,7 @@ npm run format         # biome format --write .
 npm run lint           # biome lint .
 npm run check          # biome check . (lint + format check combined)
 npm run typecheck      # tsc --noEmit
-npm test               # tsx --test (permission rules suite)
+npm test               # tsx --test (permission, crof, and agentflow suites)
 nix flake check        # nix build checks (biome, tsc, tests, package builds)
 ```
 

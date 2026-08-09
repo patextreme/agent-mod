@@ -1,0 +1,238 @@
+/**
+ * AgentFlow — scriptable orchestration of isolated sub-agents for pi.
+ *
+ * Invoke a flow with `/af <flow-name>`. AgentFlow resolves `.pi/agentflow/
+ * <name>.ts` (project, trusted), then global `~/.pi/agentflow/<name>.ts`
+ * (and `.js` variants), validates/type-checks it, and runs it under a
+ * blocking full-screen Orchestrator that owns the run until it completes.
+ *
+ * Flows are imperative TS/JS scripts that get a single injected `af` global
+ * (`createAgent`, `log`, `result`, `cwd`) and may appear in the docs as the
+ * `/af:<name>` family; the runtime command is `/af <name>`.
+ */
+
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import type {
+  ExtensionAPI,
+  ExtensionCommandContext,
+} from "@earendil-works/pi-coding-agent";
+import {
+  listFlowNames,
+  readFlowScript,
+  resolveFlowFile,
+  typeCheckFlowScript,
+  validateFlowSyntax,
+} from "./discovery.js";
+import { runNonTuiFlow, runTuiFlow } from "./orchestrator.js";
+import { executeFlowScript, FlowRunner } from "./runtime.js";
+
+/** Absolute path to this extension's directory (for `agentflow.d.ts`). */
+const here = dirname(fileURLToPath(import.meta.url));
+const DECLARATIONS_PATH = join(here, "agentflow.d.ts");
+
+/**
+ * Run an AgentFlow script end-to-end: resolve, validate, gate on trust,
+ * execute under the Orchestrator (TUI) or non-TUI path, and deliver the
+ * recorded result back to the main session.
+ */
+async function runAgentFlow(
+  pi: ExtensionAPI,
+  flowNameInput: string,
+  ctx: ExtensionCommandContext,
+): Promise<void> {
+  const name = flowNameInput.trim().replace(/^:/, "");
+  if (!name) {
+    ctx.ui.notify("Usage: /af <flow-name> — e.g. /af reviewcode", "warning");
+    return;
+  }
+
+  // 1. Resolve the flow script (project → global, .ts → .js).
+  const resolved = resolveFlowFile(name, ctx.cwd);
+  if (!resolved) {
+    ctx.ui.notify(
+      `AgentFlow: no script found for "${name}" in .pi/agentflow/ or ~/.pi/agentflow/`,
+      "error",
+    );
+    return;
+  }
+
+  // 2. Gate project-local scripts on project trust.
+  if (resolved.isProject && !ctx.isProjectTrusted()) {
+    ctx.ui.notify(
+      `AgentFlow: project script "${resolved.path}" is not run because the project is not trusted.`,
+      "error",
+    );
+    return;
+  }
+
+  // 3. Syntax-validate (aborts before any sub-agent is spawned).
+  let transpiled: string;
+  try {
+    transpiled = validateFlowSyntax(
+      readFlowScript(resolved.path),
+      resolved.path,
+    );
+  } catch (err) {
+    ctx.ui.notify(err instanceof Error ? err.message : String(err), "error");
+    return;
+  }
+
+  // 4. Type-check `.ts` scripts against the shipped declarations.
+  if (resolved.isTypeScript) {
+    try {
+      await typeCheckFlowScript(
+        resolved.path,
+        readFlowScript(resolved.path),
+        DECLARATIONS_PATH,
+      );
+    } catch (err) {
+      ctx.ui.notify(err instanceof Error ? err.message : String(err), "error");
+      return;
+    }
+  }
+
+  // 5. Build the runner and the injected `af` surface.
+  const runner = new FlowRunner({
+    ctx,
+    resolveModel: (spec) => {
+      const idx = spec.indexOf("/");
+      if (idx === -1) return undefined;
+      return ctx.modelRegistry.find(spec.slice(0, idx), spec.slice(idx + 1));
+    },
+    inheritTools: () => pi.getActiveTools(),
+  });
+  const af = runner.buildAf();
+
+  // Completion promise resolves to an error string, or undefined on success.
+  // The listener is attached synchronously here, before `executeFlowScript`
+  // below can call `runner.complete()`, so no fast-flow race is possible.
+  const completion = new Promise<string | undefined>((resolve) => {
+    const unsub = runner.subscribe((event) => {
+      if (event.type === "complete") {
+        unsub();
+        resolve(event.error);
+      }
+    });
+  });
+
+  // 6. Run the script in the background; the Orchestrator renders live.
+  const scriptRun = executeFlowScript(transpiled, af).then(
+    () => runner.complete(),
+    (err: unknown) =>
+      runner.complete(err instanceof Error ? err.message : String(err)),
+  );
+
+  try {
+    // 7. Block until the run finishes (TUI) or just drive it (non-TUI).
+    if (ctx.hasUI && ctx.mode === "tui") {
+      await runTuiFlow(
+        ctx,
+        runner,
+        name,
+        completion,
+        (agentId) => void stopAgent(runner, agentId),
+        (agentId, message) => void steerAgent(runner, agentId, message),
+      );
+    } else {
+      await runNonTuiFlow(runner);
+    }
+    await scriptRun;
+  } finally {
+    for (const record of runner.agents) record.handle.dispose();
+  }
+
+  // 8. Deliver the recorded result (or the error) back to the main session.
+  const error = await completion;
+  deliverResult(pi, name, runner, error);
+}
+
+/** Abort a running flow-agent and reflect its stopped state. */
+async function stopAgent(runner: FlowRunner, agentId: string): Promise<void> {
+  const record = runner.agents.find((a) => a.id === agentId);
+  if (!record) return;
+  try {
+    await record.handle.abort();
+  } finally {
+    runner.markStopped(agentId);
+  }
+}
+
+/** Send a steering message to a running flow-agent. */
+async function steerAgent(
+  runner: FlowRunner,
+  agentId: string,
+  message: string,
+): Promise<void> {
+  const record = runner.agents.find((a) => a.id === agentId);
+  if (!record) return;
+  try {
+    await record.handle.sendSteer(message);
+  } catch {
+    // Steering a non-running/idle agent is a no-op; ignore.
+  }
+}
+
+/** Inject the flow outcome into the main session as a visible custom message. */
+function deliverResult(
+  pi: ExtensionAPI,
+  name: string,
+  runner: FlowRunner,
+  error: string | undefined,
+): void {
+  const { value, set } = runner.recordedResult;
+  if (error) {
+    pi.sendMessage({
+      customType: "agentflow",
+      content: `AgentFlow "${name}" failed: ${error}`,
+      display: true,
+    });
+  } else if (set) {
+    pi.sendMessage({
+      customType: "agentflow",
+      content: `AgentFlow "${name}" result:\n\n${String(value)}`,
+      display: true,
+    });
+  } else {
+    pi.sendMessage({
+      customType: "agentflow",
+      content: `AgentFlow "${name}" completed without a result.`,
+      display: true,
+    });
+  }
+}
+
+/**
+ * Register a `/af:<name>` shortcut command for every discoverable flow.
+ * Mirrors pi-taskflow's approach: pi resolves slash commands by exact name but
+ * `pi.registerCommand` may be called any time (not just at load), and lookups
+ * re-read the registry per call — so registering concrete per-flow names on
+ * session start makes `/af:<name>` work for every flow already on disk.
+ */
+function registerFlowCommands(pi: ExtensionAPI, cwd: string): void {
+  for (const name of listFlowNames(cwd)) {
+    pi.registerCommand(`af:${name}`, {
+      description: `Run AgentFlow script "${name}"`,
+      handler: async (_args, ctx) => {
+        await runAgentFlow(pi, name, ctx);
+      },
+    });
+  }
+}
+
+export default function agentFlowExtension(pi: ExtensionAPI): void {
+  pi.registerCommand("af", {
+    description:
+      "Run an AgentFlow script (usage: /af <flow-name>). Resolves .pi/agentflow/<name>.(ts|js) then ~/.pi/agentflow/<name>.(ts|js).",
+    handler: async (args, ctx) => {
+      await runAgentFlow(pi, args, ctx);
+    },
+  });
+
+  // Register `/af:<name>` shortcuts for already-discovered flows. The generic
+  // `/af <name>` command above remains the fallback for flows created after
+  // session start.
+  pi.on("session_start", async (_event, ctx) => {
+    registerFlowCommands(pi, ctx.cwd);
+  });
+}

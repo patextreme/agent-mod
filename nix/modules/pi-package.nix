@@ -6,7 +6,7 @@
       rootNodeModules = pkgs.buildNpmPackage {
         name = "pi-root-node-modules";
         src = ./../..;
-        npmDepsHash = "sha256-WyotBKnrNxtvKXTvXxENiuBuCww9WLm14VxcxbT8AV4=";
+        npmDepsHash = "sha256-xCTUN/BqMEDMXAxI/p9e190LWDWWf++1dtpoEHZsBQo=";
         makeCacheWritable = true;
         dontNpmBuild = true;
         installPhase = ''
@@ -44,6 +44,20 @@
           mkdir -p $out
           cp $src/index.ts $out/index.ts
           cp $src/parse.ts $out/parse.ts
+        '';
+      };
+
+      pi-agentflow = pkgs.stdenv.mkDerivation {
+        name = "pi-agentflow";
+        src = ./../../extensions/agentflow;
+        phases = [ "installPhase" ];
+        installPhase = ''
+          mkdir -p $out
+          cp $src/index.ts $out/index.ts
+          cp $src/discovery.ts $out/discovery.ts
+          cp $src/runtime.ts $out/runtime.ts
+          cp $src/orchestrator.ts $out/orchestrator.ts
+          cp $src/agentflow.d.ts $out/agentflow.d.ts
         '';
       };
 
@@ -120,15 +134,32 @@
           touch $out
         '';
       };
+
+      agentflow-test = pkgs.stdenv.mkDerivation {
+        name = "agentflow-test";
+        src = ./../..;
+        nativeBuildInputs = [ pkgs.nodejs ];
+        phases = [ "unpackPhase" "buildPhase" "installPhase" ];
+        buildPhase = ''
+          # Provide root node_modules for tsx, typescript, and jiti
+          cp -r ${rootNodeModules} node_modules
+          chmod -R u+w node_modules
+
+          ./node_modules/.bin/tsx --test extensions/agentflow/discovery.test.ts
+        '';
+        installPhase = ''
+          touch $out
+        '';
+      };
     in
     {
       packages = {
-        inherit pi-permission pi-tps pi-crof pi-prompts;
+        inherit pi-permission pi-tps pi-crof pi-agentflow pi-prompts;
       };
 
       checks = {
-        inherit pi-permission pi-tps pi-crof pi-prompts;
-        inherit biome-check tsc-check permission-test crof-test;
+        inherit pi-permission pi-tps pi-crof pi-agentflow pi-prompts;
+        inherit biome-check tsc-check permission-test crof-test agentflow-test;
       };
     };
 }
