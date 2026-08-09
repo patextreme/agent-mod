@@ -16,8 +16,29 @@ the SDK, drives them step by step, and delivers a result back to the main sessio
 - Invoke with `/af <name>` (e.g. `/af reviewcode`), or `/af:<name>` (e.g.
   `/af:reviewcode`) for any flow already on disk at session start.
 - Project scripts only run when the project is **trusted**.
-- The flow runs under a **blocking full-screen Orchestrator** (TUI) that shows the
-  main session + every running sub-agent. In non-TUI modes it runs without the UI.
+- In TUI mode the flow runs **alongside the editor** under a live fleet
+  widget below it: `main` + each running sub-agent, streamed `af.log` lines,
+  tap-in (view live conversation, steer, stop), and whole-run cancel. Only
+  one flow runs at a time. In non-TUI modes it runs without the UI.
+
+### The fleet widget (TUI)
+
+The widget below the editor is always visible for the duration of a run —
+there is nothing to re-open. Keys only act when the prompt editor is
+**focused and empty**, so normal typing is untouched:
+
+- `↓` or `←` at an empty prompt activates list navigation; any other key
+  deactivates it and flows into the editor.
+- `↑`/`↓` move the selection; `enter` opens the selection; `esc` leaves.
+- `enter` on an agent opens its live conversation overlay; on `main` it opens
+  the run's `af.log` stream.
+- `s` steers the selected agent (opens the composer directly).
+- `x` is two-press: on an agent it **stops** it (aborts and rejects any
+  further messages for this run, so the flow unwinds instead of reviving
+  it); on `main` it **cancels the whole run** (every agent stops and the
+  flow script unwinds at its next `af` call).
+- Steering messages queue between turns — the viewer shows them as
+  `[Steering · queued]` until they are delivered.
 
 ## The `af` surface
 
@@ -62,7 +83,11 @@ Sequential `sendMessage` calls on the same handle **share one conversation**, so
 task B sees task A's context. Messages are always delivered **in order**: if the
 agent is already streaming a previous step, the message is queued and delivered
 after the current work settles — `sendMessage` never fails on a busy agent.
-Parallelism is ordinary JS:
+
+`sendMessage` **rejects** when the agent was stopped from the fleet UI or the
+whole run was cancelled — a stopped agent is stopped for the rest of the run
+and the flow unwinds (wrap the call in `try/catch` if a step may survive a
+stop). Parallelism is ordinary JS:
 
 ```ts
 const [a, b] = await Promise.all([

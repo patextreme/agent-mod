@@ -69,6 +69,10 @@ export interface FlowAgent<T = unknown> {
    * resolving with the final assistant text. Messages are always delivered in
    * order: when the agent is already streaming, the message is queued and
    * delivered after the current work settles rather than failing.
+   *
+   * Rejects when the agent was stopped from the Orchestrator UI or the whole
+   * run was cancelled — a stopped agent can never be revived by the script.
+   * Flows that want to tolerate a stop can `try/catch` around the call.
    */
   sendMessage(text: string, opts?: SendMessageOptions): Promise<string>;
   /** The last step's final assistant text, or undefined if no step has run. */
@@ -85,7 +89,11 @@ export interface FlowAgent<T = unknown> {
   submittedResult(): T | undefined;
   /** Reset the stored submitted value to `undefined`. */
   clearResult(): void;
-  /** Cancel the agent mid-run. */
+  /**
+   * Cancel the agent mid-run and drop any queued steering/follow-up
+   * messages. The agent stays usable afterwards; a permanent stop is a UI
+   * action (the Orchestrator stops it and rejects further messages).
+   */
   abort(): Promise<void>;
   /** Release the underlying sub-session. */
   dispose(): void;

@@ -10,20 +10,25 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { AgentSession } from "@earendil-works/pi-coding-agent";
+import type {
+  AgentSession,
+  ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
+import type { FlowAgentRecord } from "./runner.js";
+import { FlowRunner, renderFlowValue } from "./runner.js";
 import {
   buildSubmitTool,
   createSubmissionSlot,
   deepCopy,
+  FLOW_CANCELLED_ERROR,
   FlowAgentHandle,
   includeSubmitToolActive,
 } from "./submit.js";
 
 /** Minimal mock session sufficient for `FlowAgentHandle` drive methods. */
 function mockSession(): AgentSession {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return {
     prompt: async () => {},
     waitForIdle: async () => {},
@@ -32,10 +37,73 @@ function mockSession(): AgentSession {
     subscribe: () => () => {},
     messages: [],
     abort: async () => {},
+    clearQueue: () => ({ steering: [], followUp: [] }),
     dispose: () => {},
     setSessionName: (_name: string) => {},
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as unknown as AgentSession;
+}
+
+/** Mock session that records call order of `clearQueue` and `abort`. */
+function orderTrackingSession(): { session: AgentSession; calls: string[] } {
+  const calls: string[] = [];
+  const session = {
+    prompt: async () => {},
+    waitForIdle: async () => {},
+    getLastAssistantText: () => "done",
+    sessionFile: undefined,
+    subscribe: () => () => {},
+    messages: [],
+    abort: async () => {
+      calls.push("abort");
+    },
+    clearQueue: () => {
+      calls.push("clearQueue");
+      return { steering: [], followUp: [] };
+    },
+    dispose: () => {},
+    setSessionName: (_name: string) => {},
+  } as unknown as AgentSession;
+  return { session, calls };
+}
+
+/** Minimal FlowRunner services mock (no real sessions are spawned here). */
+function mockRunner(): FlowRunner {
+  return new FlowRunner({
+    ctx: {
+      cwd: "/tmp",
+      getSystemPrompt: () => "",
+    } as unknown as ExtensionContext,
+    resolveModel: () => undefined,
+    inheritTools: () => [],
+    spawnSession: async () => mockSession(),
+  });
+}
+
+/** Register a fake agent record on a runner (no sub-session spawned). */
+function fakeRecord(
+  runner: FlowRunner,
+  name: string,
+  session: AgentSession = mockSession(),
+): FlowAgentRecord {
+  const handle = new FlowAgentHandle(
+    name,
+    session,
+    createSubmissionSlot(),
+    () => runner.isCancelled,
+  );
+  const record = {
+    id: `agent${runner.agents.length + 1}`,
+    name,
+    status: "running",
+    model: undefined,
+    startedAt: Date.now(),
+    completedAt: undefined,
+    activity: "running",
+    session: {} as unknown as AgentSession,
+    handle,
+  } as unknown as FlowAgentRecord;
+  runner.agents.push(record);
+  return record;
 }
 
 /** Run a built tool's `execute` with a fixed tool-call id and params. */
@@ -188,4 +256,114 @@ test("deepCopy returns an independent object", () => {
   copy.list.push(3);
   copy.nested.ok = false;
   assert.deepEqual(src, { list: [1, 2], nested: { ok: true } });
+});
+
+// ─── Stop / cancel semantics ───────────────────────────────────────────────
+
+test("stop() rejects subsequent sendMessage/sendSteer (a stopped agent stays stopped)", async () => {
+  const handle = new FlowAgentHandle("a", mockSession());
+  await handle.sendMessage("works before stop");
+
+  await handle.stop();
+  assert.equal(handle.isStopped, true);
+  await assert.rejects(() => handle.sendMessage("too late"), /was stopped/);
+  await assert.rejects(() => handle.sendSteer("too late"), /was stopped/);
+});
+
+test("stop() clears the steer/follow-up queues BEFORE aborting (no resurrection)", async () => {
+  const { session, calls } = orderTrackingSession();
+  const handle = new FlowAgentHandle("a", session);
+  await handle.stop();
+  assert.deepEqual(calls, ["clearQueue", "abort"]);
+});
+
+test("abort() also clears queues but keeps the handle usable", async () => {
+  const { session, calls } = orderTrackingSession();
+  const handle = new FlowAgentHandle("a", session);
+  await handle.abort();
+  assert.deepEqual(calls, ["clearQueue", "abort"]);
+  assert.equal(handle.isStopped, false);
+  await handle.sendMessage("still usable"); // must not throw
+});
+
+test("flow cancellation rejects sendMessage/sendSteer and createAgent", async () => {
+  const runner = mockRunner();
+  const record = fakeRecord(runner, "worker");
+
+  runner.cancel();
+  assert.equal(runner.isCancelled, true);
+  assert.equal(record.status, "stopped", "cancel stops non-terminal agents");
+  // The handle was stopped by the cancel, so new calls reject as stopped.
+  await assert.rejects(() => record.handle.sendMessage("nope"), /was stopped/);
+  await assert.rejects(() => record.handle.sendSteer("nope"), /was stopped/);
+  await assert.rejects(
+    () => runner.createAgent({ name: "late" }),
+    new RegExp(FLOW_CANCELLED_ERROR),
+  );
+});
+
+test("cancel() is reported by complete() even when the script finishes cleanly", () => {
+  const runner = mockRunner();
+  fakeRecord(runner, "worker");
+  runner.cancel();
+
+  let got: string | undefined = "unset";
+  runner.subscribe((event) => {
+    if (event.type === "complete") got = event.error;
+  });
+  runner.complete(); // no error from the script side
+  assert.equal(got, FLOW_CANCELLED_ERROR);
+});
+
+test("cancel() wins over the script's unwind error in complete()", () => {
+  const runner = mockRunner();
+  fakeRecord(runner, "worker");
+  runner.cancel();
+
+  let got: string | undefined;
+  runner.subscribe((event) => {
+    if (event.type === "complete") got = event.error;
+  });
+  runner.complete('agent "worker" was stopped'); // script unwind error
+  assert.equal(got, FLOW_CANCELLED_ERROR);
+});
+
+test("cancel() leaves already-stopped agents untouched and emits a log line", () => {
+  const runner = mockRunner();
+  const stopped = fakeRecord(runner, "stopped-one");
+  stopped.status = "stopped";
+  stopped.completedAt = Date.now();
+  fakeRecord(runner, "running-one");
+
+  runner.cancel();
+
+  assert.equal(stopped.status, "stopped");
+  assert.ok(
+    runner.logs.some((l) => l.includes("cancelled by user")),
+    "cancel emits a log line",
+  );
+});
+
+test("cancel() is idempotent", () => {
+  const runner = mockRunner();
+  fakeRecord(runner, "worker");
+  runner.cancel();
+  runner.cancel(); // must not throw or re-mark
+  assert.equal(runner.isCancelled, true);
+});
+
+// ─── Display rendering ─────────────────────────────────────────────────────
+
+test("renderFlowValue passes strings through and JSON-renders objects", () => {
+  assert.equal(renderFlowValue("plain"), "plain");
+  assert.equal(renderFlowValue({ a: 1 }), JSON.stringify({ a: 1 }, null, 2));
+  assert.equal(renderFlowValue(42), "42");
+});
+
+test("renderFlowValue never throws on unserializable values", () => {
+  assert.equal(renderFlowValue(10n), "10");
+  assert.equal(renderFlowValue(undefined), "undefined");
+  const circular: { self?: unknown } = {};
+  circular.self = circular;
+  assert.equal(renderFlowValue(circular), String(circular));
 });

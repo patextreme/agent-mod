@@ -3,8 +3,11 @@
  *
  * Invoke a flow with `/af <flow-name>`. AgentFlow resolves `.pi/agentflow/
  * <name>.ts` (project, trusted), then global `~/.pi/agentflow/<name>.ts`
- * (and `.js` variants), validates/type-checks it, and runs it under a
- * blocking full-screen Orchestrator that owns the run until it completes.
+ * (and `.js` variants), validates/type-checks it, and runs it alongside the
+ * editor under the fleet widget (TUI): a live list of `main` + each
+ * flow-agent below the editor, overlay conversation/log viewers, steering,
+ * per-agent stop, and whole-run cancel. In non-TUI modes it runs without
+ * the UI.
  *
  * Flows are imperative TS/JS scripts that get a single injected `af` global
  * (`createAgent`, `log`, `result`, `cwd`) and may appear in the docs as the
@@ -25,7 +28,13 @@ import {
   validateFlowSyntax,
 } from "./discovery.js";
 import { runNonTuiFlow, runTuiFlow } from "./orchestrator.js";
-import { executeFlowScript, FlowRunner } from "./runtime.js";
+import {
+  executeFlowScript,
+  FLOW_CANCELLED_ERROR,
+  FlowRunner,
+  renderFlowValue,
+  spawnAgentSession,
+} from "./runtime.js";
 
 /** Absolute path to this extension's directory. */
 const here = dirname(fileURLToPath(import.meta.url));
@@ -41,9 +50,15 @@ const DECLARATIONS_PATH = join(here, "agentflow.d.ts");
 const SKILLS_PATH = join(here, "skills");
 
 /**
+ * Display name of the currently running flow, or undefined. Only one flow
+ * runs at a time; a second invocation is refused while one is active.
+ */
+let activeFlowName: string | undefined;
+
+/**
  * Run an AgentFlow script end-to-end: resolve, validate, gate on trust,
- * execute under the Orchestrator (TUI) or non-TUI path, and deliver the
- * recorded result back to the main session.
+ * execute under the fleet UI (TUI) or non-TUI path, and deliver the recorded
+ * result back to the main session. Only one flow runs at a time.
  */
 async function runAgentFlow(
   pi: ExtensionAPI,
@@ -56,112 +71,139 @@ async function runAgentFlow(
     return;
   }
 
-  // 1. Resolve the flow script (project → global, .ts → .js).
-  const resolved = resolveFlowFile(name, ctx.cwd);
-  if (!resolved) {
+  // Only one flow runs at a time; the fleet widget owns the UI for the run.
+  // Claim the slot BEFORE the async validation steps so a concurrent
+  // invocation cannot slip through the guard.
+  if (activeFlowName) {
     ctx.ui.notify(
-      `AgentFlow: no script found for "${name}" in .pi/agentflow/ or ~/.pi/agentflow/`,
-      "error",
+      `AgentFlow "${activeFlowName}" is still running — wait for it, or cancel it (↓ to manage, then x on main).`,
+      "warning",
     );
     return;
   }
-
-  // 2. Gate project-local scripts on project trust.
-  if (resolved.isProject && !ctx.isProjectTrusted()) {
-    ctx.ui.notify(
-      `AgentFlow: project script "${resolved.path}" is not run because the project is not trusted.`,
-      "error",
-    );
-    return;
-  }
-
-  // 3. Syntax-validate (aborts before any sub-agent is spawned).
-  let transpiled: string;
+  activeFlowName = name;
   try {
-    transpiled = validateFlowSyntax(
-      readFlowScript(resolved.path),
-      resolved.path,
-    );
-  } catch (err) {
-    ctx.ui.notify(err instanceof Error ? err.message : String(err), "error");
-    return;
-  }
+    // 1. Resolve the flow script (project → global, .ts → .js).
+    const resolved = resolveFlowFile(name, ctx.cwd);
+    if (!resolved) {
+      ctx.ui.notify(
+        `AgentFlow: no script found for "${name}" in .pi/agentflow/ or ~/.pi/agentflow/`,
+        "error",
+      );
+      return;
+    }
 
-  // 4. Type-check `.ts` scripts against the shipped declarations.
-  if (resolved.isTypeScript) {
+    // 2. Gate project-local scripts on project trust.
+    if (resolved.isProject && !ctx.isProjectTrusted()) {
+      ctx.ui.notify(
+        `AgentFlow: project script "${resolved.path}" is not run because the project is not trusted.`,
+        "error",
+      );
+      return;
+    }
+
+    // 3. Syntax-validate (aborts before any sub-agent is spawned).
+    let transpiled: string;
     try {
-      await typeCheckFlowScript(
-        resolved.path,
+      transpiled = validateFlowSyntax(
         readFlowScript(resolved.path),
-        DECLARATIONS_PATH,
+        resolved.path,
       );
     } catch (err) {
       ctx.ui.notify(err instanceof Error ? err.message : String(err), "error");
       return;
     }
-  }
 
-  // 5. Build the runner and the injected `af` surface.
-  const runner = new FlowRunner({
-    ctx,
-    resolveModel: (spec) => {
-      const idx = spec.indexOf("/");
-      if (idx === -1) return undefined;
-      return ctx.modelRegistry.find(spec.slice(0, idx), spec.slice(idx + 1));
-    },
-    inheritTools: () => pi.getActiveTools(),
-  });
-  const af = runner.buildAf();
-
-  // Completion promise resolves to an error string, or undefined on success.
-  // The listener is attached synchronously here, before `executeFlowScript`
-  // below can call `runner.complete()`, so no fast-flow race is possible.
-  const completion = new Promise<string | undefined>((resolve) => {
-    const unsub = runner.subscribe((event) => {
-      if (event.type === "complete") {
-        unsub();
-        resolve(event.error);
+    // 4. Type-check `.ts` scripts against the shipped declarations.
+    if (resolved.isTypeScript) {
+      try {
+        await typeCheckFlowScript(
+          resolved.path,
+          readFlowScript(resolved.path),
+          DECLARATIONS_PATH,
+        );
+      } catch (err) {
+        ctx.ui.notify(
+          err instanceof Error ? err.message : String(err),
+          "error",
+        );
+        return;
       }
-    });
-  });
-
-  // 6. Run the script in the background; the Orchestrator renders live.
-  const scriptRun = executeFlowScript(transpiled, af).then(
-    () => runner.complete(),
-    (err: unknown) =>
-      runner.complete(err instanceof Error ? err.message : String(err)),
-  );
-
-  try {
-    // 7. Block until the run finishes (TUI) or just drive it (non-TUI).
-    if (ctx.hasUI && ctx.mode === "tui") {
-      await runTuiFlow(
-        ctx,
-        runner,
-        name,
-        completion,
-        (agentId) => void stopAgent(runner, agentId),
-        (agentId, message) => void steerAgent(runner, agentId, message),
-      );
-    } else {
-      await runNonTuiFlow(runner);
     }
-    await scriptRun;
-  } finally {
-    for (const record of runner.agents) record.handle.dispose();
-  }
 
-  // 8. Deliver the recorded result (or the error) back to the main session.
-  const error = await completion;
-  deliverResult(pi, name, runner, error);
+    // 5. Build the runner and the injected `af` surface.
+    const runner = new FlowRunner({
+      ctx,
+      resolveModel: (spec) => {
+        const idx = spec.indexOf("/");
+        if (idx === -1) return undefined;
+        return ctx.modelRegistry.find(spec.slice(0, idx), spec.slice(idx + 1));
+      },
+      inheritTools: () => pi.getActiveTools(),
+      spawnSession: spawnAgentSession,
+    });
+    const af = runner.buildAf();
+
+    // Completion promise resolves to an error string, or undefined on success.
+    // The listener is attached synchronously here, before `executeFlowScript`
+    // below can call `runner.complete()`, so no fast-flow race is possible.
+    const completion = new Promise<string | undefined>((resolve) => {
+      const unsub = runner.subscribe((event) => {
+        if (event.type === "complete") {
+          unsub();
+          resolve(event.error);
+        }
+      });
+    });
+
+    // 6. Run the script in the background; the fleet UI renders live.
+    const scriptRun = executeFlowScript(transpiled, af).then(
+      () => runner.complete(),
+      (err: unknown) =>
+        runner.complete(err instanceof Error ? err.message : String(err)),
+    );
+
+    try {
+      // 7. Block until the run finishes (TUI) or just drive it (non-TUI).
+      if (ctx.hasUI && ctx.mode === "tui") {
+        await runTuiFlow(
+          ctx,
+          runner,
+          name,
+          completion,
+          (agentId) => void stopAgent(runner, agentId),
+          (agentId, message) =>
+            void steerAgent(runner, agentId, message, (msg, type) =>
+              ctx.ui.notify(msg, type),
+            ),
+          () => runner.cancel(),
+        );
+      } else {
+        await runNonTuiFlow(runner);
+      }
+      await scriptRun;
+    } finally {
+      for (const record of runner.agents) record.handle.dispose();
+    }
+
+    // 8. Deliver the recorded result (or the error) back to the main session.
+    const error = await completion;
+    deliverResult(pi, name, runner, error);
+  } finally {
+    activeFlowName = undefined;
+  }
 }
 
-/** Abort a running flow-agent and reflect its stopped state. */
+/**
+ * Stop a running flow-agent: abort it (dropping queued messages so it cannot
+ * resurrect) and reject any further messages for this run, so the flow script
+ * unwinds instead of silently reviving it.
+ */
 async function stopAgent(runner: FlowRunner, agentId: string): Promise<void> {
   const record = runner.agents.find((a) => a.id === agentId);
   if (!record) return;
   try {
-    await record.handle.abort();
+    await record.handle.stop();
   } finally {
     runner.markStopped(agentId);
   }
@@ -172,13 +214,19 @@ async function steerAgent(
   runner: FlowRunner,
   agentId: string,
   message: string,
+  notify?: (message: string, type: "info" | "warning" | "error") => void,
 ): Promise<void> {
   const record = runner.agents.find((a) => a.id === agentId);
   if (!record) return;
   try {
     await record.handle.sendSteer(message);
-  } catch {
-    // Steering a non-running/idle agent is a no-op; ignore.
+  } catch (err) {
+    notify?.(
+      `AgentFlow: steering "${record.name}" failed: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+      "warning",
+    );
   }
 }
 
@@ -190,7 +238,13 @@ function deliverResult(
   error: string | undefined,
 ): void {
   const { value, set } = runner.recordedResult;
-  if (error) {
+  if (error === FLOW_CANCELLED_ERROR) {
+    pi.sendMessage({
+      customType: "agentflow",
+      content: `AgentFlow "${name}" was cancelled by the user.`,
+      display: true,
+    });
+  } else if (error) {
     pi.sendMessage({
       customType: "agentflow",
       content: `AgentFlow "${name}" failed: ${error}`,
@@ -199,7 +253,7 @@ function deliverResult(
   } else if (set) {
     pi.sendMessage({
       customType: "agentflow",
-      content: `AgentFlow "${name}" result:\n\n${String(value)}`,
+      content: `AgentFlow "${name}" result:\n\n${renderFlowValue(value)}`,
       display: true,
     });
   } else {

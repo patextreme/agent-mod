@@ -16,6 +16,9 @@ import type {
 import { type TSchema, Type } from "typebox";
 import type { FlowAgent, SendMessageOptions } from "./agentflow.js";
 
+/** Error message used when a run is cancelled by the user from the UI. */
+export const FLOW_CANCELLED_ERROR = "cancelled by user";
+
 /**
  * The per-agent submission slot backing `submittedResult()` / `clearResult()`.
  * Shared between the `submit_result` tool's `execute` closure and the handle so
@@ -105,16 +108,38 @@ export class FlowAgentHandle<T = unknown> implements FlowAgent<T> {
   readonly session: AgentSession;
   private lastResult: string | undefined;
   private disposed = false;
+  /** Set when the Orchestrator stops this agent; the handle then rejects new messages. */
+  private stopped = false;
   private submission: SubmissionSlot;
+  /** Live check for flow-level cancellation (wired by the FlowRunner). */
+  private isFlowCancelled: (() => boolean) | undefined;
 
   constructor(
     name: string,
     session: AgentSession,
     submission: SubmissionSlot = createSubmissionSlot(),
+    isFlowCancelled?: () => boolean,
   ) {
     this.name = name;
     this.session = session;
     this.submission = submission;
+    this.isFlowCancelled = isFlowCancelled;
+  }
+
+  /** True once the Orchestrator stopped this agent. */
+  get isStopped(): boolean {
+    return this.stopped;
+  }
+
+  private assertSendable(): void {
+    if (this.disposed)
+      throw new Error(`AgentFlow: "${this.name}" is disposed.`);
+    if (this.stopped)
+      throw new Error(
+        `AgentFlow: agent "${this.name}" was stopped \u2014 it can no longer receive messages.`,
+      );
+    if (this.isFlowCancelled?.())
+      throw new Error(`AgentFlow: ${FLOW_CANCELLED_ERROR}`);
   }
 
   get result(): string | undefined {
@@ -148,14 +173,17 @@ export class FlowAgentHandle<T = unknown> implements FlowAgent<T> {
    * blocking until the current work settles.
    */
   async sendMessage(text: string, opts?: SendMessageOptions): Promise<string> {
-    if (this.disposed)
-      throw new Error(`AgentFlow: "${this.name}" is disposed.`);
+    this.assertSendable();
     const images = opts?.images?.length ? opts.images : undefined;
     await this.session.prompt(text, {
       images,
       streamingBehavior: "followUp",
     });
     await this.session.waitForIdle();
+    // A cancel that arrived mid-turn must reject this step, not resolve with
+    // partial text and let the flow script walk into its next step.
+    if (this.isFlowCancelled?.())
+      throw new Error(`AgentFlow: ${FLOW_CANCELLED_ERROR}`);
     this.lastResult = this.session.getLastAssistantText();
     return this.lastResult ?? "";
   }
@@ -166,17 +194,34 @@ export class FlowAgentHandle<T = unknown> implements FlowAgent<T> {
    * interface, so flow scripts cannot steer.
    */
   async sendSteer(text: string): Promise<string> {
-    if (this.disposed)
-      throw new Error(`AgentFlow: "${this.name}" is disposed.`);
+    this.assertSendable();
     await this.session.prompt(text, { streamingBehavior: "steer" });
     await this.session.waitForIdle();
+    if (this.isFlowCancelled?.())
+      throw new Error(`AgentFlow: ${FLOW_CANCELLED_ERROR}`);
     this.lastResult = this.session.getLastAssistantText();
     return this.lastResult ?? "";
   }
 
-  /** Cancel the sub-agent mid-run. */
+  /**
+   * Cancel the sub-agent mid-run. Clears the steer/follow-up queues first so
+   * queued messages cannot resurrect the agent right after the abort (the
+   * agent loop would otherwise continue with them once the run settles).
+   */
   async abort(): Promise<void> {
+    this.session.clearQueue();
     await this.session.abort();
+  }
+
+  /**
+   * Orchestrator-only stop: abort and permanently reject further messages for
+   * this run, so a flow script cannot silently revive a stopped agent. Not
+   * part of the public `FlowAgent` interface.
+   */
+  async stop(): Promise<void> {
+    if (this.stopped) return;
+    this.stopped = true;
+    await this.abort();
   }
 
   /** Release the underlying sub-session. */
