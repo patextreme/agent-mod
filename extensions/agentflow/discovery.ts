@@ -131,7 +131,32 @@ export function validateFlowSyntax(source: string, filename: string): string {
     moduleCache: false,
   });
   try {
-    return jiti.transform({ source, filename });
+    // `.ts`/`.tsx` flows must be transpiled as TypeScript; jiti only enables its
+    // TS plugin when told to, otherwise TS-only syntax (`interface`, `type`,
+    // generics) is a plain-JS parse error.
+    const isTs = /\.[cm]?tsx?$/.test(filename);
+    const output = jiti.transform({
+      source,
+      filename,
+      ts: isTs,
+      jsx: /\.(?:tsx|jsx)$/.test(filename),
+    });
+    // jiti does not throw on a parse failure — it signs the failure by emitting
+    // an `exports.__JITI_ERROR__ = {...}` assignment into the returned source.
+    // Surface that here so a bad flow aborts during validation with a clear
+    // message, instead of blowing up at runtime as a confusing
+    // "exports is not defined".
+    const marker = /__JITI_ERROR__\s*=\s*(\{.*\})/s.exec(output);
+    if (marker) {
+      let detail = marker[1];
+      try {
+        detail = JSON.parse(marker[1]).message ?? marker[1];
+      } catch {
+        // Keep the raw payload if it can't be parsed.
+      }
+      throw new Error(`AgentFlow: syntax error in "${filename}": ${detail}`);
+    }
+    return output;
   } catch (err) {
     throw new Error(
       `AgentFlow: syntax error in "${filename}": ${

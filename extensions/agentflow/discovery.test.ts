@@ -3,7 +3,12 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { flowCandidates, listFlowNames, resolveFlowFile } from "./discovery.js";
+import {
+  flowCandidates,
+  listFlowNames,
+  resolveFlowFile,
+  validateFlowSyntax,
+} from "./discovery.js";
 
 /** Build an isolated set of project + global flow dirs for a test. */
 function makeDirs(): {
@@ -113,4 +118,39 @@ test("listFlowNames returns empty when no flow dirs exist", () => {
   } finally {
     d.cleanup();
   }
+});
+
+test("validateFlowSyntax transpiles .ts flows with TypeScript-only syntax", () => {
+  // `interface`/`type`/generics are plain-JS parse errors — the validator must
+  // run jiti's TS transform for `.ts` files or a valid flow is rejected.
+  const ts = `
+interface R { ok: boolean }
+type V = { n: number };
+const pick = (r: R, v: V): string => af.log(r.ok, v.n);
+`;
+  const out = validateFlowSyntax(ts, "/proj/.pi/agentflow/reviewcode.ts");
+  // TypeScript-only syntax parses and is erased to valid JS (no error marker,
+  // no stray `exports`/`module` references that would break the AsyncFunction
+  // runtime wrapper).
+  assert.match(out, /af\.log/);
+  assert.doesNotMatch(out, /__JITI_ERROR__/);
+  assert.doesNotMatch(out, /exports/);
+});
+
+test("validateFlowSyntax throws a clear error on a real syntax error", () => {
+  assert.throws(
+    () => validateFlowSyntax("const x = ;", "/proj/.pi/agentflow/broken.js"),
+    /AgentFlow: syntax error in/,
+  );
+});
+
+test("validateFlowSyntax surfaces jiti's embedded parse error as a thrown Error", () => {
+  // jiti signals TS-parse failures by emitting an `exports.__JITI_ERROR__`
+  // assignment instead of throwing. The validator must detect that sentinel and
+  // throw a real error rather than passing the error-encoded source through
+  // (which would otherwise fail at runtime as "exports is not defined").
+  assert.throws(
+    () => validateFlowSyntax("const x: number =", "/proj/.pi/agentflow/bad.ts"),
+    /AgentFlow: syntax error in/,
+  );
 });
