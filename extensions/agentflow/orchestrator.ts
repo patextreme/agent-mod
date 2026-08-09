@@ -174,13 +174,17 @@ export class ConversationViewer implements Component {
     const innerW = Math.max(1, width - 4);
     this.lastInnerW = innerW;
     const lines: string[] = [];
-    const row = (content: string) =>
-      th.fg("border", "│") +
-      " " +
-      truncateToWidth(content, innerW) +
-      " ".repeat(Math.max(0, innerW - visibleWidth(content))) +
-      " " +
-      th.fg("border", "│");
+    const row = (content: string) => {
+      const clipped = truncateToWidth(content, innerW);
+      return (
+        th.fg("border", "│") +
+        " " +
+        clipped +
+        " ".repeat(Math.max(0, innerW - visibleWidth(clipped))) +
+        " " +
+        th.fg("border", "│")
+      );
+    };
     const top = th.fg("border", `╭${"─".repeat(Math.max(0, width - 2))}╮`);
     const bottom = th.fg("border", `╰${"─".repeat(Math.max(0, width - 2))}╯`);
     const mid = row(th.fg("dim", "─".repeat(innerW)));
@@ -261,14 +265,16 @@ export class ConversationViewer implements Component {
     );
   }
 
-  private canSteer(): boolean {
+  /** Whether a steering composer can be opened right now. */
+  canSteer(): boolean {
     return (
       !!this.onSteer &&
       (this.record.status === "running" || this.record.status === "created")
     );
   }
 
-  private openComposer(): void {
+  /** Open the steering composer (used by `s` from the roster). */
+  openComposer(): void {
     const input = new Input();
     input.focused = true;
     input.onSubmit = (value: string) => {
@@ -399,14 +405,21 @@ export class Orchestrator implements Component {
       this.viewer.handleInput(data);
       return;
     }
+    if (matchesKey(data, "escape")) {
+      // Hide the overlay; the flow keeps running in the background and its
+      // result is still delivered to the main session.
+      this.close();
+      return;
+    }
     if (matchesKey(data, "down")) {
-      this.selectedIndex = Math.min(
-        this.roster().length - 1,
-        this.selectedIndex + 1,
-      );
+      const next = Math.min(this.roster().length - 1, this.selectedIndex + 1);
+      if (next !== this.selectedIndex) this.stopArmedId = undefined;
+      this.selectedIndex = next;
       this.tui.requestRender();
     } else if (matchesKey(data, "up")) {
-      this.selectedIndex = Math.max(0, this.selectedIndex - 1);
+      const next = Math.max(0, this.selectedIndex - 1);
+      if (next !== this.selectedIndex) this.stopArmedId = undefined;
+      this.selectedIndex = next;
       this.tui.requestRender();
     } else if (matchesKey(data, "enter")) {
       this.openSelected();
@@ -421,15 +434,23 @@ export class Orchestrator implements Component {
   }
 
   render(width: number): string[] {
+    // The viewer owns the whole screen while open.
+    if (this.viewer) return this.viewer.render(width);
+
     const th = this.theme;
     const innerW = Math.max(1, width - 4);
     const lines: string[] = [];
-    const row = (content: string) =>
-      th.fg("border", "│") +
-      " " +
-      truncateToWidth(content, innerW) +
-      " " +
-      th.fg("border", "│");
+    const row = (content: string) => {
+      const clipped = truncateToWidth(content, innerW);
+      return (
+        th.fg("border", "│") +
+        " " +
+        clipped +
+        " ".repeat(Math.max(0, innerW - visibleWidth(clipped))) +
+        " " +
+        th.fg("border", "│")
+      );
+    };
     const top = th.fg("border", `╭${"─".repeat(Math.max(0, width - 2))}╮`);
 
     lines.push(top);
@@ -453,13 +474,21 @@ export class Orchestrator implements Component {
     }
     lines.push(th.fg("border", `├${"─".repeat(Math.max(0, width - 2))}┤`));
 
-    // Agent overview.
+    // Agent overview (window scrolls so the selected row stays visible).
     const roster = this.roster();
     const visible = Math.min(MAX_AGENT_ROWS, roster.length);
-    for (let i = 0; i < visible; i++) {
+    const start = Math.max(
+      0,
+      Math.min(this.selectedIndex - visible + 1, roster.length - visible),
+    );
+    if (start > 0) {
+      lines.push(row(th.fg("dim", `  ↑ ${start} more`)));
+    }
+    for (let i = start; i < start + visible; i++) {
       const entry = roster[i];
+      // `▸` marks selection; status icons (●/○/■/✗) stay distinct from it.
       const bullet =
-        i === this.selectedIndex ? th.fg("accent", "●") : th.fg("dim", "○");
+        i === this.selectedIndex ? th.fg("accent", "▸") : th.fg("dim", " ");
       if (entry.kind === "main") {
         lines.push(
           row(
@@ -473,14 +502,30 @@ export class Orchestrator implements Component {
         lines.push(row(rightAlign(`  ${left}`, right, innerW)));
       }
     }
-    if (roster.length > visible) {
-      lines.push(row(th.fg("dim", `  ↓ ${roster.length - visible} more`)));
+    if (roster.length > start + visible) {
+      lines.push(
+        row(th.fg("dim", `  ↓ ${roster.length - start - visible} more`)),
+      );
     }
 
+    // Footer: a pending stop confirmation replaces the normal hints.
+    const armed = this.stopArmedId
+      ? roster.find(
+          (e): e is Extract<RosterEntry, { kind: "agent" }> =>
+            e.kind === "agent" && e.record.id === this.stopArmedId,
+        )
+      : undefined;
+    const hint = armed
+      ? th.fg(
+          "error",
+          `press x again to stop "${armed.record.name}" · any other key cancels`,
+        )
+      : th.fg(
+          "dim",
+          "↑↓ select · enter view · s steer · x stop · esc hide (flow runs on)",
+        );
+    lines.push(row(hint));
     lines.push(th.fg("border", `╰${"─".repeat(Math.max(0, width - 2))}╯`));
-    lines.push(
-      row(th.fg("dim", "↑↓ select · enter view · s steer · x stop · esc back")),
-    );
     return lines;
   }
 
@@ -553,13 +598,18 @@ export class Orchestrator implements Component {
       () => this.options.onStop(recordId),
       (message) => this.options.onSteer(recordId, message),
     );
+    // `s` means "steer now": jump straight into the composer when possible.
+    if (this.viewer.canSteer()) this.viewer.openComposer();
     this.tui.requestRender();
   }
 
   private stopSelected(): void {
     const entry = this.roster()[this.selectedIndex];
     if (!entry || entry.kind === "main") return;
-    const id = entry.record.id;
+    const record = entry.record;
+    // Only running/created agents are stoppable; x on anything else is a no-op.
+    if (record.status !== "running" && record.status !== "created") return;
+    const id = record.id;
     if (this.stopArmedId === id) {
       this.stopArmedId = undefined;
       this.options.onStop(id);

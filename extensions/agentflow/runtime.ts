@@ -255,6 +255,9 @@ export class FlowRunner {
   /** Track live activity from the sub-session's events. */
   private wireActivity(record: FlowAgentRecord): void {
     const update = (activity: string, status?: AgentStatus) => {
+      // Terminal states are final: late events after an abort/error must not
+      // flip a stopped or errored agent back to running.
+      if (record.status === "stopped" || record.status === "error") return;
       record.activity = activity;
       if (status) record.status = status;
       this.emit({ type: "agent_updated", record });
@@ -268,6 +271,9 @@ export class FlowRunner {
       } else if (event.type === "tool_execution_start") {
         update(`running ${event.toolName}`, "running");
       } else if (event.type === "tool_execution_end") {
+        update("idle", "idle");
+      } else if (event.type === "agent_settled") {
+        // The turn fully completed — the agent is idle, not still running.
         update("idle", "idle");
       } else if (
         event.type === "message_start" &&
@@ -283,6 +289,7 @@ export class FlowRunner {
     const record = this.agents.find((a) => a.id === agentId);
     if (!record) return;
     record.status = "stopped";
+    record.activity = "stopped";
     record.completedAt = Date.now();
     this.emit({ type: "agent_updated", record });
   }
