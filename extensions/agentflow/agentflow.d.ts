@@ -9,6 +9,8 @@
  * The only orchestration identifier available is `af`.
  */
 
+import { type TSchema, Type } from "typebox";
+
 /** Configuration accepted by `af.createAgent(config)`. */
 export interface FlowAgentConfig {
   /** Human-readable agent name shown in the Orchestrator (e.g. "reviewer"). */
@@ -28,6 +30,15 @@ export interface FlowAgentConfig {
    * set). When false or omitted, the sub-session is in-memory only.
    */
   persist?: boolean;
+  /**
+   * A TypeBox `TSchema` describing the structured value the agent can submit
+   * back to the flow via the `submit_result` tool. When provided, the
+   * sub-agent gains a `submit_result` tool whose `value` is validated against
+   * this schema; when omitted, no such tool is injected and
+   * `submittedResult()` is always `undefined`. Use the `typebox` package the
+   * extension ships so the schema shares the SDK's schema-instance identity.
+   */
+  resultSchema?: TSchema;
 }
 
 /** An image attachment to include with a `sendMessage`. */
@@ -46,8 +57,11 @@ export interface SendMessageOptions {
 /**
  * A single flow-agent: a thin handle wrapping one isolated sub-agent session.
  * Sequential `sendMessage` calls share the same conversation.
+ *
+ * `T` is the compile-time type of the value the agent submits via
+ * `submit_result` (compile-time only; the runtime guard is `resultSchema`).
  */
-export interface FlowAgent {
+export interface FlowAgent<T = unknown> {
   /** The agent name given to `af.createAgent`. */
   readonly name: string;
   /**
@@ -61,6 +75,16 @@ export interface FlowAgent {
   readonly result: string | undefined;
   /** The session file path when the agent is persisted, else undefined. */
   readonly sessionFile: string | undefined;
+  /**
+   * The most recent value the agent submitted via `submit_result`, or
+   * `undefined` when none has been submitted (or the result was cleared).
+   * Returns a deep copy, so mutating it does not affect the handle's stored
+   * value. There is no automatic reset on `sendMessage` or steering; call
+   * `clearResult()` explicitly when you want freshness.
+   */
+  submittedResult(): T | undefined;
+  /** Reset the stored submitted value to `undefined`. */
+  clearResult(): void;
   /** Cancel the agent mid-run. */
   abort(): Promise<void>;
   /** Release the underlying sub-session. */
@@ -70,10 +94,17 @@ export interface FlowAgent {
 /** The injected `af` scripting surface. */
 export interface AgentFlow {
   /**
+   * The TypeBox `Type` namespace, exposed so flow scripts can build a
+   * `resultSchema` without importing (scripts cannot import). Use it to
+   * construct schema values, e.g. `af.Type.Object({ done: af.Type.Boolean() })`.
+   */
+  Type: typeof Type;
+  /**
    * Spawn an isolated sub-agent session and return a handle to drive it.
    * Defaults (model, tools, cwd, system prompt) inherit from the main session.
+   * `T` is the type of the value the agent submits via `submit_result`.
    */
-  createAgent(config: FlowAgentConfig): Promise<FlowAgent>;
+  createAgent<T = unknown>(config: FlowAgentConfig): Promise<FlowAgent<T>>;
   /** Emit a progress line, rendered live inside the Orchestrator. */
   log(...parts: unknown[]): void;
   /**

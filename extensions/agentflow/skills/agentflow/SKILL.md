@@ -23,6 +23,10 @@ the SDK, drives them step by step, and delivers a result back to the main sessio
 
 A flow gets exactly one injected global: `af`. It has no other imports or globals.
 
+### `af.Type`
+
+The TypeBox `Type` namespace (see [Structured results](#structured-results-resultSchema--submit_result)). Used to build `resultSchema` values since scripts cannot `import`.
+
 ### `af.createAgent(config)` → `Promise<FlowAgent>`
 
 Spawns an isolated sub-agent session. Config:
@@ -36,6 +40,7 @@ Spawns an isolated sub-agent session. Config:
   cwd?: string,               // default: the flow's working directory
   contextFiles?: string[],    // file contents appended to the system prompt
   persist?: boolean,          // true → save a session file; default false (in-memory)
+  resultSchema?: TSchema,     // TypeBox schema → injects the submit_result tool
 }
 ```
 
@@ -47,6 +52,8 @@ const answer = await agent.sendMessage("Do the thing."); // blocks, returns fina
 answer;            // last step's final assistant text
 agent.result;      // same as above
 agent.sessionFile; // set only when persist: true
+agent.submittedResult(); // schema-typed value the agent submitted (see below)
+await agent.clearResult(); // explicit reset of the submitted value
 await agent.abort(); // cancel mid-run
 agent.dispose();    // release the sub-session
 ```
@@ -63,6 +70,98 @@ const [a, b] = await Promise.all([
   y.sendMessage("Task B"),
 ]);
 ```
+
+## Structured results: `resultSchema` + `submit_result`
+
+Give an agent a **schema-validated result channel** by passing a TypeBox
+`resultSchema` to `af.createAgent`. When present, the sub-agent gets a
+`submit_result` tool to hand a typed value back to the flow; when absent, no
+tool is injected and `submittedResult()` is always `undefined`.
+
+The schema is a TypeBox `TSchema` built with the `af.Type` namespace (the same
+`typebox` version the SDK uses, `1.3.7`, so the schema shares the SDK's
+schema-instance identity). Flow scripts cannot `import`, so `af.Type` is the
+way to construct a schema value:
+
+```ts
+const packet = await af.createAgent({
+  name: "packet",
+  resultSchema: af.Type.Object({
+    findings: af.Type.Array(af.Type.String()),
+    confidence: af.Type.Number(),
+  }),
+});
+```
+
+### Reading and clearing a submitted result
+
+```ts
+const _text = await packet.sendMessage("Review src/core.ts and submit your findings.");
+const findings = packet.submittedResult(); // { findings: string[]; confidence: number } | undefined
+
+packet.clearResult(); // explicitly reset for the next iteration
+```
+
+- `submittedResult()` returns a **deep copy** of the most recent value the agent
+  submitted, typed as the flow's generic — mutating the returned object never
+  affects the handle's stored value.
+- `clearResult()` resets the stored value to `undefined`. There is **no
+  automatic reset** on `sendMessage` or steering; the flow owns freshness.
+- `submit_result` overwrites the previous value (last-write-wins). A malformed
+  value is rejected by schema validation so the agent sees the error and retries.
+- `sendMessage` still resolves with the final assistant text; the submitted
+  result is a separate, structured channel.
+
+### Orchestration patterns
+
+**Loop control** — iterate until the agent submits an accept verdict, clearing
+per turn so a stale value is never mistaken for this iteration's answer:
+
+```ts
+const checker = await af.createAgent({
+  name: "checker",
+  resultSchema: af.Type.Object({ ok: af.Type.Boolean(), notes: af.Type.String() }),
+});
+
+let round = 0;
+while (round < 5) {
+  checker.clearResult(); // freshness: this round's verdict only
+  await checker.sendMessage(`Round ${round + 1}: verify the fix and submit { ok, notes }.`);
+  const verdict = checker.submittedResult();
+  if (verdict?.ok) {
+    af.log(`Accepted after round ${round + 1}: ${verdict.notes}`);
+    break;
+  }
+  round++;
+}
+```
+
+**Fan-out over a submitted array** — have a planner submit a list of items, then
+fan each item out to parallel workers that themselves submit structured results:
+
+```ts
+const planner = await af.createAgent({
+  name: "planner",
+  resultSchema: af.Type.Object({ steps: af.Type.Array(af.Type.String()) }),
+});
+await planner.sendMessage("Break the task into steps and submit { steps }.");
+const steps = planner.submittedResult()?.steps ?? [];
+
+const workers = await Promise.all(
+  steps.map(async (step) => {
+    const w = await af.createAgent({
+      name: `worker:${step.slice(0, 12)}`,
+      resultSchema: af.Type.Object({ output: af.Type.String() }),
+    });
+    await w.sendMessage(`Execute this step and submit { output }: ${step}`);
+    return w.submittedResult()?.output ?? "";
+  }),
+);
+af.result(workers.join("\n\n"));
+```
+
+Both patterns call `clearResult()` per iteration so the flow never reads a stale
+submission from a previous turn.
 
 ### `af.log(...parts)`
 
@@ -103,8 +202,9 @@ tsc --noEmit --strict /path/to/.pi/agentflow/myflow.ts \
 
 ## Worked example
 
-See `extensions/agentflow/examples/reviewcode.ts`. Copy it to `.pi/agentflow/`
-and run `/af reviewcode`:
+See `extensions/agentflow/examples/reviewcode.ts` (basic sequential) and
+`extensions/agentflow/examples/fanout.ts` (structured results with loop/fan-out).
+Copy one to `.pi/agentflow/` and run `/af reviewcode` (or `/af fanout`):
 
 ```ts
 const reviewer = await af.createAgent({

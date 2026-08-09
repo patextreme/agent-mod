@@ -13,12 +13,25 @@ import {
   SessionManager,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
-import type {
-  AgentFlow,
-  FlowAgent,
-  FlowAgentConfig,
-  SendMessageOptions,
-} from "./agentflow.js";
+import { Type } from "typebox";
+import type { AgentFlow, FlowAgent, FlowAgentConfig } from "./agentflow.js";
+import {
+  buildSubmitTool,
+  createSubmissionSlot,
+  FlowAgentHandle,
+  includeSubmitToolActive,
+} from "./submit.js";
+
+// Re-export the submitted-result surface so runtime consumers (and the shipped
+// runtime interface) keep working through this module path.
+export {
+  buildSubmitTool,
+  createSubmissionSlot,
+  deepCopy,
+  FlowAgentHandle,
+  includeSubmitToolActive,
+  type SubmissionSlot,
+} from "./submit.js";
 
 /** Live status of a flow-agent, as shown in the Orchestrator. */
 export type AgentStatus = "created" | "running" | "idle" | "stopped" | "error";
@@ -54,75 +67,6 @@ export type FlowRunnerEvent =
     };
 
 type Listener = (event: FlowRunnerEvent) => void;
-
-/** A thin flow-agent handle wrapping one `createAgentSession` sub-session. */
-export class FlowAgentHandle implements FlowAgent {
-  readonly name: string;
-  readonly session: AgentSession;
-  private lastResult: string | undefined;
-  private disposed = false;
-
-  constructor(name: string, session: AgentSession) {
-    this.name = name;
-    this.session = session;
-  }
-
-  get result(): string | undefined {
-    return this.lastResult;
-  }
-
-  get sessionFile(): string | undefined {
-    return this.session.sessionFile;
-  }
-
-  /**
-   * Send a message and block until the step fully completes; returns the final
-   * text. Always delivers in order: while the agent is streaming, the message
-   * is queued (streamingBehavior "followUp") and `waitForIdle()` provides the
-   * blocking until the current work settles.
-   */
-  async sendMessage(
-    text: string,
-    opts?: SendMessageOptions,
-  ): Promise<string> {
-    if (this.disposed)
-      throw new Error(`AgentFlow: "${this.name}" is disposed.`);
-    const images = opts?.images?.length ? opts.images : undefined;
-    await this.session.prompt(text, {
-      images,
-      streamingBehavior: "followUp",
-    });
-    await this.session.waitForIdle();
-    this.lastResult = this.session.getLastAssistantText();
-    return this.lastResult ?? "";
-  }
-
-  /**
-   * Internal steering only (used by the Orchestrator to forward a main-session
-   * message into a running sub-agent). Not part of the public `FlowAgent`
-   * interface, so flow scripts cannot steer.
-   */
-  async sendSteer(text: string): Promise<string> {
-    if (this.disposed)
-      throw new Error(`AgentFlow: "${this.name}" is disposed.`);
-    await this.session.prompt(text, { streamingBehavior: "steer" });
-    await this.session.waitForIdle();
-    this.lastResult = this.session.getLastAssistantText();
-    return this.lastResult ?? "";
-  }
-
-  /** Cancel the sub-agent mid-run. */
-  async abort(): Promise<void> {
-    await this.session.abort();
-  }
-
-  /** Release the underlying sub-session. */
-  dispose(): void {
-    if (this.disposed) return;
-    this.disposed = true;
-    this.session.dispose();
-  }
-}
 
 /** Services the runner needs from the main-session context. */
 export interface RunnerServices {
@@ -176,8 +120,13 @@ export class FlowRunner {
   buildAf(): AgentFlow {
     const runner = this;
     return {
-      async createAgent(config: FlowAgentConfig): Promise<FlowAgent> {
-        return runner.createAgent(config);
+      // Expose the TypeBox `Type` namespace so flow scripts can build a
+      // `resultSchema` without importing (scripts cannot import).
+      Type,
+      async createAgent<T = unknown>(
+        config: FlowAgentConfig,
+      ): Promise<FlowAgent<T>> {
+        return runner.createAgent<T>(config);
       },
       log(...parts: unknown[]): void {
         const line = parts.map(String).join(" ");
@@ -194,7 +143,9 @@ export class FlowRunner {
   }
 
   /** Spawn a flow-agent sub-session and register it. */
-  async createAgent(config: FlowAgentConfig): Promise<FlowAgentHandle> {
+  async createAgent<T = unknown>(
+    config: FlowAgentConfig,
+  ): Promise<FlowAgentHandle<T>> {
     const name = config.name?.trim();
     if (!name) throw new Error("AgentFlow: af.createAgent requires a `name`.");
 
@@ -208,10 +159,17 @@ export class FlowRunner {
         line: `AgentFlow: warning — model "${config.model}" not found; using the default model.`,
       });
     }
-    const tools =
-      config.tools !== undefined
-        ? config.tools
-        : this.services.inheritTools();
+    const baseTools =
+      config.tools !== undefined ? config.tools : this.services.inheritTools();
+    // When a resultSchema is provided, the submit_result tool must be among the
+    // agent's ACTIVE tools (the SDK's `tools` field is an allowlist that also
+    // determines the active set — mere registration via customTools is not
+    // enough for the agent to see it). Omit the inherited allowlist so the
+    // custom tool is reachable; otherwise the agent can never call it.
+    const tools = includeSubmitToolActive(
+      baseTools,
+      config.resultSchema !== undefined,
+    );
     const baseSystemPrompt =
       config.systemPrompt ?? this.services.ctx.getSystemPrompt();
 
@@ -251,6 +209,18 @@ export class FlowRunner {
     });
     await loader.reload();
 
+    // Create the submission slot *before* the session so the submit_result
+    // tool's execute closure and the handle share the same storage. The tool
+    // is injected only when a resultSchema is provided (schema-gated opt-in).
+    const submission = createSubmissionSlot();
+    const submitTool = buildSubmitTool(
+      name,
+      config.resultSchema,
+      submission,
+      (line) => this.emit({ type: "log", line }),
+    );
+    const customTools = submitTool ? [submitTool] : undefined;
+
     const { session } = await createAgentSession({
       cwd,
       agentDir,
@@ -259,11 +229,12 @@ export class FlowRunner {
       resourceLoader: loader,
       ...(model !== undefined ? { model: model as never } : {}),
       ...(tools ? { tools } : {}),
+      ...(customTools ? { customTools } : {}),
     });
 
     session.setSessionName(name);
 
-    const handle = new FlowAgentHandle(name, session);
+    const handle = new FlowAgentHandle<T>(name, session, submission);
     const record: FlowAgentRecord = {
       id: `agent${this.nextId++}`,
       name,

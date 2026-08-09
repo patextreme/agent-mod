@@ -20,8 +20,8 @@ See `proposal.md` — Why. Current AgentFlow runtime (`extensions/agentflow/runt
 ## Decisions
 
 ### 1. Inject `submit_result` only when `resultSchema` is provided
-The tool is built with `defineTool` and passed via `customTools` to `createAgentSession` **only** when `config.resultSchema` is set. Absent a schema, no tool is injected and `submittedResult()` is always `undefined`.
-- Rationale: the schema is both the shape contract and the opt-in switch (per proposal amendment). No ambiguous permissive fallback.
+The tool is built and passed via `customTools` to `createAgentSession` **only** when `config.resultSchema` is set. The SDK's `tools` field is an allowlist that also determines the agent's *active* tool set, so the tool name `submit_result` is additionally appended to the active-tool allowlist (`includeSubmitToolActive`) whenever a `resultSchema` is present — mere registration via `customTools` is not enough for the agent to see it. Absent a schema, no tool is injected/activated and `submittedResult()` is always `undefined`.
+- Rationale: the schema is both the shape contract and the opt-in switch (per proposal amendment). The active-allowlist append was discovered during live verification (the agent could not call an inactive tool). No ambiguous permissive fallback.
 - Alternative considered: always permissive schema — rejected; loses the shape guarantee and the retry value.
 
 ### 2. Tool schema wraps the result schema under a `value` key
@@ -49,7 +49,12 @@ On successful `execute`, the runner emits a `log` event (e.g. `agent "<name>" su
 `resultSchema` is a TypeBox `TSchema`; the `TSchema`/`Static` type is not re-exported by `pi-coding-agent`, and the tool's `parameters` must be a schema from the *same* `typebox` instance the SDK uses (v1.3.7) to avoid `SchemaGuard` identity mismatches. Add `typebox@1.3.7` to `package.json` `dependencies` and refresh `npmDepsHash` (verified by `nix flake check`).
 - Rationale: schema-instance identity matters at runtime; importing the same pinned version guarantees compatibility.
 
-## Risks / Trade-offs
+### 8. Expose `af.Type` so scripts can build schemas without importing
+Flow scripts run inside `new Function(\"af\", ...)` — `af` is the only global and scripts cannot `import`. A `resultSchema` is a TypeBox schema *value* that must be constructed by the script, so the `af` surface exposes the TypeBox `Type` namespace as `af.Type`. `buildAf` returns `Type` (the exact typebox instance the SDK shares via the pinned `typebox@1.3.7`); `agentflow.d.ts` declares `Type: typeof Type` on `AgentFlow`.
+- Rationale: the spec scenario (`Type.Array(Type.String())`) and the authoring examples require schema construction in-script; without `af.Type` there is no way to build a schema given the no-import constraint. This keeps the "only `af` global" model intact and guarantees schema-instance identity (same pinned typebox).
+- Alternative considered: relying on scripts importing typebox — rejected; `import` inside the `new Function` body is a SyntaxError, so imports cannot work at runtime.
+
+## Risks / Trade-offs"}]
 
 - **[Provider constrained-sampling on free-form JSON]** → Mitigation: the schema is flow-provided, so constrained sampling follows whatever the flow declares; if a provider struggles with a broad schema, the throw-on-mismatch retry path still guarantees recovery.
 - **[`typebox` version drift vs SDK]** → Mitigation: pin to the SDK's exact `typebox@1.3.7`; `nix flake check` validates the lock.

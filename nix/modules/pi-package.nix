@@ -6,7 +6,7 @@
       rootNodeModules = pkgs.buildNpmPackage {
         name = "pi-root-node-modules";
         src = ./../..;
-        npmDepsHash = "sha256-xCTUN/BqMEDMXAxI/p9e190LWDWWf++1dtpoEHZsBQo=";
+        npmDepsHash = "sha256-GoDtNviQVAG9uRLSWMOLjtWZvt3e1FmFf/+eZI/4BMk=";
         makeCacheWritable = true;
         dontNpmBuild = true;
         installPhase = ''
@@ -56,6 +56,7 @@
           mkdir -p $out
           cp $src/index.ts $out/index.ts
           cp $src/discovery.ts $out/discovery.ts
+          cp $src/submit.ts $out/submit.ts
           cp $src/runtime.ts $out/runtime.ts
           cp $src/orchestrator.ts $out/orchestrator.ts
           cp $src/agentflow.d.ts $out/agentflow.d.ts
@@ -155,7 +156,7 @@
           cp -r ${rootNodeModules} node_modules
           chmod -R u+w node_modules
 
-          ./node_modules/.bin/tsx --test extensions/agentflow/discovery.test.ts
+          ./node_modules/.bin/tsx --test extensions/agentflow/discovery.test.ts extensions/agentflow/runtime.test.ts
         '';
         installPhase = ''
           touch $out
