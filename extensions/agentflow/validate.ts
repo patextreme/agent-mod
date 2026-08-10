@@ -67,14 +67,26 @@ function parseLocation(message: string): { line: number; col: number } {
  */
 function extractLocatedErrors(message: string): FlowValidationError[] {
   const errors: FlowValidationError[] = [];
-  const re = /^\s*(\d+):(\d+)\t(.+)$/gm;
-  for (const match of message.matchAll(re)) {
-    errors.push({
-      message: match[3],
-      line: Number(match[1]),
-      col: Number(match[2]),
-    });
+  const lines = message.split("\n");
+  // Each diagnostic block starts at a line matching `  line:col\tmessage`.
+  // A chained TypeScript diagnostic spans multiple lines (its message text is
+  // joined with "\n"), so any following line that does not itself start with a
+  // `line:col\t` loc is a continuation of the previous diagnostic's message —
+  // fold it back in instead of dropping it.
+  const locRe = /^\s*(\d+):(\d+)\t(.*)$/;
+  for (const line of lines) {
+    const m = locRe.exec(line);
+    if (m) {
+      errors.push({
+        message: m[3],
+        line: Number(m[1]),
+        col: Number(m[2]),
+      });
+    } else if (errors.length > 0) {
+      errors[errors.length - 1].message += `\n${line}`;
+    }
   }
+  for (const e of errors) e.message = e.message.replace(/\s+$/, "");
   return errors;
 }
 
@@ -97,7 +109,16 @@ export async function validateFlowFile(
     };
   }
 
-  const source = readFlowScript(resolved.path);
+  let source: string;
+  try {
+    source = readFlowScript(resolved.path);
+  } catch (err) {
+    // `readFlowScript` throws on a directory, unreadable file, etc. Surface it
+    // as a structured report so `validateFlowFile` honors its never-throws
+    // contract (mirroring the `/af` run path, which guards the same call).
+    const message = err instanceof Error ? err.message : String(err);
+    return { ok: false, name, errors: [error(message)] };
+  }
 
   // 2. Syntax-validate (both `.ts` and `.js`).
   try {

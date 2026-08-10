@@ -154,3 +154,36 @@ test("validateFlowSyntax surfaces jiti's embedded parse error as a thrown Error"
     /AgentFlow: syntax error in/,
   );
 });
+
+test("validateFlowSyntax rejects a flow that uses `import` (would crash at runtime)", () => {
+  // jiti transpiles ESM `import` to CommonJS `require(...)`, which is not in
+  // scope inside the runtime's AsyncFunction wrapper — so without this guard
+  // the script passes validation but dies with "require is not defined".
+  assert.throws(
+    () =>
+      validateFlowSyntax(
+        'import { x } from "y"\naf.log(x)',
+        "/proj/.pi/agentflow/imports.ts",
+      ),
+    /cannot use/,
+  );
+});
+
+test("validateFlowSyntax rejects a flow that uses `export`", () => {
+  assert.throws(
+    () =>
+      validateFlowSyntax(
+        "export const z = 1\naf.log(z)",
+        "/proj/.pi/agentflow/exports.ts",
+      ),
+    /cannot use/,
+  );
+});
+
+test("validateFlowSyntax still accepts a plain script with no module syntax", () => {
+  const out = validateFlowSyntax(
+    "const a = 1\naf.log(a)",
+    "/proj/.pi/agentflow/plain.ts",
+  );
+  assert.match(out, /af\.log/);
+});

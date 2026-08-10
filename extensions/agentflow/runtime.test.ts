@@ -304,6 +304,117 @@ test("a mid-turn stop() rejects the in-flight sendMessage/sendSteer (no partial-
   await assert.rejects(pendingSteer, /was stopped/);
 });
 
+// ─── Genuine turn failures → agent errored ───────────────────────────────
+
+test("a genuine turn failure (prompt rejects) reports a turn error", async () => {
+  const session = {
+    prompt: async () => {
+      throw new Error("upstream model 500");
+    },
+    waitForIdle: async () => {},
+    getLastAssistantText: () => "",
+    sessionFile: undefined,
+    subscribe: () => () => {},
+    messages: [],
+    abort: async () => {},
+    clearQueue: () => ({ steering: [], followUp: [] }),
+    dispose: () => {},
+    setSessionName: (_name: string) => {},
+  } as unknown as AgentSession;
+  const errors: string[] = [];
+  const handle = new FlowAgentHandle(
+    "a",
+    session,
+    createSubmissionSlot(),
+    undefined,
+    undefined,
+    (d) => errors.push(d),
+  );
+
+  await assert.rejects(() => handle.sendMessage("go"), /upstream model 500/);
+  assert.deepEqual(errors, ["upstream model 500"], "genuine failure reported");
+});
+
+test("a stop during an in-flight turn does not report a spurious turn error", async () => {
+  // The turn must reach `await prompt` *before* stop() sets the flag (stop sets
+  // `stopped` synchronously, so without the drain the turn would throw at
+  // assertSendable and never reach the prompt). stop() then aborts, which
+  // rejects the in-flight prompt — that rejection is a *consequence* of the
+  // stop, not a genuine failure, so onTurnError must stay silent (mirrors how
+  // the real SDK's abort surfaces mid-turn).
+  let rejectPrompt!: (e: Error) => void;
+  const session = {
+    prompt: () =>
+      new Promise<never>((_resolve, reject) => {
+        rejectPrompt = reject;
+      }),
+    waitForIdle: async () => {},
+    getLastAssistantText: () => "",
+    sessionFile: undefined,
+    subscribe: () => () => {},
+    messages: [],
+    abort: async () => {
+      rejectPrompt(new Error("aborted"));
+    },
+    clearQueue: () => ({ steering: [], followUp: [] }),
+    dispose: () => {},
+    setSessionName: (_name: string) => {},
+  } as unknown as AgentSession;
+  const errors: string[] = [];
+  const handle = new FlowAgentHandle(
+    "a",
+    session,
+    createSubmissionSlot(),
+    undefined,
+    undefined,
+    (d) => errors.push(d),
+  );
+
+  const pending = handle.sendMessage("go");
+  await new Promise((r) => setTimeout(r, 0)); // let the turn reach `await prompt`
+  await handle.stop(); // stopped = true, then abort() rejects the prompt
+  await assert.rejects(pending, /aborted/);
+  assert.deepEqual(errors, [], "stop-caused rejection is not a turn error");
+});
+
+test("a flow cancellation during an in-flight turn does not report a spurious turn error", async () => {
+  let rejectPrompt!: (e: Error) => void;
+  let cancelled = false;
+  const session = {
+    prompt: () =>
+      new Promise<never>((_resolve, reject) => {
+        rejectPrompt = reject;
+      }),
+    waitForIdle: async () => {},
+    getLastAssistantText: () => "",
+    sessionFile: undefined,
+    subscribe: () => () => {},
+    messages: [],
+    abort: async () => {
+      rejectPrompt(new Error("aborted"));
+    },
+    clearQueue: () => ({ steering: [], followUp: [] }),
+    dispose: () => {},
+    setSessionName: (_name: string) => {},
+  } as unknown as AgentSession;
+  const errors: string[] = [];
+  const handle = new FlowAgentHandle(
+    "a",
+    session,
+    createSubmissionSlot(),
+    () => cancelled,
+    undefined,
+    (d) => errors.push(d),
+  );
+
+  const pending = handle.sendMessage("go");
+  await new Promise((r) => setTimeout(r, 0)); // let the turn reach `await prompt`
+  cancelled = true; // flow-level cancel lands mid-turn
+  await handle.abort(); // abort rejects the in-flight prompt
+  await assert.rejects(pending, /aborted/);
+  assert.deepEqual(errors, [], "cancel-caused rejection is not a turn error");
+});
+
 test("stop() clears the steer/follow-up queues BEFORE aborting (no resurrection)", async () => {
   const { session, calls } = orderTrackingSession();
   const handle = new FlowAgentHandle("a", session);
@@ -336,30 +447,54 @@ test("flow cancellation rejects sendMessage/sendSteer and createAgent", async ()
   );
 });
 
-test("cancel() is reported by complete() even when the script finishes cleanly", () => {
+test("cancel() completes the run with FLOW_CANCELLED_ERROR (no external complete needed)", () => {
   const runner = mockRunner();
   fakeRecord(runner, "worker");
-  runner.cancel();
 
   let got: string | undefined = "unset";
   runner.subscribe((event) => {
     if (event.type === "complete") got = event.error;
   });
-  runner.complete(); // no error from the script side
+  // cancel() now drives completion itself, so a flow suspended on a non-`af`
+  // promise (which never unwinds to call complete()) still terminates — the
+  // fleet unmounts and the one-flow-at-a-time slot frees up.
+  runner.cancel();
+
+  assert.equal(runner.isCancelled, true);
+  assert.equal(runner.isComplete, true, "cancel drives completion");
   assert.equal(got, FLOW_CANCELLED_ERROR);
 });
 
-test("cancel() wins over the script's unwind error in complete()", () => {
+test("cancel()'s completion wins over the script's later unwind error", () => {
   const runner = mockRunner();
   fakeRecord(runner, "worker");
-  runner.cancel();
 
-  let got: string | undefined;
+  const errors: string[] = [];
   runner.subscribe((event) => {
-    if (event.type === "complete") got = event.error;
+    if (event.type === "complete") errors.push(event.error ?? "<none>");
   });
-  runner.complete('agent "worker" was stopped'); // script unwind error
-  assert.equal(got, FLOW_CANCELLED_ERROR);
+  runner.cancel(); // emits the cancellation completion
+  runner.complete('agent "worker" was stopped'); // idempotent: a no-op
+
+  assert.deepEqual(
+    errors,
+    [FLOW_CANCELLED_ERROR],
+    "only one completion, the cancellation",
+  );
+});
+
+test("complete() is idempotent (a second settle does not re-emit)", () => {
+  const runner = mockRunner();
+  fakeRecord(runner, "worker");
+
+  let completes = 0;
+  runner.subscribe((event) => {
+    if (event.type === "complete") completes++;
+  });
+  runner.complete("first");
+  runner.complete("second");
+
+  assert.equal(completes, 1);
 });
 
 test("cancel() leaves already-stopped agents untouched and emits a log line", () => {
@@ -504,6 +639,45 @@ test("markStopped() is idempotent on an already-stopped agent", () => {
   assert.equal(stopped.status, "stopped");
   assert.equal(stopped.completedAt, stoppedAt);
   assert.equal(updates, 0, "no re-emit for an already-terminal agent");
+});
+
+test("markErrored() flips a non-terminal agent to error and stamps its clock", () => {
+  const runner = mockRunner();
+  const record = fakeRecord(runner, "worker");
+  assert.equal(record.completedAt, undefined);
+
+  const updates: FlowAgentRecord[] = [];
+  runner.subscribe((event) => {
+    if (event.type === "agent_updated") updates.push(event.record);
+  });
+
+  runner.markErrored(record.id, "model timeout");
+
+  assert.equal(record.status, "error");
+  assert.match(record.activity ?? "", /model timeout/);
+  assert.ok(record.completedAt !== undefined, "clock is frozen");
+  assert.equal(updates.length, 1, "an agent_updated event is emitted");
+});
+
+test("markErrored() never overrides a stopped or disposed agent", () => {
+  const runner = mockRunner();
+  const stopped = fakeRecord(runner, "stopped-one");
+  stopped.status = "stopped";
+  stopped.completedAt = Date.now();
+  const stoppedAt = stopped.completedAt;
+
+  const disposed = fakeRecord(runner, "disposed-one");
+  disposed.status = "disposed";
+  disposed.completedAt = Date.now();
+  const disposedAt = disposed.completedAt;
+
+  runner.markErrored(stopped.id, "late");
+  runner.markErrored(disposed.id, "late");
+
+  assert.equal(stopped.status, "stopped");
+  assert.equal(stopped.completedAt, stoppedAt);
+  assert.equal(disposed.status, "disposed");
+  assert.equal(disposed.completedAt, disposedAt);
 });
 
 test("complete() freezes the clock for agents that were never disposed", () => {

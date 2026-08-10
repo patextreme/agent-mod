@@ -611,8 +611,14 @@ export class AgentFlowFleet {
         this.tui = tui;
         return {
           render: (w: number) => this.render(w, theme),
+          // `invalidate` is called on theme changes / terminal cell-dimension
+          // reports. pi invokes it on the already-created component and does
+          // NOT re-run this factory, so nulling `this.tui` here would leave
+          // `requestRender()` a permanent no-op and freeze the live fleet.
+          // Nothing is cached (`render` recomputes every frame), so this is a
+          // no-op that just keeps the `tui` reference valid.
           invalidate: () => {
-            this.tui = undefined;
+            this.requestRender();
           },
         };
       },

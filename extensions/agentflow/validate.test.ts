@@ -86,6 +86,49 @@ test("validateFlowFile reports not-found for an unresolvable name", async () => 
   }
 });
 
+test("validateFlowFile reports an unreadable path (a directory) without throwing", async () => {
+  const d = makeDir();
+  try {
+    // A directory named like a flow file resolves, but readFileSync throws
+    // EISDIR. validateFlowFile must surface that as a structured report
+    // (never throw), honoring its documented contract — the `/af` run path
+    // already guards the same readFlowScript call.
+    mkdirSync(join(d.cwd, ".pi", "agentflow", "dir.ts"));
+    const report = await validateFlowFile("dir", d.cwd);
+    assert.equal(report.ok, false);
+    assert.equal(report.errors.length, 1);
+    assert.match(report.errors[0].message, /could not read/i);
+  } finally {
+    d.cleanup();
+  }
+});
+
+test("validateFlowFile preserves multi-line (chained) type diagnostics", async () => {
+  const d = makeDir();
+  try {
+    // A union→narrow assignment yields a *chained* TS diagnostic whose
+    // flattened message spans two lines. The continuation line must be folded
+    // into the error message, not dropped (which is what truncating to the
+    // first line did before).
+    writeFileSync(
+      join(d.cwd, ".pi", "agentflow", "chained.ts"),
+      "const x: string = Math.random() > 0.5 ? 'a' : 5;\n",
+    );
+    const report = await validateFlowFile("chained", d.cwd);
+    assert.equal(report.ok, false);
+    assert.ok(report.errors.length > 0);
+    const text = report.errors.map((e) => e.message).join("\n");
+    assert.match(text, /not assignable to type 'string'/);
+    assert.match(
+      text,
+      /Type 'number' is not assignable to type 'string'/,
+      "chained continuation line is preserved, not truncated",
+    );
+  } finally {
+    d.cleanup();
+  }
+});
+
 // ─── af.bash type surface ──────────────────────────────────────────────────
 
 test("the shipped bash example type-checks against the af declarations", async () => {

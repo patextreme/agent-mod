@@ -156,6 +156,25 @@ export function validateFlowSyntax(source: string, filename: string): string {
       }
       throw new Error(`AgentFlow: syntax error in "${filename}": ${detail}`);
     }
+    // jiti transpiles ESM (`import`/`export`) down to CommonJS (`require(...)`,
+    // `exports.<name>`, `module.exports`). The runtime executes the transpiled
+    // body inside a `new Function` where only `af` is in scope — `require` and
+    // `exports` are not defined there, so such a script dies at runtime with a
+    // confusing "exports is not defined" / "require is not defined" instead of
+    // during validation. jiti has already stripped comments by this point, so
+    // scanning the transpiled output (rather than the source) avoids flagging
+    // the keywords inside comments; a literal `require(`/`exports.` inside a
+    // string is the only residual false-positive risk, which is negligible for
+    // flow scripts. Catch it here so an unsupported script aborts with a clear
+    // message before any sub-agent is spawned.
+    if (/\brequire\s*\(|\bexports\.|\bmodule\.exports\b/.test(output)) {
+      // Bare message: the surrounding try/catch prepends `AgentFlow: syntax
+      // error in "<file>":` once. (Throwing with the prefix already attached
+      // here would double it.)
+      throw new Error(
+        "this script uses import/export (or require/exports) module syntax, which AgentFlow scripts cannot use — the body runs in a function where only the `af` global is in scope. Remove all import/export statements and use `af` directly.",
+      );
+    }
     return output;
   } catch (err) {
     throw new Error(

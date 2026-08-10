@@ -191,7 +191,15 @@ async function runAgentFlow(
       } else {
         await runNonTuiFlow(runner);
       }
-      await scriptRun;
+      // Once the UI has unmounted, the run is over from the user's view. In the
+      // normal case `scriptRun` has already settled (its `then` calls
+      // `complete()`, which is what resolved `completion`), so this await is a
+      // no-op. A *cancelled* run, however, may leave the script suspended on a
+      // non-`af` promise (e.g. a bare `setTimeout`): awaiting it would keep the
+      // one-flow slot claimed until that promise settles, refusing every later
+      // `/af`. Skip it — the script unwinds in the background (further `af`
+      // calls reject once cancelled) and `complete()` is idempotent.
+      if (!runner.isCancelled) await scriptRun;
     } finally {
       for (const record of runner.agents) record.handle.dispose();
     }

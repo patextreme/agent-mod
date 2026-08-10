@@ -315,6 +315,7 @@ export class FlowRunner {
       submission,
       () => this.isCancelled,
       () => this.markDisposed(id),
+      (detail) => this.markErrored(id, detail),
     );
     const record: FlowAgentRecord = {
       id,
@@ -369,6 +370,28 @@ export class FlowRunner {
         update("thinking", "running");
       }
     });
+  }
+
+  /**
+   * Mark an agent errored (a genuine turn failure, not a stop/cancel): freezes
+   * its clock and surfaces the reason in the fleet. Terminal statuses
+   * (stopped/disposed) win over a late error so the reason the agent ended
+   * stays visible; once errored, an agent stays errored (the flow should spin
+   * up a new agent to retry, not revive a failed one).
+   */
+  markErrored(agentId: string, detail?: string): void {
+    const record = this.agents.find((a) => a.id === agentId);
+    if (!record) return;
+    if (
+      record.status === "stopped" ||
+      record.status === "disposed" ||
+      record.status === "error"
+    )
+      return;
+    record.status = "error";
+    record.activity = detail ? `error: ${detail}` : "error";
+    record.completedAt = Date.now();
+    this.emit({ type: "agent_updated", record });
   }
 
   /** Mark an agent stopped (post-`abort()`). */
@@ -438,10 +461,20 @@ export class FlowRunner {
     // Kill every in-flight `af.bash` child (and reject its pending call).
     for (const abort of [...this.activeBash]) abort();
     this.logLine("AgentFlow: run cancelled by user");
+    // A flow suspended on a non-`af` promise (e.g. `await new Promise(...)`)
+    // never unwinds from the cancellation — its `executeFlowScript` stays
+    // pending, so `complete()` would never be called by the script path. Drive
+    // completion here so the run terminates, the fleet unmounts, and the
+    // one-flow-at-a-time slot frees up. `complete()` is idempotent, so the
+    // script's later settle (if it ever does) is a harmless no-op.
+    this.complete();
   }
 
   /** Record the final outcome and signal completion. */
   complete(error?: string): void {
+    if (this.completed) return; // terminal: a second settle (e.g. a cancelled
+    // script's late unwind after `cancel()` already completed the run) must
+    // not re-emit or overwrite the outcome.
     this.completed = true;
     // Freeze any still-ticking clocks so no agent's elapsed time outlives the
     // run (e.g. agents the script never explicitly disposed).

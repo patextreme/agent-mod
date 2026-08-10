@@ -122,6 +122,8 @@ export class FlowAgentHandle<T = unknown> implements FlowAgent<T> {
   private isFlowCancelled: (() => boolean) | undefined;
   /** Notified once on dispose so the runner can retire the record. */
   private onDispose?: () => void;
+  /** Notified when a genuine turn failure (not a stop/cancel) is observed. */
+  private onTurnError?: (detail: string) => void;
 
   constructor(
     name: string,
@@ -129,12 +131,14 @@ export class FlowAgentHandle<T = unknown> implements FlowAgent<T> {
     submission: SubmissionSlot = createSubmissionSlot(),
     isFlowCancelled?: () => boolean,
     onDispose?: () => void,
+    onTurnError?: (detail: string) => void,
   ) {
     this.name = name;
     this.session = session;
     this.submission = submission;
     this.isFlowCancelled = isFlowCancelled;
     this.onDispose = onDispose;
+    this.onTurnError = onTurnError;
   }
 
   /** True once the Orchestrator stopped this agent. */
@@ -151,6 +155,18 @@ export class FlowAgentHandle<T = unknown> implements FlowAgent<T> {
       );
     if (this.isFlowCancelled?.())
       throw new Error(`AgentFlow: ${FLOW_CANCELLED_ERROR}`);
+  }
+
+  /**
+   * Report a genuine turn failure (a model/tool crash during `prompt`/
+   * `waitForIdle`) to the runner so the agent is marked errored in the fleet.
+   * A rejection caused by an explicit stop or a flow-level cancel is a
+   * *consequence* of the cancellation, not a failure, so it is ignored here —
+   * those set `stopped`/`cancelled` first, which is what we check.
+   */
+  private markTurnErrorIfGenuine(err: unknown): void {
+    if (this.stopped || this.isFlowCancelled?.()) return;
+    this.onTurnError?.(err instanceof Error ? err.message : String(err));
   }
 
   /**
@@ -205,11 +221,16 @@ export class FlowAgentHandle<T = unknown> implements FlowAgent<T> {
     return this.drive(async () => {
       this.assertSendable();
       const images = opts?.images?.length ? opts.images : undefined;
-      await this.session.prompt(text, {
-        images,
-        streamingBehavior: "followUp",
-      });
-      await this.session.waitForIdle();
+      try {
+        await this.session.prompt(text, {
+          images,
+          streamingBehavior: "followUp",
+        });
+        await this.session.waitForIdle();
+      } catch (err) {
+        this.markTurnErrorIfGenuine(err);
+        throw err;
+      }
       // A cancel that arrived mid-turn — either an individual stop() setting
       // this.stopped + abort() or a flow-level cancel — must reject this step,
       // not resolve with partial text and let the flow script walk into its
@@ -233,8 +254,13 @@ export class FlowAgentHandle<T = unknown> implements FlowAgent<T> {
   async sendSteer(text: string): Promise<string> {
     return this.drive(async () => {
       this.assertSendable();
-      await this.session.prompt(text, { streamingBehavior: "steer" });
-      await this.session.waitForIdle();
+      try {
+        await this.session.prompt(text, { streamingBehavior: "steer" });
+        await this.session.waitForIdle();
+      } catch (err) {
+        this.markTurnErrorIfGenuine(err);
+        throw err;
+      }
       if (this.stopped)
         throw new Error(
           `AgentFlow: agent "${this.name}" was stopped \u2014 it can no longer receive messages.`,
