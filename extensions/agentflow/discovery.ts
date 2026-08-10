@@ -130,7 +130,7 @@ function stripCommentsAndStrings(code: string): string {
     .replace(/\/\*[\s\S]*?\*\//g, " ") // /* block comments */
     .replace(/\/\/[^\n]*/g, " ") // line comments
     .replace(/`(?:\\.|[^`\\])*`/g, " ") // template literals (best-effort)
-    .replace(/"(?:\\.|[^"]\\)*"/g, " ") // double-quoted strings
+    .replace(/"(?:\\.|[^"\\])*"/g, " ") // double-quoted strings
     .replace(/'(?:\\.|[^'\\])*'/g, " "); // single-quoted strings
 }
 

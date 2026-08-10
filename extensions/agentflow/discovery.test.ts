@@ -209,6 +209,17 @@ test("validateFlowSyntax ignores `require(` appearing inside a string literal", 
   assert.match(out, /af\.log/);
 });
 
+test("validateFlowSyntax ignores `require(`/`module.exports` inside a DOUBLE-quoted string", () => {
+  // The string stripper must handle double quotes as well as single quotes — a
+  // broken `[^"\\]` class (backslash escaping outside the class) silently
+  // leaves `"...require(x)..."` in place and rejects valid prose.
+  const out = validateFlowSyntax(
+    'af.log("call require(x) here, see module.exports docs")',
+    "/proj/.pi/agentflow/dq.ts",
+  );
+  assert.match(out, /af\.log/);
+});
+
 test("validateFlowSyntax ignores `exports` used as a property access (obj.exports.x)", () => {
   // Only free-identifier `exports.` (the CommonJS global) should trip the
   // guard, not a same-named property on another object.
