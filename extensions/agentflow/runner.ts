@@ -10,6 +10,7 @@
  * and is injected via `RunnerServices.spawnSession`.
  */
 
+import { spawn } from "node:child_process";
 import type {
   AgentSession,
   AgentSessionEvent,
@@ -18,6 +19,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { AgentFlow, FlowAgent, FlowAgentConfig } from "./agentflow.js";
+import { type BashResult, runCommand, type ShellConfig } from "./exec.js";
 import {
   buildSubmitTool,
   createSubmissionSlot,
@@ -47,6 +49,16 @@ export function renderFlowValue(value: unknown): string {
   } catch {
     return String(value);
   }
+}
+
+/**
+ * One-line preview of a command for the fleet failure notice, truncated so a
+ * long command never blows out the log line. Whitespace-collapsed and capped.
+ */
+export function previewCommand(cmd: string, max = 60): string {
+  const trimmed = cmd.replace(/\s+/g, " ").trim();
+  if (trimmed.length <= max) return trimmed;
+  return `${trimmed.slice(0, max - 1)}\u2026`;
 }
 
 /** Public, UI-facing record for one running flow-agent. */
@@ -104,6 +116,10 @@ export interface RunnerServices {
   inheritTools: () => string[];
   /** Spawn the isolated sub-session (SDK work lives in `runtime.ts`). */
   spawnSession: (opts: SpawnSessionOptions) => Promise<AgentSession>;
+  /** Resolve the shell to run `af.bash` commands through (SDK `getShellConfig`). */
+  getShellConfig: () => ShellConfig;
+  /** Kill a process group (the local `killProcessTree`, injected for tests). */
+  killProcessTree: (pid: number) => void;
 }
 
 /**
@@ -127,6 +143,8 @@ export class FlowRunner {
   private completed = false;
   /** Set when the user cancels the run from the fleet UI. */
   private cancelled = false;
+  /** Kill callbacks for in-flight `af.bash` commands, drained on `cancel()`. */
+  private activeBash = new Set<() => void>();
 
   constructor(readonly services: RunnerServices) {
     this.cwd = services.ctx.cwd;
@@ -168,7 +186,50 @@ export class FlowRunner {
       get cwd(): string {
         return runner.cwd;
       },
+      async bash(
+        cmd: string,
+        opts?: { cwd?: string; timeoutMs?: number },
+      ): Promise<BashResult> {
+        return runner.bash(cmd, opts);
+      },
     };
+  }
+
+  /**
+   * Run one shell command via `af.bash`. Resolves `{ stdout, stderr, code }`;
+   * a non-zero exit is data (and emits a one-line fleet notice). Rejects with
+   * the cancellation error when the run is cancelled (killing the child's
+   * process group), and propagates `BashTimeoutError` on `opts.timeoutMs`.
+   */
+  async bash(
+    cmd: string,
+    opts?: { cwd?: string; timeoutMs?: number },
+  ): Promise<BashResult> {
+    if (this.cancelled) throw new Error(`AgentFlow: ${FLOW_CANCELLED_ERROR}`);
+    const cwd = opts?.cwd ?? this.cwd;
+    const result = await runCommand(
+      this.services.getShellConfig(),
+      cmd,
+      {
+        cwd,
+        ...(opts?.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
+      },
+      {
+        spawn,
+        kill: (pid) => this.services.killProcessTree(pid),
+        registerAbort: (abort) => {
+          this.activeBash.add(abort);
+          return () => {
+            this.activeBash.delete(abort);
+          };
+        },
+        cancelError: new Error(`AgentFlow: ${FLOW_CANCELLED_ERROR}`),
+      },
+    );
+    if (result.code !== 0) {
+      this.logLine(`af.bash: "${previewCommand(cmd)}" exited ${result.code}`);
+    }
+    return result;
   }
 
   /** Spawn a flow-agent sub-session and register it. */
@@ -358,6 +419,8 @@ export class FlowRunner {
       void record.handle.stop();
       this.markStopped(record.id);
     }
+    // Kill every in-flight `af.bash` child (and reject its pending call).
+    for (const abort of [...this.activeBash]) abort();
     this.logLine("AgentFlow: run cancelled by user");
   }
 

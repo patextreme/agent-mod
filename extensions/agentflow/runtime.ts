@@ -18,6 +18,14 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type { SpawnSessionOptions } from "./runner.js";
 
+// Re-export the `af.bash` execution surface (SDK-free spawn/collect + kill).
+export {
+  type BashResult,
+  BashTimeoutError,
+  killProcessTree,
+  runCommand,
+  type ShellConfig,
+} from "./exec.js";
 // Re-export the runner surface so runtime consumers (orchestrator, index,
 // and the shipped runtime interface) keep working through this module path.
 export {
@@ -30,7 +38,6 @@ export {
   renderFlowValue,
   type SpawnSessionOptions,
 } from "./runner.js";
-
 // Re-export the submitted-result surface (kept here for compatibility).
 export {
   buildSubmitTool,

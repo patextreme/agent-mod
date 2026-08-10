@@ -1,6 +1,6 @@
 ---
 name: agentflow
-description: Author and modify AgentFlow orchestration scripts for pi. Use when the user wants to create, edit, or run a flow that spawns isolated sub-agents (e.g. reviewcode, multi-step workflows). Covers the injected `af` surface (createAgent, sendMessage, log, result, cwd), authoring conventions, the validation workflow, and the worked example.
+description: Author and modify AgentFlow orchestration scripts for pi. Use when the user wants to create, edit, or run a flow that spawns isolated sub-agents (e.g. reviewcode, multi-step workflows). Covers the injected `af` surface (createAgent, sendMessage, log, result, cwd, bash), authoring conventions, the validation workflow, and the worked example.
 ---
 
 # AgentFlow — Authoring Guide
@@ -230,6 +230,100 @@ result.
 
 The working directory the flow runs in (a string).
 
+### `af.bash(cmd, opts?)` → `Promise<{ stdout, stderr, code }>`
+
+Runs a shell command and resolves its captured output. A non-zero exit code is
+**data, not an exception** — branch on `code`. See
+[Running shell commands](#running-shell-commands-afbash) for the full contract
+(timeout, cancellation, conventions).
+
+```ts
+const test = await af.bash("npm test");
+if (test.code !== 0) af.log(`tests failed:\n${test.stdout}`);
+```
+
+## Running shell commands: `af.bash`
+
+`af.bash(cmd, opts?)` runs a command through the same shell resolution as pi's
+own bash tool (`/bin/bash` → `bash` on PATH → `sh -c`; Git Bash on Windows) and
+resolves a structured result — no LLM in the loop, so it is fast,
+deterministic, and cheap. It is the channel for orchestration logic a flow
+needs directly: check `git status` before reviewing, run `npm test` between
+agent rounds, verify a fix exists on disk, clean up after itself.
+
+```ts
+const r = await af.bash("npm test", { cwd: "packages/core", timeoutMs: 60_000 });
+// r: { stdout: string; stderr: string; code: number }
+```
+
+### Contract & conventions
+
+- **Non-zero exit is data, not an exception.** `code` is the exit code; branch on
+  it. `af.bash` only rejects on cancellation or timeout (below).
+- **`cwd` defaults to `af.cwd`** and is overridable via `opts.cwd`.
+- **`opts.timeoutMs` is opt-in.** Omit it for no timeout. When it elapses, the
+  call rejects with a `BashTimeoutError` carrying the partially-collected
+  `stdout`/`stderr`, and the child's process group is killed. Scripts cannot
+  `import` the class, so discriminate by name:
+
+  ```ts
+  try {
+    await af.bash("npm test", { timeoutMs: 30_000 });
+  } catch (err) {
+    if (err.name === "BashTimeoutError") {
+      // err.stdout / err.stderr hold what was captured before the timeout
+    }
+  }
+  ```
+
+- **Kill-on-cancel.** If the whole run is cancelled, every in-flight `af.bash`
+  child is killed together with its process group (grandchildren included) and
+  the pending call rejects with the flow's cancellation error — so the script
+  unwinds consistently with `sendMessage` and `createAgent`.
+- **Stdin is ignored**, so a command that reads stdin (e.g. `read x`) fails fast
+  instead of hanging.
+- **Ungated by the permission extension.** `af.bash` is static script code, not
+  an LLM-proposed command; the flow's trust gate (project scripts require trust)
+  is the security boundary. Same posture as sub-agent bash.
+- **Output is buffered unbounded** (no cap). For huge output, redirect to a file
+  inside the command and read what you need:
+
+  ```ts
+  await af.bash("npm test > /tmp/out.log 2>&1");
+  const tail = await af.bash("tail -n 200 /tmp/out.log");
+  ```
+
+- **Concurrent calls are allowed** and run independently — use `Promise.all`.
+- **Failure visibility.** Output is not streamed; on a non-zero exit the runner
+  emits a single one-line notice (`af.bash: "<cmd>" exited <code>`) to the fleet
+  log, so failures are visible without full streaming.
+
+### Orchestration pattern: gate a sub-agent on a command
+
+Combine deterministic commands with an LLM step — run a command, branch on its
+exit code, and only spend a sub-agent turn when there is something to do:
+
+```ts
+// Only review when there are uncommitted changes.
+const status = await af.bash("git status --porcelain");
+if (status.code === 0 && status.stdout.trim() !== "") {
+  const diff = await af.bash("git diff");
+  const reviewer = await af.createAgent({
+    name: "reviewer",
+    systemPrompt: "You are a concise code reviewer.",
+  });
+  const review = await reviewer.sendMessage(`Review this diff:\n\n${diff.stdout}`);
+  reviewer.dispose();
+  af.result(review);
+} else {
+  af.result("Nothing to review.");
+}
+```
+
+Use `af.bash` for anything the flow can decide deterministically (file checks,
+test runs, git state, build gates), and reserve `createAgent` for the steps that
+genuinely need reasoning.
+
 ## Authoring conventions
 
 - **Self-contained**: no `import`/`require`; use only `af` and plain JS/TS.
@@ -260,8 +354,10 @@ agentflow_validate { "name": "myflow" }
 
 See `extensions/agentflow/examples/reviewcode.ts` (basic sequential, reused
 handles), `extensions/agentflow/examples/fanout.ts` (structured results with
-loop/fan-out), and `extensions/agentflow/examples/fresh-context.ts` (a new
-agent per iteration for fresh, isolated context).
+loop/fan-out), `extensions/agentflow/examples/fresh-context.ts` (a new agent
+per iteration for fresh, isolated context), and
+`extensions/agentflow/examples/bash.ts` (command-driven orchestration with
+`af.bash`).
 Copy one to `.pi/agentflow/` and run `/af reviewcode` (or `/af fanout`):
 
 ```ts

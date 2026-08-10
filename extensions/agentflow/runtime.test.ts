@@ -16,6 +16,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
+import { killProcessTree } from "./exec.js";
 import type { FlowAgentRecord } from "./runner.js";
 import { FlowRunner, renderFlowValue } from "./runner.js";
 import {
@@ -76,6 +77,8 @@ function mockRunner(): FlowRunner {
     resolveModel: () => undefined,
     inheritTools: () => [],
     spawnSession: async () => mockSession(),
+    getShellConfig: () => ({ shell: "bash", args: ["-c"] }),
+    killProcessTree,
   });
 }
 
@@ -469,4 +472,101 @@ test("renderFlowValue never throws on unserializable values", () => {
   const circular: { self?: unknown } = {};
   circular.self = circular;
   assert.equal(renderFlowValue(circular), String(circular));
+});
+
+// ─── af.bash ───────────────────────────────────────────────────────────────
+
+const bashSleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+test("buildAf() exposes a bash function", () => {
+  const runner = mockRunner();
+  const af = runner.buildAf();
+  assert.equal(typeof af.bash, "function");
+});
+
+test("af.bash resolves { stdout, stderr, code } with code 0 on success", async () => {
+  const runner = mockRunner();
+  const af = runner.buildAf();
+  const result = await af.bash("echo hi");
+  assert.equal(result.code, 0);
+  assert.equal(result.stdout, "hi\n");
+  assert.equal(result.stderr, "");
+});
+
+test("af.bash resolves a non-zero exit code (not thrown)", async () => {
+  const runner = mockRunner();
+  const af = runner.buildAf();
+  const result = await af.bash("exit 7");
+  assert.equal(result.code, 7);
+});
+
+test("af.bash emits exactly one fleet notice line on non-zero exit", async () => {
+  const runner = mockRunner();
+  const af = runner.buildAf();
+  const before = runner.logs.length;
+  const result = await af.bash("exit 1");
+  assert.equal(result.code, 1);
+  const notices = runner.logs
+    .slice(before)
+    .filter((l) => l.startsWith("af.bash:"));
+  assert.equal(notices.length, 1, "exactly one notice line");
+  assert.match(notices[0], /exited 1/);
+});
+
+test("af.bash emits no notice on a zero exit", async () => {
+  const runner = mockRunner();
+  const af = runner.buildAf();
+  const before = runner.logs.length;
+  await af.bash("echo ok");
+  const notices = runner.logs
+    .slice(before)
+    .filter((l) => l.startsWith("af.bash:"));
+  assert.equal(notices.length, 0);
+});
+
+test("af.bash after cancellation throws FLOW_CANCELLED_ERROR", async () => {
+  const runner = mockRunner();
+  const af = runner.buildAf();
+  runner.cancel();
+  await assert.rejects(
+    () => af.bash("echo nope"),
+    new RegExp(FLOW_CANCELLED_ERROR),
+  );
+});
+
+test("af.bash respects opts.cwd", async () => {
+  const runner = mockRunner();
+  const af = runner.buildAf();
+  const result = await af.bash("pwd", { cwd: "/tmp" });
+  assert.equal(result.stdout.trim(), "/tmp");
+});
+
+test("cancel() kills in-flight af.bash commands and rejects them", async () => {
+  const killed: number[] = [];
+  const runner = new FlowRunner({
+    ctx: {
+      cwd: "/tmp",
+      getSystemPrompt: () => "",
+    } as unknown as ExtensionContext,
+    resolveModel: () => undefined,
+    inheritTools: () => [],
+    spawnSession: async () => mockSession(),
+    getShellConfig: () => ({ shell: "bash", args: ["-c"] }),
+    // Record the kill AND do the real group kill so no `sleep 60` lingers.
+    killProcessTree: (pid) => {
+      killed.push(pid);
+      killProcessTree(pid);
+    },
+  });
+  const af = runner.buildAf();
+  const promise = af.bash("sleep 60");
+  await bashSleep(150);
+  runner.cancel();
+  await assert.rejects(promise, new RegExp(FLOW_CANCELLED_ERROR));
+  assert.equal(
+    killed.length,
+    1,
+    "killProcessTree called once for the in-flight command",
+  );
+  assert.ok(killed[0] > 0, "killed a real pid");
 });

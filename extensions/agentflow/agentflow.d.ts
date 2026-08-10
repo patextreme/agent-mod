@@ -11,6 +11,29 @@
 
 import { type TSchema, Type } from "typebox";
 
+/** Result of an `af.bash(cmd, opts?)` call: the captured streams and exit code. */
+export interface BashResult {
+  /** Full captured stdout (utf-8, unbounded). */
+  stdout: string;
+  /** Full captured stderr (utf-8, unbounded). */
+  stderr: string;
+  /** Process exit code. A non-zero code is data, not an exception. */
+  code: number;
+}
+
+/**
+ * Rejected by `af.bash` when the call exceeds its `opts.timeoutMs`. Carries the
+ * partially-collected output so the hang is diagnosable. Flow scripts cannot
+ * `import` this class, so distinguish it by `err.name === "BashTimeoutError"`.
+ */
+export interface BashTimeoutError extends Error {
+  readonly name: "BashTimeoutError";
+  /** Partially-collected stdout at the moment of the timeout. */
+  readonly stdout: string;
+  /** Partially-collected stderr at the moment of the timeout. */
+  readonly stderr: string;
+}
+
 /** Configuration accepted by `af.createAgent(config)`. */
 export interface FlowAgentConfig {
   /** Human-readable agent name shown in the Orchestrator (e.g. "reviewer"). */
@@ -115,13 +138,31 @@ export interface AgentFlow {
   createAgent<T = unknown>(config: FlowAgentConfig): Promise<FlowAgent<T>>;
   /** Emit a progress line, rendered live inside the Orchestrator. */
   log(...parts: unknown[]): void;
-  /**
-   * Record the flow's outcome. On completion it is injected into the main
+  /** Record the flow's outcome. On completion it is injected into the main
    * session as a custom message visible to the orchestrating LLM.
    */
   result(value: unknown): void;
   /** The working directory the flow runs in. */
   readonly cwd: string;
+  /**
+   * Run a shell command and await its completion. Resolves with a
+   * {@link BashResult} of `{ stdout, stderr, code }`; a non-zero exit code is
+   * returned as data, never thrown. The child's stdin is ignored (interactive
+   * commands fail fast), and the command runs ungated by the permission
+   * extension (the flow's trust gate is the security boundary). Output is
+   * buffered unbounded — redirect to a file inside the command for huge output.
+   *
+   * Rejects with the flow's cancellation error (and kills the process group)
+   * when the whole run is cancelled, and with a {@link BashTimeoutError}
+   * (carrying partial `stdout`/`stderr`) when `opts.timeoutMs` elapses.
+   *
+   * @param cmd  Shell command (run through the same shell resolution as pi's bash tool).
+   * @param opts `{ cwd?: string; timeoutMs?: number }`. `cwd` defaults to `af.cwd`.
+   */
+  bash(
+    cmd: string,
+    opts?: { cwd?: string; timeoutMs?: number },
+  ): Promise<BashResult>;
 }
 
 declare global {

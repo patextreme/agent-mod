@@ -10,8 +10,8 @@
  * the UI.
  *
  * Flows are imperative TS/JS scripts that get a single injected `af` global
- * (`createAgent`, `log`, `result`, `cwd`) and may appear in the docs as the
- * `/af:<name>` family; the runtime command is `/af <name>`.
+ * (`createAgent`, `log`, `result`, `cwd`, `bash`) and may appear in the docs as
+ * the `/af:<name>` family; the runtime command is `/af <name>`.
  */
 
 import { dirname, join } from "node:path";
@@ -20,6 +20,7 @@ import {
   defineTool,
   type ExtensionAPI,
   type ExtensionCommandContext,
+  getShellConfig,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -30,6 +31,7 @@ import {
   typeCheckFlowScript,
   validateFlowSyntax,
 } from "./discovery.js";
+import { killProcessTree } from "./exec.js";
 import { runNonTuiFlow, runTuiFlow } from "./orchestrator.js";
 import {
   executeFlowScript,
@@ -145,6 +147,10 @@ async function runAgentFlow(
       },
       inheritTools: () => pi.getActiveTools(),
       spawnSession: spawnAgentSession,
+      // `af.bash` reuses pi's own shell resolution (exported by the SDK) and the
+      // local `killProcessTree` (the SDK does not export it — see exec.ts).
+      getShellConfig,
+      killProcessTree,
     });
     const af = runner.buildAf();
 

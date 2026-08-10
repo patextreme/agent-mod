@@ -3,7 +3,7 @@
 See proposal.md — Why. The relevant current-state constraints:
 
 - Flow scripts run via `new Function("af", ...)` with exactly one injected global; the `af` surface is built by `FlowRunner.buildAf()` in `runner.ts` (SDK-runtime-free — only type imports — because tsx cannot resolve the SDK package's `exports` from `.ts` under CJS; SDK *runtime* work is injected via `RunnerServices`, e.g. `spawnSession`).
-- `index.ts` runs as a compiled extension module and imports the SDK freely. The SDK already ships `getShellConfig()` (shell resolution: `/bin/bash` → PATH `bash` → `sh -c`; Git Bash on Windows; legacy WSL `bash.exe` via stdin transport) and `killProcessTree(pid)` (process-group SIGKILL, `taskkill /T` on Windows) in `dist/utils/shell.js`.
+- `index.ts` runs as a compiled extension module and imports the SDK freely. The SDK ships `getShellConfig()` (shell resolution: `/bin/bash` → PATH `bash` → `sh -c`; Git Bash on Windows; legacy WSL `bash.exe` via stdin transport) in `dist/utils/shell.js`, re-exported from its main entry, and a `killProcessTree(pid)` (process-group SIGKILL, `taskkill /T` on Windows) in the same file — but **only `getShellConfig` is exported** by the package (the `exports` map blocks the deep path), so `killProcessTree` is reimplemented locally in `exec.ts` (see D1).
 - `FlowRunner` already owns the `cancelled` flag and `FLOW_CANCELLED_ERROR`; `createAgent` throws it when called post-cancel, and `cancel()` stops all agents.
 - Specs for this change: `agentflow-runtime` (execution semantics, cancellation, timeout, visibility) and `agentflow-authoring` (declarations, skill docs, example).
 
@@ -22,11 +22,12 @@ See proposal.md — Why. The relevant current-state constraints:
 
 ## Decisions
 
-### D1. Inject SDK helpers via `RunnerServices`; put spawn/collect in a new SDK-free `exec.ts`
-`index.ts` imports `getShellConfig` and `killProcessTree` from the SDK and passes them into `FlowRunner` through `RunnerServices` (extending the existing interface, same pattern as `spawnSession`). `exec.ts` imports only `node:child_process` and exports a `runCommand` function with an injectable `spawn` seam for tests.
+### D1. Inject SDK helpers via `RunnerServices`; put spawn/collect + `killProcessTree` in a new SDK-free `exec.ts`
+`index.ts` imports `getShellConfig` from the SDK and passes it into `FlowRunner` through `RunnerServices` (extending the existing interface, same pattern as `spawnSession`). `killProcessTree` is **not** exported by the SDK — the package `exports` map exposes only `.` and `./rpc-entry`, and the deep `dist/utils/shell.js` path is blocked (`ERR_PACKAGE_PATH_NOT_EXPORTED`), while the main entry re-exports only `getShellConfig`. So `killProcessTree` is reimplemented in `exec.ts` (process-group SIGKILL on Unix, `taskkill /F /T` on Windows — identical to the SDK helper) and injected through the same `RunnerServices` channel. `exec.ts` imports only `node:child_process` and exports a `runCommand` function with an injectable `spawn` seam (and an injectable kill/abort registry) for tests.
 
-- Rationale: the SDK subpath is unresolvable from `runner.ts` under tsx (the constraint that created `RunnerServices`); reimplementing shell resolution (~80 lines with Windows Git Bash hunting and PATH probing) would drift from pi's own bash tool; the injection pattern is already established.
-- Alternative considered: reimplement both helpers in `exec.ts` — rejected (duplication, drift).
+- Rationale: the SDK subpath is unresolvable from `runner.ts` under tsx (the constraint that created `RunnerServices`); reimplementing shell resolution (~80 lines with Windows Git Bash hunting and PATH probing) would drift from pi's own bash tool, so `getShellConfig` is reused where it *is* exported; `killProcessTree` is a ~10-line leaf that has a single sensible implementation, so reimplementing it (rather than depending on an unexported SDK symbol) carries no drift risk. The injection pattern is already established.
+- Alternative considered: depend on the SDK exporting `killProcessTree` — rejected (it doesn't, and the `exports` map forbids the deep import; waiting on an SDK release would block this change).
+- Alternative considered: reimplement *both* helpers in `exec.ts` — rejected for `getShellConfig` (duplication, drift of nontrivial shell-resolution logic).
 - Alternative considered: inline everything in `runner.ts` — rejected (bloat; process plumbing doesn't belong in the registry/event module).
 
 ### D2. `FlowRunner` owns the kill registry and cancellation path
