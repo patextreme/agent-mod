@@ -119,6 +119,41 @@ export function readFlowScript(path: string): string {
 }
 
 /**
+ * Remove JS/TS comments and string/template literals so the module-syntax
+ * guard scans only real code tokens. A regex-based stripper is a heuristic (it
+ * does not model regex literals or `${}`-nested template expressions), which is
+ * acceptable: the guard is a coarse "did the author write module syntax" check,
+ * not a parser.
+ */
+function stripCommentsAndStrings(code: string): string {
+  return code
+    .replace(/\/\*[\s\S]*?\*\//g, " ") // /* block comments */
+    .replace(/\/\/[^\n]*/g, " ") // line comments
+    .replace(/`(?:\\.|[^`\\])*`/g, " ") // template literals (best-effort)
+    .replace(/"(?:\\.|[^"]\\)*"/g, " ") // double-quoted strings
+    .replace(/'(?:\\.|[^'\\])*'/g, " "); // single-quoted strings
+}
+
+/**
+ * True when a flow script's source uses module syntax it cannot use at runtime:
+ * ESM `import`/`export`, or CommonJS `require(...)`/`exports.<x>`/
+ * `module.exports`. Comments and string/template literals are stripped first so
+ * a mention of `require()` in prose or a string does not trip it, and the
+ * lookbehinds exclude property accesses (`obj.exports.x`) so only
+ * free-identifier uses match.
+ */
+function hasModuleSyntax(source: string): boolean {
+  const code = stripCommentsAndStrings(source);
+  return (
+    /\bimport\b/.test(code) ||
+    /\bexport\b/.test(code) ||
+    /(?<![\w.])require\s*\(/.test(code) ||
+    /(?<![\w.])exports\./.test(code) ||
+    /(?<![\w.])module\.exports\b/.test(code)
+  );
+}
+
+/**
  * Syntax-validate a flow script and return the transpiled (JS) source.
  *
  * Both `.ts` and `.js` are validated and transpiled through jiti so a syntax
@@ -156,18 +191,24 @@ export function validateFlowSyntax(source: string, filename: string): string {
       }
       throw new Error(`AgentFlow: syntax error in "${filename}": ${detail}`);
     }
-    // jiti transpiles ESM (`import`/`export`) down to CommonJS (`require(...)`,
-    // `exports.<name>`, `module.exports`). The runtime executes the transpiled
-    // body inside a `new Function` where only `af` is in scope — `require` and
-    // `exports` are not defined there, so such a script dies at runtime with a
-    // confusing "exports is not defined" / "require is not defined" instead of
-    // during validation. jiti has already stripped comments by this point, so
-    // scanning the transpiled output (rather than the source) avoids flagging
-    // the keywords inside comments; a literal `require(`/`exports.` inside a
-    // string is the only residual false-positive risk, which is negligible for
-    // flow scripts. Catch it here so an unsupported script aborts with a clear
-    // message before any sub-agent is spawned.
-    if (/\brequire\s*\(|\bexports\.|\bmodule\.exports\b/.test(output)) {
+    // The runtime executes the transpiled body inside a `new Function` where
+    // only `af` is in scope: `require`, `exports`, `module`, and ESM
+    // `import`/`export` are all undefined there, so a script using any of them
+    // passes this parse check but dies at runtime with a confusing "require is
+    // not defined" / "exports is not defined". Catch such usage in the AUTHOR'S
+    // SOURCE and abort with a clear message before any sub-agent is spawned.
+    //
+    // We scan the source (not jiti's transpiled output) with comments and
+    // string/template literals stripped first: jiti does NOT strip comments, so
+    // scanning its output would false-positive on a comment that merely
+    // mentions `require()` (common in the skill's own authoring guidance) or on
+    // a string like `af.bash("grep -rn 'require(' src")`. The lookbehinds
+    // exclude property accesses such as `obj.exports.x` so only
+    // free-identifier uses of `require`/`exports`/`module` match. This is a
+    // coarse heuristic, not a parser (it does not model regex literals or
+    // nested template expressions), which is fine for a "did the author write
+    // module syntax" guard.
+    if (hasModuleSyntax(source)) {
       // Bare message: the surrounding try/catch prepends `AgentFlow: syntax
       // error in "<file>":` once. (Throwing with the prefix already attached
       // here would double it.)

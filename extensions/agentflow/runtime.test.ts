@@ -523,6 +523,50 @@ test("cancel() is idempotent", () => {
 
 // ─── Prompt serialization ──────────────────────────────────────────────────
 
+test("sendSteer is not deferred behind an in-flight sendMessage (queues into the running turn)", async () => {
+  // A steer must reach session.prompt immediately so the SDK can inject it
+  // into the streaming turn. Chaining it on driveLock behind the in-flight
+  // sendMessage would postpone the prompt until the turn had already settled —
+  // too late to steer, and `getSteeringMessages()` would never populate.
+  let releaseIdle: () => void = () => {};
+  const idleGate = new Promise<void>((resolve) => {
+    releaseIdle = resolve;
+  });
+  const steered: string[] = [];
+  const session = {
+    prompt: async (text: string, opts?: { streamingBehavior?: string }) => {
+      if (opts?.streamingBehavior === "steer") steered.push(text);
+    },
+    waitForIdle: async () => idleGate,
+    getLastAssistantText: () => "final",
+    sessionFile: undefined,
+    subscribe: () => () => {},
+    messages: [],
+    abort: async () => {},
+    clearQueue: () => ({ steering: [], followUp: [] }),
+    dispose: () => {},
+    setSessionName: (_name: string) => {},
+  } as unknown as AgentSession;
+  const handle = new FlowAgentHandle("a", session);
+
+  // sendMessage blocks at waitForIdle and never settles until we release.
+  const pendingMessage = handle.sendMessage("do work");
+  await new Promise((r) => setTimeout(r, 0)); // let sendMessage reach waitForIdle
+  // Fire the steer but do not await it (it too parks at waitForIdle).
+  const pendingSteer = handle.sendSteer("also check X");
+  await new Promise((r) => setTimeout(r, 0)); // let sendSteer reach session.prompt
+
+  // The steer reached prompt while sendMessage is still in flight — the fix.
+  assert.deepEqual(
+    steered,
+    ["also check X"],
+    "steer reaches session.prompt immediately, not deferred behind sendMessage",
+  );
+
+  releaseIdle();
+  await Promise.allSettled([pendingMessage, pendingSteer]);
+});
+
 test("concurrent sendMessage turns are serialized (lastResult is never crossed)", async () => {
   // Each turn's getLastAssistantText() returns the text it prompted; without
   // the drive lock the two turns interleave on the shared session and both can

@@ -187,3 +187,56 @@ test("validateFlowSyntax still accepts a plain script with no module syntax", ()
   );
   assert.match(out, /af\.log/);
 });
+
+test("validateFlowSyntax ignores `require`/`module.exports` mentioned in a comment (jiti keeps comments)", () => {
+  // jiti does NOT strip comments from its transpiled output, so scanning the
+  // output would reject a flow whose comment merely mentions require()/
+  // module.exports — exactly the wording the skill's authoring guidance prompts
+  // an author to write. The guard scans the stripped source instead.
+  const out = validateFlowSyntax(
+    '// NOTE: do not use require() or module.exports here — only `af`\naf.log("ok")',
+    "/proj/.pi/agentflow/comment.ts",
+  );
+  assert.match(out, /af\.log/);
+});
+
+test("validateFlowSyntax ignores `require(` appearing inside a string literal", () => {
+  // A bash grep that searches for require( must not read as module syntax.
+  const out = validateFlowSyntax(
+    'af.bash("grep -rn \'require(\' src")\naf.log("ok")',
+    "/proj/.pi/agentflow/grep.ts",
+  );
+  assert.match(out, /af\.log/);
+});
+
+test("validateFlowSyntax ignores `exports` used as a property access (obj.exports.x)", () => {
+  // Only free-identifier `exports.` (the CommonJS global) should trip the
+  // guard, not a same-named property on another object.
+  const out = validateFlowSyntax(
+    "const pkg = { exports: { x: 1 } }\naf.log(pkg.exports.x)",
+    "/proj/.pi/agentflow/prop.ts",
+  );
+  assert.match(out, /af\.log/);
+});
+
+test("validateFlowSyntax still rejects a direct require() call in code", () => {
+  assert.throws(
+    () =>
+      validateFlowSyntax(
+        'const fs = require("fs")\naf.log(fs)',
+        "/proj/.pi/agentflow/require.ts",
+      ),
+    /cannot use/,
+  );
+});
+
+test("validateFlowSyntax still rejects a direct module.exports assignment", () => {
+  assert.throws(
+    () =>
+      validateFlowSyntax(
+        'module.exports = 1\naf.log("ok")',
+        "/proj/.pi/agentflow/mexport.ts",
+      ),
+    /cannot use/,
+  );
+});

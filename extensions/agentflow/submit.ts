@@ -111,10 +111,12 @@ export class FlowAgentHandle<T = unknown> implements FlowAgent<T> {
   /** Set when the Orchestrator stops this agent; the handle then rejects new messages. */
   private stopped = false;
   /**
-   * Serializes prompt turns on this session. Without it, a human steer issued
-   * from the Orchestrator while the flow's `await agent.sendMessage(...)` is in
-   * flight interleaves on the shared session and overwrites `lastResult` with
-   * the wrong turn's text, silently corrupting the flow's control flow.
+   * Serializes `sendMessage` turns on this session so two sends from a flow
+   * cannot overlap (a flow that forgets to `await` a send would otherwise
+   * interleave on the shared session). Steering (`sendSteer`) intentionally
+   * bypasses this: a steer queues INTO the running turn via the SDK, so it must
+   * not wait behind the in-flight send (see `sendSteer`). `abort`/`stop`/
+   * `dispose` also bypass it so they can interrupt an in-flight turn.
    */
   private driveLock: Promise<unknown> = Promise.resolve();
   private submission: SubmissionSlot;
@@ -170,10 +172,13 @@ export class FlowAgentHandle<T = unknown> implements FlowAgent<T> {
   }
 
   /**
-   * Run `fn` as the next exclusive "turn" on this session: one prompt at a
-   * time. A steer and the flow's own sendMessage serialize, so neither can
-   * observe or overwrite the other's `lastResult`. `abort`/`stop`/`dispose`
-   * deliberately bypass this so they can interrupt an in-flight turn.
+   * Run `fn` as the next exclusive `sendMessage` turn on this session: one
+   * user-driven prompt at a time, serialized via `driveLock`. Returns when the
+   * step settles; a rejecting step is swallowed for the next step's gate so one
+   * bad turn does not poison every subsequent one (the caller still sees the
+   * rejection via the returned promise). `sendSteer`, `abort`, `stop`, and
+   * `dispose` bypass this so a steer can join the running turn and the
+   * cancellation paths can interrupt it.
    */
   private drive<T>(fn: () => Promise<T>): Promise<T> {
     const run = this.driveLock.then(fn, fn);
@@ -250,26 +255,36 @@ export class FlowAgentHandle<T = unknown> implements FlowAgent<T> {
    * Internal steering only (used by the Orchestrator to forward a main-session
    * message into a running sub-agent). Not part of the public `FlowAgent`
    * interface, so flow scripts cannot steer.
+   *
+   * Deliberately bypasses `drive()`: a steer must be queued INTO the currently
+   * streaming turn (the SDK delivers it after the turn's pending tool calls,
+   * before the next LLM call), not deferred behind the flow's in-flight
+   * `sendMessage`. Chaining it on `driveLock` would postpone the `prompt` call
+   * until the turn had already settled — by which point there is nothing left
+   * to steer, `getSteeringMessages()` was never populated (so the viewer's
+   * `[Steering · queued]` line never appears), and an agent the flow disposes
+   * between turns would already be gone (the call then rejecting "is
+   * disposed"). The SDK's steer is delivered within the same logical turn, not
+   * as a separate concurrent one, so it does not interleave a foreign turn's
+   * text the way two `sendMessage` calls could.
    */
   async sendSteer(text: string): Promise<string> {
-    return this.drive(async () => {
-      this.assertSendable();
-      try {
-        await this.session.prompt(text, { streamingBehavior: "steer" });
-        await this.session.waitForIdle();
-      } catch (err) {
-        this.markTurnErrorIfGenuine(err);
-        throw err;
-      }
-      if (this.stopped)
-        throw new Error(
-          `AgentFlow: agent "${this.name}" was stopped \u2014 it can no longer receive messages.`,
-        );
-      if (this.isFlowCancelled?.())
-        throw new Error(`AgentFlow: ${FLOW_CANCELLED_ERROR}`);
-      this.lastResult = this.session.getLastAssistantText();
-      return this.lastResult ?? "";
-    });
+    this.assertSendable();
+    try {
+      await this.session.prompt(text, { streamingBehavior: "steer" });
+      await this.session.waitForIdle();
+    } catch (err) {
+      this.markTurnErrorIfGenuine(err);
+      throw err;
+    }
+    if (this.stopped)
+      throw new Error(
+        `AgentFlow: agent "${this.name}" was stopped \u2014 it can no longer receive messages.`,
+      );
+    if (this.isFlowCancelled?.())
+      throw new Error(`AgentFlow: ${FLOW_CANCELLED_ERROR}`);
+    this.lastResult = this.session.getLastAssistantText();
+    return this.lastResult ?? "";
   }
 
   /**
