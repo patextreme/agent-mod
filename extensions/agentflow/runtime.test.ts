@@ -274,7 +274,7 @@ test("a mid-turn stop() rejects the in-flight sendMessage/sendSteer (no partial-
   // waitForIdle only settles once stop() runs, mimicking a stop that lands
   // while the turn is still in flight. The step must reject, not resolve with
   // partial assistant text and let the flow walk into its next step.
-  let release: () => void;
+  let release: () => void = () => {};
   const idleGate = new Promise<void>((resolve) => {
     release = resolve;
   });
@@ -295,7 +295,7 @@ test("a mid-turn stop() rejects the in-flight sendMessage/sendSteer (no partial-
   const pendingMessage = handle.sendMessage("in flight");
   const pendingSteer = handle.sendSteer("in flight");
   await handle.stop(); // -> this.stopped = true + abort
-  release!(); // let waitForIdle settle
+  release(); // let waitForIdle settle
 
   await assert.rejects(pendingMessage, /was stopped/);
   await assert.rejects(pendingSteer, /was stopped/);

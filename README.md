@@ -104,6 +104,8 @@ created mid-session.
 
 **Safety:** project scripts only run when the project is trusted; `.ts`/`.js` sources are syntax-validated before execution and `.ts` is type-checked against the shipped `agentflow.d.ts` declarations.
 
+**Validate while authoring:** the always-on `agentflow_validate` tool (for the LLM) and `/af-validate <name>` command (for a human) run the same resolve → syntax → type-check as `/af` and report located errors, letting you check a draft flow before it is ever executed.
+
 See the [`agentflow` skill](./extensions/agentflow/skills/agentflow/SKILL.md) and the [`reviewcode` example](./extensions/agentflow/examples/reviewcode.ts).
 
 ## Development

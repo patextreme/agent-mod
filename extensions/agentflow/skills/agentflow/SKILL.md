@@ -245,11 +245,15 @@ Before a `.ts` flow runs, AgentFlow:
 2. **Type-checks** `.ts` files against `agentflow.d.ts` (best-effort when the
    TypeScript compiler is available) and aborts on type errors.
 
-To validate while authoring, include the declarations and run `tsc --noEmit`:
+To validate a draft script **while authoring** — before it is ever executed — use
+the `agentflow_validate` tool (call it with the flow name), or for a human run
+`/af-validate <name>`. Both run the exact same checks as `/af` (resolve →
+syntax → type) and report located `message`/`line`/`col` errors, so a script that
+validates clean is a script that will run clean. An invalid script is reported as
+normal validation output, never a tool/command failure:
 
-```bash
-tsc --noEmit --strict /path/to/.pi/agentflow/myflow.ts \
-  --types /path/to/extensions/agentflow/agentflow.d.ts
+```
+agentflow_validate { "name": "myflow" }
 ```
 
 ## Worked example

@@ -16,10 +16,13 @@
 
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
+import {
+  defineTool,
+  type ExtensionAPI,
+  type ExtensionCommandContext,
+  type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 import {
   listFlowNames,
   readFlowScript,
@@ -35,6 +38,7 @@ import {
   renderFlowValue,
   spawnAgentSession,
 } from "./runtime.js";
+import { validateFlowFile } from "./validate.js";
 
 /** Absolute path to this extension's directory. */
 const here = dirname(fileURLToPath(import.meta.url));
@@ -266,6 +270,81 @@ function deliverResult(
 }
 
 /**
+ * Build the `agentflow_validate` tool. Always-on, read-only: it validates a
+ * flow script by name (resolve → syntax → type) and returns the report as
+ * normal text content. An invalid script is reported as content — never thrown
+ * — so the LLM can distinguish "I called the tool wrong" from "the script has
+ * errors" and fix + re-validate.
+ */
+function buildValidateTool(): ToolDefinition {
+  return defineTool({
+    name: "agentflow_validate",
+    label: "Validate AgentFlow script",
+    description:
+      "Validate an AgentFlow flow script by name (resolve → syntax → type-check, same checks as /af runs) before executing it. Returns whether the script is valid and, if not, a list of located errors. Does not execute the script.",
+    promptSnippet:
+      "`agentflow_validate` — validate a flow script by name before running it.",
+    promptGuidelines: [
+      "Use `agentflow_validate` while authoring or editing a flow script to check it before running `/af`.",
+      "The tool reports located errors (message, line, col) for invalid scripts; fix them and re-validate.",
+    ],
+    parameters: Type.Object({ name: Type.String() }),
+    execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => {
+      const report = await validateFlowFile(params.name, ctx.cwd);
+      const body = report.ok
+        ? `AgentFlow script "${report.name}" is valid.`
+        : `AgentFlow script "${report.name}" has ${
+            report.errors.length
+          } error(s):\n\n${report.errors
+            .map(
+              (e) =>
+                `  ${e.line > 0 ? `${e.line}:${e.col}\t` : ""}${e.message}`,
+            )
+            .join("\n")}`;
+      return {
+        content: [{ type: "text", text: body }],
+        details: undefined,
+      };
+    },
+  });
+}
+
+/**
+ * Register a `/af-validate <name>` command (read-only, no trust gate). It
+ * validates a flow by name and reports the outcome via `ctx.ui.notify`.
+ */
+function registerValidateCommand(pi: ExtensionAPI): void {
+  pi.registerCommand("af-validate", {
+    description:
+      "Validate an AgentFlow script by name (usage: /af-validate <flow-name>). Reports whether the script is valid or lists its errors without executing it.",
+    handler: async (args, ctx) => {
+      const name = (args ?? "").trim().replace(/^:/, "");
+      if (!name) {
+        ctx.ui.notify(
+          "Usage: /af-validate <flow-name> — e.g. /af-validate reviewcode",
+          "warning",
+        );
+        return;
+      }
+      const report = await validateFlowFile(name, ctx.cwd);
+      if (report.ok) {
+        ctx.ui.notify(`AgentFlow: "${report.name}" is valid.`, "info");
+        return;
+      }
+      const detail = report.errors
+        .map((e) =>
+          e.line > 0 ? `${e.line}:${e.col}\t${e.message}` : e.message,
+        )
+        .join("\n");
+      ctx.ui.notify(
+        `AgentFlow: "${report.name}" is invalid:\n${detail}`,
+        "error",
+      );
+    },
+  });
+}
+
+/**
  * Register a `/af:<name>` shortcut command for every discoverable flow.
  * Mirrors pi-taskflow's approach: pi resolves slash commands by exact name but
  * `pi.registerCommand` may be called any time (not just at load), and lookups
@@ -298,6 +377,11 @@ export default function agentFlowExtension(pi: ExtensionAPI): void {
       await runAgentFlow(pi, args, ctx);
     },
   });
+
+  // Always-on, read-only validation tool + command. These never execute the
+  // script, so neither gates on project trust (unlike `/af`).
+  pi.registerTool(buildValidateTool());
+  registerValidateCommand(pi);
 
   // Register `/af:<name>` shortcuts for already-discovered flows. The generic
   // `/af <name>` command above remains the fallback for flows created after

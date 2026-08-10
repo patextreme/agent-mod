@@ -59,6 +59,7 @@
           cp $src/submit.ts $out/submit.ts
           cp $src/runner.ts $out/runner.ts
           cp $src/runtime.ts $out/runtime.ts
+          cp $src/validate.ts $out/validate.ts
           cp $src/orchestrator.ts $out/orchestrator.ts
           cp $src/agentflow.d.ts $out/agentflow.d.ts
           # Bundle the authoring skill so the extension can contribute it via
@@ -159,7 +160,7 @@
           cp -r ${rootNodeModules} node_modules
           chmod -R u+w node_modules
 
-          ./node_modules/.bin/tsx --test extensions/agentflow/discovery.test.ts extensions/agentflow/runtime.test.ts
+          ./node_modules/.bin/tsx --test extensions/agentflow/discovery.test.ts extensions/agentflow/runtime.test.ts extensions/agentflow/validate.test.ts
         '';
         installPhase = ''
           touch $out
