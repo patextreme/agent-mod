@@ -5,7 +5,7 @@
 
 ## 2. Core command execution (`exec.ts`)
 
-- [ ] 2.1 Create SDK-free `extensions/agentflow/exec.ts` with `runCommand` that spawns via an injectable `spawn` seam, using a `ShellConfig`-shaped input (`{ shell, args, commandTransport? }`) and `stdio: ["ignore", "pipe", "pipe"]`, collecting stdout/stderr into utf-8 strings and resolving `{ stdout, stderr, code }`
+- [ ] 2.1 Create SDK-free `extensions/agentflow/exec.ts` with `runCommand` that spawns via an injectable `spawn` seam, using a `ShellConfig`-shaped input (`{ shell, args, commandTransport? }`), `detached: process.platform !== "win32"` (process-group leader so `killProcessTree`'s `kill(-pid)` works on Unix; matches the main bash tool), and `stdio: ["ignore", "pipe", "pipe"]`, collecting stdout/stderr into utf-8 strings and resolving `{ stdout, stderr, code }` on the child's `close` event (both stdio streams closed — required with `detached`), not just `exit`
 - [ ] 2.2 Handle legacy `commandTransport: "stdin"` by writing the command to the child's stdin and closing it (not an interactive channel)
 - [ ] 2.3 Support `timeoutMs`: arm a timer, on expiry kill the process group via an injected kill callback and reject with a distinct `BashTimeoutError` (name `"BashTimeoutError"`) carrying partial `stdout`/`stderr`
 - [ ] 2.4 Expose a cancellation path: register/unregister a kill callback (backed by `killProcessTree`) per in-flight command; reject with the flow's cancellation error when cancelled
@@ -30,6 +30,6 @@
 
 ## 6. Tests
 
-- [ ] 6.1 Add `extensions/agentflow/exec.test.ts`: real children under tsx — success output+code 0, non-zero exit returned not thrown, stdin-ignored command fails fast, timeout rejects with partial output and kills, parallel calls resolve independently, cancellation rejects with the cancellation error and kills
+- [ ] 6.1 Add `extensions/agentflow/exec.test.ts`: real children under tsx — success output+code 0, non-zero exit returned not thrown, stdin-ignored command fails fast, timeout rejects with partial output and kills, parallel calls resolve independently, cancellation rejects with the cancellation error and kills; the cancel and timeout tests must assert the process *group* is dead (e.g. run `bash -c "sleep 60"` and verify the `sleep` grandchild is gone, not merely the shell)
 - [ ] 6.2 Add runtime-test coverage: `buildAf()` exposes `bash`; non-zero exit emits exactly one fleet notice line; `bash` after cancellation throws `FLOW_CANCELLED_ERROR`; `cancel()` kills in-flight commands
 - [ ] 6.3 Verify the type surface: a sample `.ts` script using `af.bash` type-checks against `agentflow.d.ts` (via the existing type-check path or a tsc check)
