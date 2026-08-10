@@ -386,6 +386,47 @@ test("cancel() is idempotent", () => {
   assert.equal(runner.isCancelled, true);
 });
 
+// ─── Prompt serialization ──────────────────────────────────────────────────
+
+test("concurrent sendMessage turns are serialized (lastResult is never crossed)", async () => {
+  // Each turn's getLastAssistantText() returns the text it prompted; without
+  // the drive lock the two turns interleave on the shared session and both can
+  // resolve with the same (wrong) text. With it, each call observes its own
+  // turn and no two turns overlap.
+  const prompted: string[] = [];
+  let overlapping = 0;
+  let maxOverlapping = 0;
+  const session = {
+    prompt: async (text: string) => {
+      prompted.push(text);
+    },
+    waitForIdle: async () => {
+      overlapping++;
+      maxOverlapping = Math.max(maxOverlapping, overlapping);
+      await new Promise((r) => setTimeout(r, 5));
+      overlapping--;
+    },
+    getLastAssistantText: () => prompted[prompted.length - 1] ?? "",
+    sessionFile: undefined,
+    subscribe: () => () => {},
+    messages: [],
+    abort: async () => {},
+    clearQueue: () => ({ steering: [], followUp: [] }),
+    dispose: () => {},
+    setSessionName: (_name: string) => {},
+  } as unknown as AgentSession;
+  const handle = new FlowAgentHandle("a", session);
+
+  const [a, b] = await Promise.all([
+    handle.sendMessage("first"),
+    handle.sendMessage("second"),
+  ]);
+
+  assert.equal(maxOverlapping, 1, "no two prompt turns overlap");
+  assert.equal(a, "first", "first turn observes its own lastResult");
+  assert.equal(b, "second", "second turn observes its own lastResult");
+});
+
 // ─── Disposal & clock-freezing (lifecycle) ────────────────────────────────
 
 test("markDisposed() retires an agent: freezes the clock and sets status disposed", () => {
@@ -423,6 +464,46 @@ test("markDisposed() does not override a stopped or errored agent", () => {
   assert.equal(stopped.status, "stopped");
   assert.equal(stopped.completedAt, stoppedAt);
   assert.equal(errored.status, "error");
+});
+
+test("markStopped() does not override a disposed or errored agent", () => {
+  const runner = mockRunner();
+  const disposed = fakeRecord(runner, "disposed-one");
+  disposed.status = "disposed";
+  disposed.completedAt = Date.now();
+  const disposedAt = disposed.completedAt;
+
+  const errored = fakeRecord(runner, "errored-one");
+  errored.status = "error";
+
+  runner.markStopped(disposed.id);
+  runner.markStopped(errored.id);
+
+  // A disposed agent must stay disposed — the fleet roster only hides
+  // "disposed", so flipping it back to "stopped" makes it reappear (a
+  // regression of the hide-disposed fix); an errored agent keeps its reason.
+  assert.equal(disposed.status, "disposed");
+  assert.equal(disposed.completedAt, disposedAt);
+  assert.equal(errored.status, "error");
+});
+
+test("markStopped() is idempotent on an already-stopped agent", () => {
+  const runner = mockRunner();
+  const stopped = fakeRecord(runner, "stopped-one");
+  stopped.status = "stopped";
+  stopped.completedAt = Date.now();
+  const stoppedAt = stopped.completedAt;
+
+  let updates = 0;
+  runner.subscribe((event) => {
+    if (event.type === "agent_updated") updates++;
+  });
+
+  runner.markStopped(stopped.id);
+
+  assert.equal(stopped.status, "stopped");
+  assert.equal(stopped.completedAt, stoppedAt);
+  assert.equal(updates, 0, "no re-emit for an already-terminal agent");
 });
 
 test("complete() freezes the clock for agents that were never disposed", () => {

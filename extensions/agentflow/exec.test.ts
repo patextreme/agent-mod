@@ -14,6 +14,7 @@ import { readFileSync, rmSync } from "node:fs";
 import { test } from "node:test";
 import {
   BashTimeoutError,
+  isBashTimeoutError,
   killProcessTree,
   type RunCommandHooks,
   runCommand,
@@ -179,6 +180,16 @@ test("no timeoutMs means the command runs until it exits", async () => {
   const { hooks } = makeHooks();
   const result = await runCommand(BASH, "sleep 0.2", {}, hooks);
   assert.equal(result.code, 0);
+});
+
+test("isBashTimeoutError narrows timeouts and rejects everything else", () => {
+  const timeout = new BashTimeoutError("partial", "");
+  assert.equal(isBashTimeoutError(timeout), true);
+  // Non-timeout errors and bare objects must not match — a flow script branches
+  // on this guard, so it must never false-positive on unrelated failures.
+  assert.equal(isBashTimeoutError(new Error("ordinary")), false);
+  assert.equal(isBashTimeoutError({ name: "BashTimeoutError" }), false);
+  assert.equal(isBashTimeoutError(undefined), false);
 });
 
 // ─── Cancellation ──────────────────────────────────────────────────────────

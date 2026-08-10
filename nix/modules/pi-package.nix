@@ -56,6 +56,7 @@
           mkdir -p $out
           cp $src/index.ts $out/index.ts
           cp $src/discovery.ts $out/discovery.ts
+          cp $src/exec.ts $out/exec.ts
           cp $src/submit.ts $out/submit.ts
           cp $src/runner.ts $out/runner.ts
           cp $src/runtime.ts $out/runtime.ts
@@ -160,7 +161,7 @@
           cp -r ${rootNodeModules} node_modules
           chmod -R u+w node_modules
 
-          ./node_modules/.bin/tsx --test extensions/agentflow/discovery.test.ts extensions/agentflow/runtime.test.ts extensions/agentflow/validate.test.ts
+          ./node_modules/.bin/tsx --test extensions/agentflow/discovery.test.ts extensions/agentflow/runtime.test.ts extensions/agentflow/validate.test.ts extensions/agentflow/exec.test.ts
         '';
         installPhase = ''
           touch $out

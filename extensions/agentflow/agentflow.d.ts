@@ -17,14 +17,22 @@ export interface BashResult {
   stdout: string;
   /** Full captured stderr (utf-8, unbounded). */
   stderr: string;
-  /** Process exit code. A non-zero code is data, not an exception. */
+  /**
+   * Process exit code. A non-zero code is data, not an exception — never
+   * thrown. When the process is killed by a signal (e.g. SIGKILL/SIGTERM,
+   * including external kills) Node reports `null`, which `af.bash` resolves as
+   * `-1` so the `number` contract always holds; branch for this `-1` sentinel
+   * rather than a specific signal-derived code (e.g. 137).
+   */
   code: number;
 }
 
 /**
  * Rejected by `af.bash` when the call exceeds its `opts.timeoutMs`. Carries the
  * partially-collected output so the hang is diagnosable. Flow scripts cannot
- * `import` this class, so distinguish it by `err.name === "BashTimeoutError"`.
+ * `import` this class, so distinguish a timeout with `af.isBashTimeoutError`
+ * (a type-checked guard) rather than a bare `err.name === "BashTimeoutError"`
+ * string compare, which a typo can silently break past validation.
  */
 export interface BashTimeoutError extends Error {
   readonly name: "BashTimeoutError";
@@ -163,6 +171,25 @@ export interface AgentFlow {
     cmd: string,
     opts?: { cwd?: string; timeoutMs?: number },
   ): Promise<BashResult>;
+  /**
+   * Type guard for a {@link BashTimeoutError} thrown by {@link bash}. Use this
+   * in a `catch` instead of an uncheckable `err.name === "BashTimeoutError"`
+   * string compare: it narrows `unknown` catch clauses to `BashTimeoutError`
+   * (exposing `.stdout`/`.stderr`) and is verified by `agentflow_validate`, so
+   * a typo can't silently disable the timeout branch.
+   *
+   * @example
+   * try {
+   *   await af.bash(cmd, { timeoutMs: 1000 });
+   * } catch (err) {
+   *   if (af.isBashTimeoutError(err)) {
+   *     af.log("timed out; partial stdout:", err.stdout);
+   *   } else {
+   *     throw err;
+   *   }
+   * }
+   */
+  isBashTimeoutError(error: unknown): error is BashTimeoutError;
 }
 
 declare global {

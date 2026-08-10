@@ -110,6 +110,13 @@ export class FlowAgentHandle<T = unknown> implements FlowAgent<T> {
   private disposed = false;
   /** Set when the Orchestrator stops this agent; the handle then rejects new messages. */
   private stopped = false;
+  /**
+   * Serializes prompt turns on this session. Without it, a human steer issued
+   * from the Orchestrator while the flow's `await agent.sendMessage(...)` is in
+   * flight interleaves on the shared session and overwrites `lastResult` with
+   * the wrong turn's text, silently corrupting the flow's control flow.
+   */
+  private driveLock: Promise<unknown> = Promise.resolve();
   private submission: SubmissionSlot;
   /** Live check for flow-level cancellation (wired by the FlowRunner). */
   private isFlowCancelled: (() => boolean) | undefined;
@@ -146,6 +153,24 @@ export class FlowAgentHandle<T = unknown> implements FlowAgent<T> {
       throw new Error(`AgentFlow: ${FLOW_CANCELLED_ERROR}`);
   }
 
+  /**
+   * Run `fn` as the next exclusive "turn" on this session: one prompt at a
+   * time. A steer and the flow's own sendMessage serialize, so neither can
+   * observe or overwrite the other's `lastResult`. `abort`/`stop`/`dispose`
+   * deliberately bypass this so they can interrupt an in-flight turn.
+   */
+  private drive<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.driveLock.then(fn, fn);
+    // Swallow this step's outcome for the NEXT step's gate so a rejecting turn
+    // doesn't poison every subsequent one (the caller still sees the rejection
+    // via `run`).
+    this.driveLock = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
   get result(): string | undefined {
     return this.lastResult;
   }
@@ -177,25 +202,27 @@ export class FlowAgentHandle<T = unknown> implements FlowAgent<T> {
    * blocking until the current work settles.
    */
   async sendMessage(text: string, opts?: SendMessageOptions): Promise<string> {
-    this.assertSendable();
-    const images = opts?.images?.length ? opts.images : undefined;
-    await this.session.prompt(text, {
-      images,
-      streamingBehavior: "followUp",
+    return this.drive(async () => {
+      this.assertSendable();
+      const images = opts?.images?.length ? opts.images : undefined;
+      await this.session.prompt(text, {
+        images,
+        streamingBehavior: "followUp",
+      });
+      await this.session.waitForIdle();
+      // A cancel that arrived mid-turn — either an individual stop() setting
+      // this.stopped + abort() or a flow-level cancel — must reject this step,
+      // not resolve with partial text and let the flow script walk into its
+      // next step.
+      if (this.stopped)
+        throw new Error(
+          `AgentFlow: agent "${this.name}" was stopped \u2014 it can no longer receive messages.`,
+        );
+      if (this.isFlowCancelled?.())
+        throw new Error(`AgentFlow: ${FLOW_CANCELLED_ERROR}`);
+      this.lastResult = this.session.getLastAssistantText();
+      return this.lastResult ?? "";
     });
-    await this.session.waitForIdle();
-    // A cancel that arrived mid-turn — either an individual stop() setting
-    // this.stopped + abort() or a flow-level cancel — must reject this step,
-    // not resolve with partial text and let the flow script walk into its
-    // next step.
-    if (this.stopped)
-      throw new Error(
-        `AgentFlow: agent "${this.name}" was stopped \u2014 it can no longer receive messages.`,
-      );
-    if (this.isFlowCancelled?.())
-      throw new Error(`AgentFlow: ${FLOW_CANCELLED_ERROR}`);
-    this.lastResult = this.session.getLastAssistantText();
-    return this.lastResult ?? "";
   }
 
   /**
@@ -204,17 +231,19 @@ export class FlowAgentHandle<T = unknown> implements FlowAgent<T> {
    * interface, so flow scripts cannot steer.
    */
   async sendSteer(text: string): Promise<string> {
-    this.assertSendable();
-    await this.session.prompt(text, { streamingBehavior: "steer" });
-    await this.session.waitForIdle();
-    if (this.stopped)
-      throw new Error(
-        `AgentFlow: agent "${this.name}" was stopped \u2014 it can no longer receive messages.`,
-      );
-    if (this.isFlowCancelled?.())
-      throw new Error(`AgentFlow: ${FLOW_CANCELLED_ERROR}`);
-    this.lastResult = this.session.getLastAssistantText();
-    return this.lastResult ?? "";
+    return this.drive(async () => {
+      this.assertSendable();
+      await this.session.prompt(text, { streamingBehavior: "steer" });
+      await this.session.waitForIdle();
+      if (this.stopped)
+        throw new Error(
+          `AgentFlow: agent "${this.name}" was stopped \u2014 it can no longer receive messages.`,
+        );
+      if (this.isFlowCancelled?.())
+        throw new Error(`AgentFlow: ${FLOW_CANCELLED_ERROR}`);
+      this.lastResult = this.session.getLastAssistantText();
+      return this.lastResult ?? "";
+    });
   }
 
   /**

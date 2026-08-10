@@ -40,7 +40,9 @@ export interface BashResult {
 /**
  * Rejected when an `af.bash` call exceeds its `opts.timeoutMs`. Carries the
  * partially-collected output so the hang is diagnosable. Flow scripts cannot
- * `import` this class, so distinguish it by `err.name === "BashTimeoutError"`.
+ * `import` this class, so distinguish a timeout with `af.isBashTimeoutError`
+ * (a type-checked guard) rather than a bare `err.name === "BashTimeoutError"`
+ * string compare, which a typo can silently break past validation.
  */
 export class BashTimeoutError extends Error {
   readonly name = "BashTimeoutError";
@@ -52,6 +54,18 @@ export class BashTimeoutError extends Error {
     this.stdout = stdout;
     this.stderr = stderr;
   }
+}
+
+/**
+ * Type guard for a {@link BashTimeoutError}. Flow scripts cannot `import` the
+ * class (their scope exposes only `af`), so a catch-clause check like
+ * `err.name === "BashTimeoutError"` can't be verified by `agentflow_validate`
+ * — a typo type-checks cleanly and the timeout branch silently never runs.
+ * Exposed on the `af` surface as `af.isBashTimeoutError(err)` so it is declared
+ * in `agentflow.d.ts` and type-checks at validate time.
+ */
+export function isBashTimeoutError(value: unknown): value is BashTimeoutError {
+  return value instanceof BashTimeoutError;
 }
 
 /** A spawn function shaped like node's `child_process.spawn`. */
@@ -206,11 +220,21 @@ export function runCommand(
 export function killProcessTree(pid: number): void {
   if (process.platform === "win32") {
     try {
-      spawn("taskkill", ["/F", "/T", "/PID", String(pid)], {
+      const child = spawn("taskkill", ["/F", "/T", "/PID", String(pid)], {
         stdio: "ignore",
         detached: true,
         windowsHide: true,
       });
+      // A failed spawn (e.g. taskkill missing from PATH) reports asynchronously
+      // via the child's 'error' event, not a synchronous throw. Without a
+      // listener Node's EventEmitter default rethrows it as an uncaught
+      // exception, crashing the whole pi process on any cancelled/timed-out
+      // af.bash call — so swallow it (a dead/missing pid or missing taskkill is
+      // benign here, mirroring runCommand's own child.once("error", ...) at the
+      // call site). `unref` so the fire-and-forget kill can't keep the event
+      // loop alive.
+      child.on("error", () => {});
+      child.unref();
     } catch {
       // Ignore — taskkill failing on a dead/missing pid is benign.
     }

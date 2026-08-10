@@ -19,7 +19,12 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { AgentFlow, FlowAgent, FlowAgentConfig } from "./agentflow.js";
-import { type BashResult, runCommand, type ShellConfig } from "./exec.js";
+import {
+  type BashResult,
+  isBashTimeoutError,
+  runCommand,
+  type ShellConfig,
+} from "./exec.js";
 import {
   buildSubmitTool,
   createSubmissionSlot,
@@ -192,6 +197,7 @@ export class FlowRunner {
       ): Promise<BashResult> {
         return runner.bash(cmd, opts);
       },
+      isBashTimeoutError,
     };
   }
 
@@ -369,6 +375,16 @@ export class FlowRunner {
   markStopped(agentId: string): void {
     const record = this.agents.find((a) => a.id === agentId);
     if (!record) return;
+    // Terminal states are final: a late stop must not flip a disposed or
+    // errored agent back to "stopped" (a disposed agent would then reappear in
+    // the fleet roster, which only hides "disposed" — a regression of the
+    // hide-disposed fix), and re-stopping an already-stopped agent is a no-op.
+    if (
+      record.status === "disposed" ||
+      record.status === "error" ||
+      record.status === "stopped"
+    )
+      return;
     record.status = "stopped";
     record.activity = "stopped";
     record.completedAt = Date.now();
