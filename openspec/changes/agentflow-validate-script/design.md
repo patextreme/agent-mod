@@ -11,7 +11,7 @@ The AgentFlow extension already validates flow scripts at run time inside `runAg
 
 **Non-Goals:**
 - No new lint / conventions pass (soft, opinionated checks are out of scope).
-- No inline-content validation (Option A: existing file by name/path only).
+- No inline-content validation (Option A: existing file by name only).
 - No change to the run path, `submit_result`, or script discovery order.
 
 ## Decisions
@@ -22,7 +22,7 @@ Both the tool and the command call one function, `validateFlowFile(name, cwd)` i
 - *Alternative considered:* having `index.ts` call `discovery.ts` functions directly for both surfaces — rejected because it duplicates orchestration (resolve → read → syntax → type) in two places and couples command/tool wiring to discovery internals.
 
 ### Reuse `resolveFlowFile` for name resolution
-`validateFlowFile` resolves the name/path via the existing `resolveFlowFile(name, cwd)` (project → global, `.ts` → `.js`), so validation honors the same search order the run path uses. Unresolvable → report `ok: false` with a "no script found" error and no location.
+`validateFlowFile` resolves the name via the existing `resolveFlowFile(name, cwd)` (project → global, `.ts` → `.js`), so validation honors the same search order the run path uses. Unresolvable → report `ok: false` with a "no script found" error and no location.
 - *Why:* consistency with `/af`; zero new resolution logic.
 
 ### Syntax + type-check mirrored from the run path

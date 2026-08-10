@@ -4,7 +4,7 @@ The orchestrating LLM authors AgentFlow flow scripts (`.ts` in `.pi/agentflow/`)
 
 ## What Changes
 
-- Add an **`agentflow_validate` tool** (registered via `pi.registerTool`, always-on) that the main-session LLM can call to validate a flow script by name/path and get a structured report back as normal tool content.
+- Add an **`agentflow_validate` tool** (registered via `pi.registerTool`, always-on) that the main-session LLM can call to validate a flow script by name and get a structured report back as normal tool content.
 - Add a **`/af-validate <name>` slash command** (no trust gate, `notify`-based output) so a human can pre-check a flow script the same way.
 - Introduce a shared **`validateFlowFile()`** module that reuses the existing discovery checks — resolvability, syntax (jiti), and type-check against `agentflow.d.ts` — and returns a structured report (`ok` + `errors` with `message`/`line`/`col`).
 - **Do not throw** on an invalid script: an invalid script is reported as normal content (the error list), not as a tool failure.
@@ -14,7 +14,7 @@ The orchestrating LLM authors AgentFlow flow scripts (`.ts` in `.pi/agentflow/`)
 ## Capabilities
 
 ### New Capabilities
-- `agentflow-validation`: on-demand validation of a flow script by name/path — the `agentflow_validate` tool, the `/af-validate` command, and the shared `validateFlowFile()` report.
+- `agentflow-validation`: on-demand validation of a flow script by name — the `agentflow_validate` tool, the `/af-validate` command, and the shared `validateFlowFile()` report.
 
 ### Modified Capabilities
 - `agentflow-authoring`: the authoring skill requirement changes so the shipped skill documents `agentflow_validate` as the primary authoring-time check (replacing the manual `tsc --noEmit` instruction).
