@@ -270,6 +270,37 @@ test("stop() rejects subsequent sendMessage/sendSteer (a stopped agent stays sto
   await assert.rejects(() => handle.sendSteer("too late"), /was stopped/);
 });
 
+test("a mid-turn stop() rejects the in-flight sendMessage/sendSteer (no partial-text resolve)", async () => {
+  // waitForIdle only settles once stop() runs, mimicking a stop that lands
+  // while the turn is still in flight. The step must reject, not resolve with
+  // partial assistant text and let the flow walk into its next step.
+  let release: () => void;
+  const idleGate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const session = {
+    prompt: async () => {},
+    waitForIdle: async () => idleGate,
+    getLastAssistantText: () => "partial text",
+    sessionFile: undefined,
+    subscribe: () => () => {},
+    messages: [],
+    abort: async () => {},
+    clearQueue: () => ({ steering: [], followUp: [] }),
+    dispose: () => {},
+    setSessionName: (_name: string) => {},
+  } as unknown as AgentSession;
+  const handle = new FlowAgentHandle("a", session);
+
+  const pendingMessage = handle.sendMessage("in flight");
+  const pendingSteer = handle.sendSteer("in flight");
+  await handle.stop(); // -> this.stopped = true + abort
+  release!(); // let waitForIdle settle
+
+  await assert.rejects(pendingMessage, /was stopped/);
+  await assert.rejects(pendingSteer, /was stopped/);
+});
+
 test("stop() clears the steer/follow-up queues BEFORE aborting (no resurrection)", async () => {
   const { session, calls } = orderTrackingSession();
   const handle = new FlowAgentHandle("a", session);

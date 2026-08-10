@@ -50,11 +50,11 @@ On successful `execute`, the runner emits a `log` event (e.g. `agent "<name>" su
 - Rationale: schema-instance identity matters at runtime; importing the same pinned version guarantees compatibility.
 
 ### 8. Expose `af.Type` so scripts can build schemas without importing
-Flow scripts run inside `new Function(\"af\", ...)` — `af` is the only global and scripts cannot `import`. A `resultSchema` is a TypeBox schema *value* that must be constructed by the script, so the `af` surface exposes the TypeBox `Type` namespace as `af.Type`. `buildAf` returns `Type` (the exact typebox instance the SDK shares via the pinned `typebox@1.3.7`); `agentflow.d.ts` declares `Type: typeof Type` on `AgentFlow`.
+Flow scripts run inside `new Function("af", ...)` — `af` is the only global and scripts cannot `import`. A `resultSchema` is a TypeBox schema *value* that must be constructed by the script, so the `af` surface exposes the TypeBox `Type` namespace as `af.Type`. `buildAf` returns `Type` (the exact typebox instance the SDK shares via the pinned `typebox@1.3.7`); `agentflow.d.ts` declares `Type: typeof Type` on `AgentFlow`.
 - Rationale: the spec scenario (`Type.Array(Type.String())`) and the authoring examples require schema construction in-script; without `af.Type` there is no way to build a schema given the no-import constraint. This keeps the "only `af` global" model intact and guarantees schema-instance identity (same pinned typebox).
 - Alternative considered: relying on scripts importing typebox — rejected; `import` inside the `new Function` body is a SyntaxError, so imports cannot work at runtime.
 
-## Risks / Trade-offs"}]
+## Risks / Trade-offs
 
 - **[Provider constrained-sampling on free-form JSON]** → Mitigation: the schema is flow-provided, so constrained sampling follows whatever the flow declares; if a provider struggles with a broad schema, the throw-on-mismatch retry path still guarantees recovery.
 - **[`typebox` version drift vs SDK]** → Mitigation: pin to the SDK's exact `typebox@1.3.7`; `nix flake check` validates the lock.

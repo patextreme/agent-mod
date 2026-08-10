@@ -57,6 +57,7 @@
           cp $src/index.ts $out/index.ts
           cp $src/discovery.ts $out/discovery.ts
           cp $src/submit.ts $out/submit.ts
+          cp $src/runner.ts $out/runner.ts
           cp $src/runtime.ts $out/runtime.ts
           cp $src/orchestrator.ts $out/orchestrator.ts
           cp $src/agentflow.d.ts $out/agentflow.d.ts
@@ -64,11 +65,13 @@
           # the resources_discover event (skillPaths) when mounted standalone.
           mkdir -p $out/skills/agentflow
           cp $src/skills/agentflow/SKILL.md $out/skills/agentflow/SKILL.md
-          # Bundle the jiti runtime dependency (self-contained, no deps) so the
-          # extension resolves it when mounted standalone — the Nix path has no
-          # npm install step, so runtime deps must ship inside the output.
+          # Bundle the jiti and typebox runtime dependencies so the extension
+          # resolves them when mounted standalone — the Nix path has no npm
+          # install step, so runtime deps must ship inside the output.
+          # (runner.ts / submit.ts import { Type } from "typebox" at runtime.)
           mkdir -p $out/node_modules
           cp -r $nodeModules/jiti $out/node_modules/jiti
+          cp -r $nodeModules/typebox $out/node_modules/typebox
         '';
       };
 

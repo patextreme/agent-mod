@@ -269,9 +269,14 @@ export class FlowRunner {
   /** Track live activity from the sub-session's events. */
   private wireActivity(record: FlowAgentRecord): void {
     const update = (activity: string, status?: AgentStatus) => {
-      // Terminal states are final: late events after an abort/error must not
-      // flip a stopped or errored agent back to running.
-      if (record.status === "stopped" || record.status === "error") return;
+      // Terminal states are final: late events after an abort/error/dispose
+      // must not flip a stopped, errored, or disposed agent back to running.
+      if (
+        record.status === "stopped" ||
+        record.status === "error" ||
+        record.status === "disposed"
+      )
+        return;
       record.activity = activity;
       if (status) record.status = status;
       this.emit({ type: "agent_updated", record });
@@ -344,7 +349,12 @@ export class FlowRunner {
     if (this.cancelled) return;
     this.cancelled = true;
     for (const record of this.agents) {
-      if (record.status === "stopped" || record.status === "error") continue;
+      if (
+        record.status === "stopped" ||
+        record.status === "error" ||
+        record.status === "disposed"
+      )
+        continue;
       void record.handle.stop();
       this.markStopped(record.id);
     }

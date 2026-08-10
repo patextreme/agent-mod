@@ -74,7 +74,7 @@ answer;            // last step's final assistant text
 agent.result;      // same as above
 agent.sessionFile; // set only when persist: true
 agent.submittedResult(); // schema-typed value the agent submitted (see below)
-await agent.clearResult(); // explicit reset of the submitted value
+agent.clearResult(); // explicit reset of the submitted value
 await agent.abort(); // cancel mid-run
 agent.dispose();    // release the sub-session
 ```
@@ -109,7 +109,10 @@ schema-instance identity). Flow scripts cannot `import`, so `af.Type` is the
 way to construct a schema value:
 
 ```ts
-const packet = await af.createAgent({
+const packet = await af.createAgent<{
+  findings: string[];
+  confidence: number;
+}>({
   name: "packet",
   resultSchema: af.Type.Object({
     findings: af.Type.Array(af.Type.String()),
@@ -143,7 +146,10 @@ packet.clearResult(); // explicitly reset for the next iteration
 per turn so a stale value is never mistaken for this iteration's answer:
 
 ```ts
-const checker = await af.createAgent({
+const checker = await af.createAgent<{
+  ok: boolean;
+  notes: string;
+}>({
   name: "checker",
   resultSchema: af.Type.Object({ ok: af.Type.Boolean(), notes: af.Type.String() }),
 });
@@ -165,7 +171,7 @@ while (round < 5) {
 fan each item out to parallel workers that themselves submit structured results:
 
 ```ts
-const planner = await af.createAgent({
+const planner = await af.createAgent<{ steps: string[] }>({
   name: "planner",
   resultSchema: af.Type.Object({ steps: af.Type.Array(af.Type.String()) }),
 });
@@ -174,7 +180,7 @@ const steps = planner.submittedResult()?.steps ?? [];
 
 const workers = await Promise.all(
   steps.map(async (step) => {
-    const w = await af.createAgent({
+    const w = await af.createAgent<{ output: string }>({
       name: `worker:${step.slice(0, 12)}`,
       resultSchema: af.Type.Object({ output: af.Type.String() }),
     });
@@ -185,8 +191,9 @@ const workers = await Promise.all(
 af.result(workers.join("\n\n"));
 ```
 
-Both patterns call `clearResult()` per iteration so the flow never reads a stale
-submission from a previous turn.
+The loop-control pattern calls `clearResult()` per iteration so the flow never
+reads a stale submission from a previous turn. The fan-out pattern runs each
+worker for a single turn, so no `clearResult()` is needed there.
 
 ### `af.log(...parts)`
 

@@ -184,8 +184,14 @@ export class FlowAgentHandle<T = unknown> implements FlowAgent<T> {
       streamingBehavior: "followUp",
     });
     await this.session.waitForIdle();
-    // A cancel that arrived mid-turn must reject this step, not resolve with
-    // partial text and let the flow script walk into its next step.
+    // A cancel that arrived mid-turn — either an individual stop() setting
+    // this.stopped + abort() or a flow-level cancel — must reject this step,
+    // not resolve with partial text and let the flow script walk into its
+    // next step.
+    if (this.stopped)
+      throw new Error(
+        `AgentFlow: agent "${this.name}" was stopped \u2014 it can no longer receive messages.`,
+      );
     if (this.isFlowCancelled?.())
       throw new Error(`AgentFlow: ${FLOW_CANCELLED_ERROR}`);
     this.lastResult = this.session.getLastAssistantText();
@@ -201,6 +207,10 @@ export class FlowAgentHandle<T = unknown> implements FlowAgent<T> {
     this.assertSendable();
     await this.session.prompt(text, { streamingBehavior: "steer" });
     await this.session.waitForIdle();
+    if (this.stopped)
+      throw new Error(
+        `AgentFlow: agent "${this.name}" was stopped \u2014 it can no longer receive messages.`,
+      );
     if (this.isFlowCancelled?.())
       throw new Error(`AgentFlow: ${FLOW_CANCELLED_ERROR}`);
     this.lastResult = this.session.getLastAssistantText();
