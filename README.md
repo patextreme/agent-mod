@@ -1,19 +1,18 @@
 # Agent Mod
 
-Extensions, prompt templates, and chain definitions for the [Pi coding agent](https://github.com/badlogic/pi-mono).
+Extensions and prompt templates for the [Pi coding agent](https://github.com/badlogic/pi-mono).
 
-Pi is a terminal coding agent. This package augments it with three things:
+Pi is a terminal coding agent. This package augments it with:
 
 - **Guardrails** — a permission extension that intercepts shell commands and asks before running anything destructive (`git push`, `git rebase`, unknown `gh` calls, …), while auto-allowing safe read-only commands.
-- **Workflows** — a chain extension that turns multi-step agent prompts into single reusable commands (`chain-<name>`), including a complete backlog task lifecycle (execute → verify → finalize).
 - **Observability** — a TPS extension that reports tokens/sec, time-to-first-token, stalls, and cost after every LLM turn.
+- **Orchestration** — an AgentFlow extension that runs imperative TypeScript/JavaScript flow scripts which spawn and drive isolated sub-agents under a live full-screen orchestrator, and deliver a result back to the main session.
 
-Install it once and every Pi session in the project gets permission prompts, chain commands, and per-turn performance telemetry automatically.
+Install it once and every Pi session in the project gets permission prompts and per-turn performance telemetry automatically.
 
 ## Requirements
 
 - Pi `^0.79.6` (declared as a peer dependency in [`package.json`](./package.json)).
-- The **backlog chains and prompts** assume a `backlog` MCP server is connected. The chain and prompt files call `mcp({ connect: "backlog" })` and use `task_view` / `task_edit` / `backlog://` resources. That server is **not** included in this package — install and configure it separately, or the backlog chains will stop and report the missing connection.
 
 ## Installation
 
@@ -21,7 +20,7 @@ Install it once and every Pi session in the project gets permission prompts, cha
 pi install git:github.com/patextreme/agent-mod
 ```
 
-This registers all extensions and prompts declared in [`package.json`](./package.json). Chain definitions in `.pi/chains/` are loaded automatically at project scope when you run pi in a directory containing this repo as `.pi/`.
+This registers all extensions and prompts declared in [`package.json`](./package.json).
 
 ## Contents
 
@@ -30,15 +29,13 @@ This registers all extensions and prompts declared in [`package.json`](./package
 | Extension | Description |
 |-----------|-------------|
 | [Permission](./extensions/permission/index.ts) | Intercepts `bash` tool calls and applies regex-based permission rules; plays a bell on prompts and when the agent finishes |
-| [Chain](./extensions/chain/src/index.ts) | Loads and executes multi-step prompt chains from `.pi/chains/` definitions |
 | [TPS](./extensions/tps/index.ts) | Tracks tokens-per-second, TTFT, stalls, and cost per LLM turn; persists telemetry to session for rehydration |
+| [AgentFlow](./extensions/agentflow/index.ts) | Runs `/af <name>` flow scripts (`.pi/agentflow/`) that orchestrate isolated sub-agent sessions via an injected `af` API, under a blocking full-screen Orchestrator |
 
 ### Prompt Templates
 
 | Prompt | Description |
 |--------|-------------|
-| [`backlog-review`](./prompts/backlog-review.md) | Review a backlog task for technical correctness, completeness, and blocking issues before implementation |
-| [`backlog-lesson`](./prompts/backlog-lesson.md) | Summarize key findings and research needs from an implementation session when approaching context limits |
 | [`commit-create-commit`](./prompts/commit-create-commit.md) | Create a git commit with an agreed-upon message |
 | [`commit-create-commit-signoff`](./prompts/commit-create-commit-signoff.md) | Create a git commit with DCO sign-off |
 | [`commit-generate-message`](./prompts/commit-generate-message.md) | Generate a commit message from staged changes |
@@ -46,36 +43,6 @@ This registers all extensions and prompts declared in [`package.json`](./package
 | [`init`](./prompts/init.md) | Create or update `AGENTS.md` for a repository |
 | [`openspec-review`](./prompts/openspec-review.md) | Review an OpenSpec change for semantic soundness before implementation |
 | [`review`](./prompts/review.md) | Review code changes and provide actionable feedback |
-
-### Chain Definitions
-
-Chains turn multi-step agent workflows into single commands. The backlog chains below implement a full task lifecycle, with the `-flow` chains orchestrating the others via `callChain` steps.
-
-| Chain | Description |
-|-------|-------------|
-| [`backlog-execute`](./.pi/chains/backlog-execute.yaml) | Execute a backlog task following the full task execution workflow |
-| [`backlog-verify`](./.pi/chains/backlog-verify.yaml) | Review the codebase against a task's definition (loops until clean) |
-| [`backlog-finalize`](./.pi/chains/backlog-finalize.yaml) | Finalize a completed task's record (loops until clean) |
-| [`backlog-groom`](./.pi/chains/backlog-groom.yaml) | Groom backlog items against the task creation guidelines |
-| [`backlog-execute-flow`](./.pi/chains/backlog-execute-flow.yaml) | Orchestrate execute → verify → finalize via `callChain` steps |
-| [`backlog-verify-flow`](./.pi/chains/backlog-verify-flow.yaml) | Orchestrate verify → finalize via `callChain` steps |
-| [`greeting`](./.pi/chains/greeting.yaml) | Example chain demonstrating loop, `$ARGUMENTS` substitution, and exit prompts |
-
-Chains are loaded from `.pi/chains/` (local, project-scoped) and `~/.pi/chains/` (global). When a chain is registered, it becomes the `chain-<name>` command in pi.
-
-## Quick start
-
-Run the example greeting chain — it loops up to 3 times and exits early once the agent decides the user's name is Alice:
-
-```
-> /chain-greeting Bob
-```
-
-To try the backlog workflow, make sure the `backlog` MCP server is connected, then:
-
-```
-> /chain-backlog-execute-flow task-42
-```
 
 ## Permission Extension
 
@@ -103,20 +70,6 @@ The always-allow state resets on each new session.
 
 A bell (`extensions/permission/sounds/message.oga`, played via `pw-play`) rings on each permission prompt and when the agent finishes a run (suppressed if you aborted it), so you don't have to watch the screen.
 
-## Chain Extension
-
-Loads chain definitions from `.pi/chains/` (**YAML or JSON** files) and registers each as a `chain-<name>` command. See the [schema](./extensions/chain/src/schema.ts) for the full file format.
-
-**Features:**
-- **Multi-step chains** — sequential prompt steps with `$ARGUMENTS` substitution
-- **Exit prompts** — `type: exitPrompt` steps that evaluate a condition and break the loop when the agent calls `chain_exit`
-- **Loop support** — repeat the step sequence N times (`loop` field)
-- **Call chain steps** — `type: callChain` steps invoke another chain as a subroutine with context isolation and scoped exit state (nesting depth limit of 10)
-- **Priority-based loading** — same-stem files: `.yaml` > `.yml` > `.json` within a directory; local `.pi/chains/` shadows global `~/.pi/chains/`
-- **`chain_exit` tool** — an agent-callable tool injected during chain execution to exit early
-
-The chain extension registers the `chain_exit` tool (available only during chain execution) and updates the status bar with the current chain, step, and loop.
-
 ## TPS Extension
 
 Captures structured telemetry at every LLM turn: tokens, timing, TPS, and cost.
@@ -134,6 +87,27 @@ Captures structured telemetry at every LLM turn: tokens, timing, TPS, and cost.
 
 Telemetry is persisted to the session JSONL so the last notification can be restored on resume.
 
+## AgentFlow Extension
+
+Runs repeatable, multi-step workflows as imperative scripts that drive *isolated sub-agent sessions* and return a result to the main session.
+
+**Invocation:** `/af <flow-name>` (or `/af:<flow-name>` for any flow already on
+disk at session start) — resolves `.pi/agentflow/<name>.ts` (project, trusted)
+then `~/.pi/agentflow/<name>.ts` (global), with `.js` fallbacks. Per-flow
+`/af:<name>` shortcuts are registered for every discoverable flow on session
+start, mirroring pi-taskflow; `/af <name>` remains the fallback for flows
+created mid-session.
+
+**Scripting surface:** a single injected `af` global — `af.createAgent(config)`, `sendMessage(text, opts?)` on the returned handle, `af.log(...)`, `af.result(value)`, and `af.cwd`. Scripts have no other imports or globals.
+
+**UX:** in TUI mode the run appears as a blocking full-screen Orchestrator (live agent overview, streamed `af.log`, tap-in to view a running agent's conversation, steer, and stop). In non-TUI modes the flow runs without the UI and still delivers its result.
+
+**Safety:** project scripts only run when the project is trusted; `.ts`/`.js` sources are syntax-validated before execution and `.ts` is type-checked against the shipped `agentflow.d.ts` declarations.
+
+**Validate while authoring:** the always-on `agentflow_validate` tool (for the LLM) and `/af-validate <name>` command (for a human) run the same resolve → syntax → type-check as `/af` and report located errors, letting you check a draft flow before it is ever executed.
+
+See the [`agentflow` skill](./extensions/agentflow/skills/agentflow/SKILL.md) and the [`reviewcode` example](./extensions/agentflow/examples/reviewcode.ts).
+
 ## Development
 
 ```bash
@@ -142,7 +116,7 @@ npm run format         # biome format --write .
 npm run lint           # biome lint .
 npm run check          # biome check . (lint + format check combined)
 npm run typecheck      # tsc --noEmit
-npm test               # tsx --test (permission rules suite)
+npm test               # tsx --test (permission, crof, and agentflow suites)
 nix flake check        # nix build checks (biome, tsc, tests, package builds)
 ```
 

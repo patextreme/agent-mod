@@ -13,13 +13,18 @@
     ]
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "^0.83.0"
+    "@earendil-works/pi-coding-agent": "^0.83.0",
+    "@earendil-works/pi-tui": "^0.83.0"
+  },
+  "dependencies": {
+    "jiti": "^2.7.0",
+    "typebox": "1.3.7"
   },
   "devDependencies": {
     "@earendil-works/pi-ai": "^0.83.0",
     "@earendil-works/pi-coding-agent": "^0.83.0",
+    "@earendil-works/pi-tui": "^0.83.0",
     "tsx": "^4.21.0",
-    "typebox": "^1.1.38",
     "typescript": "^6.0.3"
   },
   "scripts": {
@@ -27,6 +32,6 @@
     "lint": "biome lint .",
     "check": "biome check .",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test extensions/permission/rules.test.ts extensions/crof/parse.test.ts"
+    "test": "tsx --test extensions/permission/rules.test.ts extensions/crof/parse.test.ts extensions/agentflow/discovery.test.ts extensions/agentflow/runtime.test.ts extensions/agentflow/validate.test.ts extensions/agentflow/exec.test.ts"
   }
 }

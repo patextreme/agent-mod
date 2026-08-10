@@ -31,10 +31,8 @@ nix flake check
 - `extensions/permission/index.ts` — Permission extension (imports from `./rules.js`). Registers the `/permission-list-always-allow` and `/permission-reset` commands
 - `extensions/permission/rules.ts` — Permission rules and `findMatchingRule` logic (dependency-free, testable)
 - `extensions/permission/rules.test.ts` — Permission rules test suite (65 tests)
-- `extensions/chain/` — Chain extension (package-with-dependencies). Owns `zod ^4` and `yaml ^2.8.3` in its own `package.json`
 - `extensions/tps/index.ts` — TPS (tokens-per-second) tracking extension (single-file, no `package.json`)
 - `prompts/` — Pi prompt templates (Markdown + YAML frontmatter). Naming convention: `category-name.md`
-- `.pi/chains/` — Chain definitions (JSON or YAML). Each file becomes a `chain-<name>` command
 - `nix/` — Flake devshell and package build config
 
 `package.json` `"pi"` field declares `extensions` and `prompts` directories. `tsconfig.json` includes `extensions/**/*.ts`.
@@ -47,28 +45,4 @@ nix flake check
 - **Prompts** use `---` YAML frontmatter with a `description` field; `$ARGUMENTS` placeholder for user input
 - **Permission extension**: rules processed in **forward order**; first match wins. Actions: `allow`, `ask`, `deny`. Registers commands `permission-list-always-allow` and `permission-reset`. Resets always-allowed state on `session_start`.
 - **Permission extension**: when `PI_SANDBOX=true`, unmatched commands are allowed instead of prompting
-- **Nix build gotcha**: `nix/modules/pi-package.nix` hardcodes which chain extension source files are copied (`index.ts`, `execution.ts`, `loader.ts`, `schema.ts`). Adding a new `.ts` file to `extensions/chain/src/` requires updating the Nix module or the flake package build breaks.
-
-## Chain Definitions
-
-Chains are JSON/YAML files in `.pi/chains/` (local, project-scoped) and `~/.pi/chains/` (global, shared). The filename stem becomes the `chain-<name>` command.
-
-- **Local precedence:** if a chain exists in both directories, the local version is used
-- **Global availability:** chains unique to `~/.pi/chains` remain available even when a local `.pi/chains` directory exists
-- **Same-stem priority:** `.yaml` > `.yml` > `.json` is applied *per directory*, not across directories
-- **No cross-directory shadowing warnings:** no warnings are emitted when a chain exists in both directories (only same-stem priority warnings within a single directory)
-
-Schema details and execution behavior are defined in `extensions/chain/src/schema.ts` and `extensions/chain/src/execution.ts`. In short:
-
-- `steps` (required, ≥1), `description` (optional, default: command name used), `loop` (optional)
-- Each step is either:
-  - Prompt step: `prompt` string (default if `type` omitted)
-  - Exit step: `type: exitPrompt`, `exitPrompt` string — agent calls `chain_exit` to break the loop
-  - Call chain step: `type: callChain`, `name` string (target chain), `argument` string (optional, default empty)
-- `loop` (optional, integer, default 1) — repeats step sequence
-- `callChain` invokes the target chain as a subroutine with context isolation (parent leaf restored after child returns) and scoped exit state (child's `chain_exit` does not propagate to parent)
-- Nesting depth limit of 10 levels; exceeded calls produce an error notification and skip the step
-- Step-level `exitPrompt` only breaks the loop
-- Malformed/invalid files are skipped with descriptive warnings
-
 `.pi/settings.json` is gitignored and controls what pi loads locally.

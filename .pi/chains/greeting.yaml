@@ -1,8 +1,0 @@
-description: Test chain for greeting and introduction interactions
-loop: 3
-steps:
-  - prompt: Hello, my name is $ARGUMENTS
-  - type: exitPrompt
-    exitPrompt: The name of the user is Alice
-  - prompt: Nice to meet you
-  - prompt: Goodbye

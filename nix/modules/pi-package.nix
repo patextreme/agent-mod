@@ -2,23 +2,11 @@
   perSystem =
     { pkgs, ... }:
     let
-      # Build node_modules for the chain extension (zod dependency)
-      chainNodeModules = pkgs.buildNpmPackage {
-        name = "pi-chain-ext-node-modules";
-        src = ./../../extensions/chain;
-        npmDepsHash = "sha256-TxclbNnvcnP8oaPGLxY9fk0bTnkIWyuKgg0zYBMM9RU=";
-        makeCacheWritable = true;
-        dontNpmBuild = true;
-        installPhase = ''
-          cp -r ./node_modules $out
-        '';
-      };
-
       # Build node_modules for the root (pi SDK types, typescript, etc.)
       rootNodeModules = pkgs.buildNpmPackage {
         name = "pi-root-node-modules";
         src = ./../..;
-        npmDepsHash = "sha256-MYHX9MS7rzoQhm/DB+wjbk3f5sSAh20Gw2a8yoabSj0=";
+        npmDepsHash = "sha256-GoDtNviQVAG9uRLSWMOLjtWZvt3e1FmFf/+eZI/4BMk=";
         makeCacheWritable = true;
         dontNpmBuild = true;
         installPhase = ''
@@ -59,37 +47,35 @@
         '';
       };
 
-      pi-chain =
-        let
-          chainDefinitions = pkgs.stdenv.mkDerivation {
-            name = "pi-chains";
-            src = ./../../.pi/chains;
-            phases = [ "installPhase" ];
-            installPhase = ''
-              mkdir -p $out
-              cp -r $src/. $out/
-            '';
-          };
-        in
-        pkgs.stdenv.mkDerivation {
-          name = "pi-chain";
-          src = ./../../extensions/chain;
-          phases = [ "installPhase" ];
-          installPhase = ''
-            mkdir -p $out/src
-            cp $src/package.json $out/package.json
-            cp $src/src/index.ts $out/src/index.ts
-            cp $src/src/execution.ts $out/src/execution.ts
-            cp $src/src/loader.ts $out/src/loader.ts
-            cp $src/src/schema.ts $out/src/schema.ts
-
-            mkdir -p $out/node_modules
-            cp -r ${chainNodeModules}/* $out/node_modules/
-          '';
-        }
-        // {
-          passthru.definitions = chainDefinitions;
-        };
+      pi-agentflow = pkgs.stdenv.mkDerivation {
+        name = "pi-agentflow";
+        src = ./../../extensions/agentflow;
+        nodeModules = rootNodeModules;
+        phases = [ "installPhase" ];
+        installPhase = ''
+          mkdir -p $out
+          cp $src/index.ts $out/index.ts
+          cp $src/discovery.ts $out/discovery.ts
+          cp $src/exec.ts $out/exec.ts
+          cp $src/submit.ts $out/submit.ts
+          cp $src/runner.ts $out/runner.ts
+          cp $src/runtime.ts $out/runtime.ts
+          cp $src/validate.ts $out/validate.ts
+          cp $src/orchestrator.ts $out/orchestrator.ts
+          cp $src/agentflow.d.ts $out/agentflow.d.ts
+          # Bundle the authoring skill so the extension can contribute it via
+          # the resources_discover event (skillPaths) when mounted standalone.
+          mkdir -p $out/skills/agentflow
+          cp $src/skills/agentflow/SKILL.md $out/skills/agentflow/SKILL.md
+          # Bundle the jiti and typebox runtime dependencies so the extension
+          # resolves them when mounted standalone — the Nix path has no npm
+          # install step, so runtime deps must ship inside the output.
+          # (runner.ts / submit.ts import { Type } from "typebox" at runtime.)
+          mkdir -p $out/node_modules
+          cp -r $nodeModules/jiti $out/node_modules/jiti
+          cp -r $nodeModules/typebox $out/node_modules/typebox
+        '';
+      };
 
       pi-prompts = pkgs.stdenv.mkDerivation {
         name = "pi-prompts";
@@ -123,10 +109,6 @@
           # Provide root node_modules for pi SDK types and typescript
           cp -r ${rootNodeModules} node_modules
           chmod -R u+w node_modules
-
-          # Provide chain extension node_modules for zod
-          cp -r ${chainNodeModules} extensions/chain/node_modules
-          chmod -R u+w extensions/chain/node_modules
 
           ./node_modules/.bin/tsc --noEmit
         '';
@@ -168,15 +150,32 @@
           touch $out
         '';
       };
+
+      agentflow-test = pkgs.stdenv.mkDerivation {
+        name = "agentflow-test";
+        src = ./../..;
+        nativeBuildInputs = [ pkgs.nodejs ];
+        phases = [ "unpackPhase" "buildPhase" "installPhase" ];
+        buildPhase = ''
+          # Provide root node_modules for tsx, typescript, and jiti
+          cp -r ${rootNodeModules} node_modules
+          chmod -R u+w node_modules
+
+          ./node_modules/.bin/tsx --test extensions/agentflow/discovery.test.ts extensions/agentflow/runtime.test.ts extensions/agentflow/validate.test.ts extensions/agentflow/exec.test.ts
+        '';
+        installPhase = ''
+          touch $out
+        '';
+      };
     in
     {
       packages = {
-        inherit pi-permission pi-tps pi-crof pi-chain pi-prompts;
+        inherit pi-permission pi-tps pi-crof pi-agentflow pi-prompts;
       };
 
       checks = {
-        inherit pi-permission pi-tps pi-crof pi-chain pi-prompts;
-        inherit biome-check tsc-check permission-test crof-test;
+        inherit pi-permission pi-tps pi-crof pi-agentflow pi-prompts;
+        inherit biome-check tsc-check permission-test crof-test agentflow-test;
       };
     };
 }
