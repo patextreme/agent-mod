@@ -191,9 +191,29 @@ const workers = await Promise.all(
 af.result(workers.join("\n\n"));
 ```
 
-The loop-control pattern calls `clearResult()` per iteration so the flow never
-reads a stale submission from a previous turn. The fan-out pattern runs each
-worker for a single turn, so no `clearResult()` is needed there.
+When a loop must **not** carry context between rounds (independent samples,
+retries, unbiased votes), create a **new agent per iteration** instead of
+reusing one handle — each round starts cold and fully isolated, so no
+`clearResult()` is needed and no prior turn can color the answer:
+
+```ts
+for (let round = 0; round < 3; round++) {
+  const judge = await af.createAgent<{ accepts: boolean }>({
+    name: `judge:${round + 1}`, // fresh handle every turn
+    systemPrompt: "Judge only this turn; ignore prior context.",
+    resultSchema: af.Type.Object({ accepts: af.Type.Boolean() }),
+  });
+  await judge.sendMessage(`Round ${round + 1}: review and submit { accepts }.`);
+  const verdict = judge.submittedResult();
+  judge.dispose(); // discard — handle is single-use
+}
+```
+
+**Fresh-agent-per-turn** (above) vs **reuse-one-handle** (loop-control): reuse
+keeps conversation history across rounds and pairs with `clearResult()` for
+result freshness; a new agent per turn loses all prior context in exchange for
+clean isolation. The fan-out pattern also runs each worker for a single turn,
+so no `clearResult()` is needed there either.
 
 ### `af.log(...parts)`
 
@@ -234,8 +254,10 @@ tsc --noEmit --strict /path/to/.pi/agentflow/myflow.ts \
 
 ## Worked example
 
-See `extensions/agentflow/examples/reviewcode.ts` (basic sequential) and
-`extensions/agentflow/examples/fanout.ts` (structured results with loop/fan-out).
+See `extensions/agentflow/examples/reviewcode.ts` (basic sequential, reused
+handles), `extensions/agentflow/examples/fanout.ts` (structured results with
+loop/fan-out), and `extensions/agentflow/examples/fresh-context.ts` (a new
+agent per iteration for fresh, isolated context).
 Copy one to `.pi/agentflow/` and run `/af reviewcode` (or `/af fanout`):
 
 ```ts
