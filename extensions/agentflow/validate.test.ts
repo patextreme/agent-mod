@@ -162,6 +162,7 @@ test("validateFlowFile reports import-policy violations with locations", async (
     assert.match(report.errors[0].message, /bare specifier "zod"/);
     assert.ok(report.errors[0].line > 0, "located line");
     assert.ok(report.errors[0].col > 0, "located column");
+    assert.equal(report.errors[0].file, undefined, "entry errors omit file");
   } finally {
     d.cleanup();
   }

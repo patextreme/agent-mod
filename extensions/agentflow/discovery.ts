@@ -33,8 +33,10 @@ export interface ResolvedFlow {
 export const PROJECT_FLOW_DIR = ".pi/agentflow";
 /** The global flow directory, relative to the user's home directory. */
 export const GLOBAL_FLOW_DIR = ".pi/agentflow";
-/** Number of project-local candidates in {@link flowCandidates}. */
-const PROJECT_CANDIDATE_COUNT = 2;
+/** Extensions considered as runnable flow scripts, in project/global candidate order. */
+const FLOW_FILE_EXTENSIONS = [".ts", ".js"] as const;
+/** Number of project-local candidates in {@link flowCandidates}, derived from the candidate array. */
+const PROJECT_CANDIDATE_COUNT = FLOW_FILE_EXTENSIONS.length;
 
 /**
  * jiti extension order used for flow imports. It matches TypeScript's
@@ -63,6 +65,15 @@ function isTypeScriptPath(path: string): boolean {
   return /\.[cm]?tsx?$/.test(path);
 }
 
+/** Return the realpath for an existing file, retaining the input on lookup failure. */
+function canonicalPath(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
+}
+
 /**
  * Return a path and its realpath alias (when different and resolvable). Used
  * by both the import-graph snapshot and the type-check report filter so a
@@ -70,12 +81,8 @@ function isTypeScriptPath(path: string): boolean {
  * `realpathSync` per diagnostic.
  */
 export function pathAliases(path: string): string[] {
-  try {
-    const real = realpathSync(path);
-    return real === path ? [path] : [path, real];
-  } catch {
-    return [path];
-  }
+  const real = canonicalPath(path);
+  return real === path ? [path] : [path, real];
 }
 
 /**
@@ -87,12 +94,10 @@ export function flowCandidates(
   projectDir: string,
   globalDir: string,
 ): string[] {
-  return [
-    join(projectDir, `${name}.ts`),
-    join(projectDir, `${name}.js`),
-    join(globalDir, `${name}.ts`),
-    join(globalDir, `${name}.js`),
-  ];
+  const candidates = [projectDir, globalDir].flatMap((dir) =>
+    FLOW_FILE_EXTENSIONS.map((ext) => join(dir, `${name}${ext}`)),
+  );
+  return candidates;
 }
 
 /**
@@ -204,6 +209,8 @@ export interface FlowImportGraph {
   entry: string;
   /** Every reachable file (entry included), path → source. */
   files: Map<string, string>;
+  /** Every file's jiti transform from validation, reused at execution. */
+  transforms?: Map<string, string>;
   /** Every edge traversed, in discovery order. */
   edges: FlowImportEdge[];
 }
@@ -257,9 +264,10 @@ function resolveRelativeImport(
       try: true as const,
     });
     if (resolved) {
-      resolvedPath = resolved.startsWith("file://")
+      const rawPath = resolved.startsWith("file://")
         ? fileURLToPath(resolved)
         : resolved;
+      resolvedPath = canonicalPath(rawPath);
     }
   } catch {
     resolvedPath = null;
@@ -602,6 +610,37 @@ function collectTypeSpecifiers(masks: MaskPair): Set<string> {
 }
 
 /**
+ * Extract import/export-from specifiers written without an explicit `type`
+ * marker (neither `import type`, `export type`, nor inline `{ type X }`).
+ * These are the declarations jiti may silently erase when every imported
+ * binding is used only in a type position — the class of import that used to
+ * bypass the policy entirely. Callers subtract runtime and explicit-type
+ * specifiers before validating this set.
+ */
+function collectUnmarkedSourceSpecifiers(masks: MaskPair): Set<string> {
+  const { codeMask, fullMask } = masks;
+  const specifiers = new Set<string>();
+  const realCode = (start: number, word: "import" | "export"): boolean =>
+    fullMask.slice(start, start + word.length) === word;
+
+  for (const match of codeMask.matchAll(IMPORT_DECL_RE)) {
+    const start = match.index ?? 0;
+    if (!realCode(start, "import")) continue;
+    if (match[1] === undefined && !hasInlineTypeModifier(match[2])) {
+      specifiers.add(match[4]);
+    }
+  }
+  for (const match of codeMask.matchAll(EXPORT_DECL_RE)) {
+    const start = match.index ?? 0;
+    if (!realCode(start, "export")) continue;
+    if (match[1] === undefined && !hasInlineTypeModifier(match[2])) {
+      specifiers.add(match[4]);
+    }
+  }
+  return specifiers;
+}
+
+/**
  * True when a `.d.ts` file supplies the injected global `af` declaration.
  * Uses a balanced-brace scan over the full mask (so comments/strings cannot
  * hide a `}`) and then searches only inside the `declare global { ... }`
@@ -730,8 +769,11 @@ export function buildImportGraph(entryPath: string): FlowImportGraph {
     extensions: FLOW_JITI_EXTENSIONS,
   });
   const files = new Map<string, string>();
+  const transforms = new Map<string, string>();
   const edges: FlowImportEdge[] = [];
   const resolveCache = new Map<string, string | null>();
+
+  const entry = canonicalPath(entryPath);
 
   const visit = (path: string): void => {
     if (files.has(path)) return;
@@ -753,6 +795,7 @@ export function buildImportGraph(entryPath: string): FlowImportGraph {
     let output: string;
     try {
       output = transformFlowSource(jiti, source, path);
+      transforms.set(path, output);
     } catch (err) {
       if (err instanceof FlowLocatedError) throw err;
       throw new Error(
@@ -764,20 +807,21 @@ export function buildImportGraph(entryPath: string): FlowImportGraph {
     const outputMasks = maskCodePair(output);
     assertNoRuntimeDynamicImport(outputMasks, source, sourceMasks, path);
 
-    for (const specifier of extractRequireSpecifiers(output, outputMasks)) {
-      if (specifier === null) {
-        throw importError(
-          path,
-          "require() with a non-literal argument cannot be statically verified — use a literal relative specifier",
-          { line: 0, col: 0 },
-        );
-      }
-      const loc = locateSpecifier(source, specifier, sourceMasks);
+    const validateSpecifier = (
+      specifier: string,
+      kind: FlowImportEdge["kind"],
+      declarationRule: "allow" | "reject",
+    ): void => {
+      // Defer location lookup until the edge actually fails; most edges are
+      // valid and never need the source scan.
+      const loc = (): { line: number; col: number } =>
+        locateSpecifier(source, specifier, sourceMasks);
+
       if (!specifier.startsWith("./") && !specifier.startsWith("../")) {
         throw importError(
           path,
           `bare specifier "${specifier}" is not allowed — flow imports must be relative ("./module" or "../module")`,
-          loc,
+          loc(),
         );
       }
       const resolved = resolveRelativeImport(
@@ -790,18 +834,33 @@ export function buildImportGraph(entryPath: string): FlowImportGraph {
         throw importError(
           path,
           `cannot resolve import "${specifier}" — no such file`,
-          loc,
+          loc(),
         );
       }
-      if (isDeclarationFile(resolved)) {
+      if (
+        isDeclarationFile(resolved) &&
+        declarationRule === "reject"
+      ) {
         throw importError(
           path,
           `declaration files can only be imported for types — use \`import type\` for "${specifier}"`,
-          loc,
+          loc(),
         );
       }
-      edges.push({ from: path, specifier, resolved, kind: "value" });
+      edges.push({ from: path, specifier, resolved, kind });
       visit(resolved);
+    };
+
+    const outputSpecifiers = extractRequireSpecifiers(output, outputMasks);
+    for (const specifier of outputSpecifiers) {
+      if (specifier === null) {
+        throw importError(
+          path,
+          "require() with a non-literal argument cannot be statically verified — use a literal relative specifier",
+          { line: 0, col: 0 },
+        );
+      }
+      validateSpecifier(specifier, "value", "reject");
     }
 
     // Type edges: erased by the transform, so scan the source (comments and
@@ -811,34 +870,27 @@ export function buildImportGraph(entryPath: string): FlowImportGraph {
     // regex.
     const typeSpecifiers = collectTypeSpecifiers(sourceMasks);
     for (const specifier of typeSpecifiers) {
-      const loc = locateSpecifier(source, specifier, sourceMasks);
-      if (!specifier.startsWith("./") && !specifier.startsWith("../")) {
-        throw importError(
-          path,
-          `bare specifier "${specifier}" is not allowed — flow imports must be relative ("./module" or "../module")`,
-          loc,
-        );
+      validateSpecifier(specifier, "type", "allow");
+    }
+
+    // jiti also erases non-`type` imports/exports when every binding is used
+    // only in a type position. Those are policy-relevant too: a bare or
+    // `node:` specifier written this way used to disappear before validation,
+    // and an unmarked `.d.ts` import could avoid the "types only" rule.
+    const runtimeSpecifiers = new Set(
+      outputSpecifiers.filter((s): s is string => s !== null),
+    );
+    const unmarkedSpecifiers = collectUnmarkedSourceSpecifiers(sourceMasks);
+    for (const specifier of unmarkedSpecifiers) {
+      if (runtimeSpecifiers.has(specifier) || typeSpecifiers.has(specifier)) {
+        continue;
       }
-      const resolved = resolveRelativeImport(
-        jiti,
-        specifier,
-        path,
-        resolveCache,
-      );
-      if (resolved === null) {
-        throw importError(
-          path,
-          `cannot resolve import "${specifier}" — no such file`,
-          loc,
-        );
-      }
-      edges.push({ from: path, specifier, resolved, kind: "type" });
-      visit(resolved);
+      validateSpecifier(specifier, "type", "reject");
     }
   };
 
-  visit(entryPath);
-  return { entry: entryPath, files, edges };
+  visit(entry);
+  return { entry, files, transforms, edges };
 }
 
 /**
@@ -999,15 +1051,11 @@ export async function typeCheckFlowScript(
   const program = ts.createProgram(roots, compilerOptions, host);
 
   // Report diagnostics for the entry and every graph file — but nothing else
-  // (in particular not the injected shipped declarations). Paths are matched
-  // both raw and realpath-normalized so symlinked temp dirs still line up.
+  // (in particular not the injected shipped declarations). Entry and graph
+  // paths are already canonical, so TypeScript reports matching names.
   const reportable = new Set<string>(graph ? graph.files.keys() : [fileName]);
   reportable.add(fileName);
-  const reportableAliases = new Set<string>();
-  for (const p of reportable) {
-    for (const alias of pathAliases(p)) reportableAliases.add(alias);
-  }
-  const inGraph = (name: string): boolean => reportableAliases.has(name);
+  const inGraph = (name: string): boolean => reportable.has(name);
 
   const diagnostics = ts
     .getPreEmitDiagnostics(program)
@@ -1057,23 +1105,24 @@ export async function validateResolvedFlow(
   const graph = buildImportGraph(resolvedPath);
   if (!isTypeScript) return graph;
 
-  const entrySource = graph.files.get(resolvedPath);
+  const entryPath = graph.entry;
+  const entrySource = graph.files.get(entryPath);
   if (entrySource === undefined) {
     throw new FlowLocatedError(
-      `AgentFlow: internal error — validated graph is missing "${resolvedPath}"`,
+      `AgentFlow: internal error — validated graph is missing "${entryPath}"`,
       [
         {
-          file: resolvedPath,
+          file: entryPath,
           line: 0,
           col: 0,
-          message: `internal error: validated graph is missing "${resolvedPath}"`,
+          message: `internal error: validated graph is missing "${entryPath}"`,
         },
       ],
     );
   }
 
   await typeCheckFlowScript(
-    resolvedPath,
+    entryPath,
     entrySource,
     declarationsPath,
     graph,

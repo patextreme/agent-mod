@@ -1,5 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -519,6 +526,122 @@ test("buildImportGraph rejects a bare specifier in an inline `import { type X }`
         assert.match(err.message, /bare specifier "zod"/);
         return true;
       },
+    );
+  } finally {
+    d.cleanup();
+  }
+});
+
+test("buildImportGraph rejects a bare unmarked type-position import", () => {
+  // `import { z } from "zod"` used only as a type annotation is erased by
+  // jiti's TS transform. The walker must still enforce the relative-only
+  // policy against the source declaration, not only against surviving
+  // `require()` calls.
+  const d = makeDirs();
+  try {
+    const entry = writeFlow(
+      d.project,
+      "unmarked-bare",
+      'import { z } from "zod";\nconst x: z = {} as z;\naf.log(x);\n',
+    );
+    assert.throws(
+      () => buildImportGraph(entry),
+      (err: unknown) => {
+        assert.ok(err instanceof Error);
+        assert.match(err.message, /bare specifier "zod"/);
+        return true;
+      },
+    );
+  } finally {
+    d.cleanup();
+  }
+});
+
+test("buildImportGraph rejects an unmarked type-position `node:` import", () => {
+  const d = makeDirs();
+  try {
+    const entry = writeFlow(
+      d.project,
+      "unmarked-node",
+      'import { readFile } from "node:fs/promises";\nconst f: typeof readFile = undefined as unknown as typeof readFile;\naf.log(f);\n',
+    );
+    assert.throws(
+      () => buildImportGraph(entry),
+      /import error in .*node:fs\/promises.*must be relative/,
+    );
+  } finally {
+    d.cleanup();
+  }
+});
+
+test("buildImportGraph rejects an unmarked type-position .d.ts import", () => {
+  const d = makeDirs();
+  try {
+    writeFileSync(
+      join(d.project, "agentflow.d.ts"),
+      "export interface Finding { ok: boolean }\n",
+    );
+    const entry = writeFlow(
+      d.project,
+      "unmarked-dts",
+      'import { Finding } from "./agentflow.d.ts";\nconst f: Finding = { ok: true };\naf.log(f.ok);\n',
+    );
+    assert.throws(
+      () => buildImportGraph(entry),
+      /declaration files can only be imported for types.*agentflow\.d\.ts/,
+    );
+  } finally {
+    d.cleanup();
+  }
+});
+
+test("buildImportGraph records an unmarked type-position relative import as a type edge", () => {
+  const d = makeDirs();
+  try {
+    writeFileSync(
+      join(d.project, "nums.ts"),
+      "export interface Num { n: number }\n",
+    );
+    const entry = writeFlow(
+      d.project,
+      "unmarked-relative",
+      'import { Num } from "./nums.ts";\nconst n: Num = { n: 1 };\naf.log(n);\n',
+    );
+    const graph = buildImportGraph(entry);
+    assert.equal(graph.edges.length, 1);
+    assert.equal(graph.edges[0].kind, "type");
+    assert.equal(graph.edges[0].resolved, join(d.project, "nums.ts"));
+    assert.ok(graph.files.has(join(d.project, "nums.ts")));
+  } finally {
+    d.cleanup();
+  }
+});
+
+test("buildImportGraph deduplicates symlinked cyclic imports", () => {
+  const d = makeDirs();
+  try {
+    writeFileSync(
+      join(d.project, "a.ts"),
+      'import { b } from "./b.ts";\nexport const a = 1;\naf.log(b);\n',
+    );
+    writeFileSync(
+      join(d.project, "b.ts"),
+      'import { a } from "./a.ts";\nexport const b = a + 1;\n',
+    );
+    const link = join(d.root, "linked");
+    symlinkSync(d.project, link, "dir");
+    const linkedEntry = join(link, "a.ts");
+
+    const graph = buildImportGraph(linkedEntry);
+
+    assert.equal(graph.entry, realpathSync(join(d.project, "a.ts")));
+    assert.equal(graph.files.size, 2);
+    assert.deepEqual(
+      [...graph.files.keys()].sort(),
+      [
+        realpathSync(join(d.project, "a.ts")),
+        realpathSync(join(d.project, "b.ts")),
+      ].sort(),
     );
   } finally {
     d.cleanup();

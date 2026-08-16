@@ -19,6 +19,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   FlowLocatedError,
+  pathAliases,
   resolveFlowFile,
   validateResolvedFlow,
 } from "./discovery.js";
@@ -86,15 +87,25 @@ export async function validateFlowFile(
     );
   } catch (err) {
     if (err instanceof FlowLocatedError) {
+      const entryAliases = pathAliases(resolved.path);
       return {
         ok: false,
         name,
-        errors: err.diagnostics.map((d) => ({
-          message: d.message,
-          line: d.line,
-          col: d.col,
-          ...(d.file !== undefined ? { file: d.file } : {}),
-        })),
+        errors: err.diagnostics.map((d) => {
+          // Keep `file` only for imported files. Entry-file errors (and
+          // location-less messages) leave it undefined, matching the
+          // `FlowValidationError` contract and type-check diagnostics.
+          const file =
+            d.file !== undefined && !entryAliases.includes(d.file)
+              ? d.file
+              : undefined;
+          return {
+            message: d.message,
+            line: d.line,
+            col: d.col,
+            ...(file !== undefined ? { file } : {}),
+          };
+        }),
       };
     }
     const message = err instanceof Error ? err.message : String(err);

@@ -631,6 +631,23 @@ test("markDisposed() retires an agent: freezes the clock and sets status dispose
   assert.equal(updates[0], record);
 });
 
+test("markDisposed() is idempotent (does not re-stamp completedAt)", () => {
+  const runner = mockRunner();
+  const record = fakeRecord(runner, "worker");
+  runner.markDisposed(record.id);
+  const completedAt = record.completedAt;
+  const updates: FlowAgentRecord[] = [];
+  runner.subscribe((event) => {
+    if (event.type === "agent_updated") updates.push(event.record);
+  });
+
+  runner.markDisposed(record.id);
+
+  assert.equal(record.status, "disposed");
+  assert.equal(record.completedAt, completedAt);
+  assert.equal(updates.length, 0);
+});
+
 test("markDisposed() does not override a stopped or errored agent", () => {
   const runner = mockRunner();
   const stopped = fakeRecord(runner, "stopped-one");

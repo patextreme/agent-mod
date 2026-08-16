@@ -159,7 +159,7 @@ async function runAgentFlow(
     });
 
     // 6. Run the script in the background; the fleet UI renders live.
-    const scriptRun = executeFlowScript(resolved.path, af, graph).then(
+    const scriptRun = executeFlowScript(graph.entry, af, graph).then(
       () => runner.complete(),
       (err: unknown) =>
         runner.complete(err instanceof Error ? err.message : String(err)),

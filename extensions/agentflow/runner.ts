@@ -24,7 +24,6 @@ import { Type } from "typebox";
 import type { AgentFlow, FlowAgent, FlowAgentConfig } from "./agentflow.js";
 import {
   FLOW_JITI_EXTENSIONS,
-  pathAliases,
   type FlowImportGraph,
 } from "./discovery.js";
 import {
@@ -431,7 +430,12 @@ export class FlowRunner {
   markDisposed(agentId: string): void {
     const record = this.agents.find((a) => a.id === agentId);
     if (!record) return;
-    if (record.status === "stopped" || record.status === "error") return;
+    if (
+      record.status === "stopped" ||
+      record.status === "error" ||
+      record.status === "disposed"
+    )
+      return;
     record.status = "disposed";
     record.activity = "disposed";
     record.completedAt = Date.now();
@@ -565,12 +569,7 @@ function createFlowJiti(
   } as const;
   if (!graph) return createJiti(import.meta.url, baseOptions);
 
-  const sources = new Map<string, string>();
-  for (const [path, source] of graph.files) {
-    for (const alias of pathAliases(path)) {
-      sources.set(alias, source);
-    }
-  }
+  const sources = new Map<string, string>(graph.files);
   const fallback = createJiti(import.meta.url, baseOptions);
   const transform = (opts: TransformOptions): TransformResult => {
     if (opts.filename === undefined) {
@@ -584,6 +583,8 @@ function createFlowJiti(
         `AgentFlow: flow file changed after validation: "${opts.filename}" was not part of the validated import graph`,
       );
     }
+    const cached = graph.transforms?.get(opts.filename);
+    if (cached !== undefined) return { code: cached };
     return { code: fallback.transform({ ...opts, source }) };
   };
   return createJiti(import.meta.url, { ...baseOptions, transform });

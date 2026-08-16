@@ -28,7 +28,9 @@ if (PR_NUMBER_RES.code !== 0 || !PR_NUMBER_RES.stdout.trim()) {
 }
 const PR_NUMBER = PR_NUMBER_RES.stdout.trim();
 const MAX_ROUNDS = 20;
-const CLAUDE_LOG = "/tmp/agentflow-review-pr/claude-raw.log";
+const CLAUDE_DIR = "/tmp/agentflow-review-pr";
+const CLAUDE_RESULT = `${CLAUDE_DIR}/claude-result.json`;
+const CLAUDE_ERROR = `${CLAUDE_DIR}/claude-error.log`;
 const REVIEW_TIMEOUT_MS = 20 * 60 * 1000; // Claude review can take a while.
 
 type Verdict = "approve" | "request-changes";
@@ -199,16 +201,24 @@ async function drive() {
   }
 
   // Claude Code's builtin /code-review slash command: it runs `gh pr view` /
-  // `gh pr diff` and analyzes the diff itself.
+  // `gh pr diff` and analyzes the diff itself. Use `--output-format json` and
+  // parse the single structured result object directly instead of grepping
+  // stream-json events from a mixed stdout/stderr log.
   const REVIEW_CMD = `
 set +e
-mkdir -p /tmp/agentflow-review-pr
+mkdir -p ${CLAUDE_DIR}
 claude -p "/code-review ${PR_NUMBER}" --dangerously-skip-permissions --setting-sources "" \
-  --output-format stream-json --include-partial-messages --verbose \
-  > ${CLAUDE_LOG} 2>&1
+  --output-format json \
+  > ${CLAUDE_RESULT} 2> ${CLAUDE_ERROR}
 code=$?
 printf 'CLAUDE_EXIT=%s\\n' "$code"
-grep '^{' ${CLAUDE_LOG} | jq -r '(select(.type=="stream_event" and .event.type=="content_block_delta" and .event.delta.type=="text_delta") | .event.delta.text), (select(.type=="result") | "CLAUDE_IS_ERROR=" + ((.is_error // false) | tostring)), (select(.type=="result") | (.result // ""))'
+if [ -s ${CLAUDE_RESULT} ] && jq -e . ${CLAUDE_RESULT} >/dev/null 2>&1; then
+  jq -c '{is_error: (.is_error // false), result: (.result // "")}' ${CLAUDE_RESULT}
+else
+  printf 'CLAUDE_JSON_PARSE_ERROR=true\\n'
+  tail -c 4000 ${CLAUDE_RESULT} 2>/dev/null || true
+  tail -c 4000 ${CLAUDE_ERROR} 2>/dev/null || true
+fi
 `;
 
   let lastText = "";
@@ -239,23 +249,40 @@ grep '^{' ${CLAUDE_LOG} | jq -r '(select(.type=="stream_event" and .event.type==
 
     const exitMatch = rawText.match(/CLAUDE_EXIT=(\d+)/);
     const claudeExit = exitMatch ? Number(exitMatch[1]) : null;
-    const isError = /CLAUDE_IS_ERROR=true/.test(rawText);
 
-    if (claudeExit === null || claudeExit !== 0 || isError) {
+    let reviewText = "";
+    let isError = false;
+    let parseError = /CLAUDE_JSON_PARSE_ERROR=true/.test(rawText);
+    const jsonLine = rawText.split("\n").find((line) => line.startsWith("{"));
+    if (jsonLine !== undefined) {
+      try {
+        const parsed = JSON.parse(jsonLine) as {
+          is_error?: boolean;
+          result?: string;
+        };
+        isError = parsed.is_error === true;
+        reviewText = (parsed.result ?? "").trim();
+      } catch {
+        parseError = true;
+      }
+    } else {
+      parseError = true;
+    }
+
+    if (
+      claudeExit === null ||
+      claudeExit !== 0 ||
+      isError ||
+      parseError
+    ) {
       af.log(
-        `Round ${round}: Claude CLI failed (claude exit=${claudeExit}, is_error=${isError}). Stopping.`,
+        `Round ${round}: Claude CLI failed (claude exit=${claudeExit}, is_error=${isError}, json_parse_error=${parseError}). Stopping.`,
       );
       af.result(
-        `## Claude review failed in round ${round}\n\nclaude exit=${claudeExit}, is_error=${isError}\n\nRaw tail:\n\n${rawText.slice(-4000)}`,
+        `## Claude review failed in round ${round}\n\nclaude exit=${claudeExit}, is_error=${isError}, json_parse_error=${parseError}\n\nRaw tail:\n\n${rawText.slice(-4000)}`,
       );
       return;
     }
-
-    // Drop the diagnostic lines we injected, leaving just Claude's answer.
-    const reviewText = rawText
-      .replace(/^CLAUDE_EXIT=\d+\s*$/gm, "")
-      .replace(/^CLAUDE_IS_ERROR=(true|false)\s*$/gm, "")
-      .trim();
 
     const verdict = await evaluateVerdict(reviewText, round);
     af.log(`Round ${round}: verdict = ${verdict}`);
