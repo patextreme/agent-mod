@@ -10,16 +10,20 @@
  * and is injected via `RunnerServices.spawnSession`.
  */
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import { spawn } from "node:child_process";
+import { realpathSync } from "node:fs";
 import type {
   AgentSession,
   AgentSessionEvent,
   ExtensionContext,
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
+import type { TransformOptions, TransformResult } from "jiti";
 import { createJiti } from "jiti";
 import { Type } from "typebox";
 import type { AgentFlow, FlowAgent, FlowAgentConfig } from "./agentflow.js";
+import type { FlowImportGraph } from "./discovery.js";
 import {
   type BashResult,
   isBashTimeoutError,
@@ -508,64 +512,105 @@ export class FlowRunner {
 }
 
 /**
- * `af` surfaces whose `executeFlowScript` load is still in flight.
- *
- * The global is managed as a save/restore chain, but abandoned scripts
- * (cancelled runs settle out of order — not LIFO) would otherwise resurrect
- * a dead run's `af`: restoring is only correct while the previous surface is
- * itself still live, which is exactly what this set tracks.
+ * Per-run `af` binding. A single accessor is installed on `globalThis.af` for
+ * the duration of any live flow load; the accessor resolves `af` through
+ * `AsyncLocalStorage`, so each run's async continuations see the surface that
+ * was passed to *their* `executeFlowScript` call — not whichever run happened
+ * to install its global most recently. This fixes the concurrent-run
+ * misattribution that the previous save/restore global could only mask.
  */
-const liveAfSurfaces = new Set<AgentFlow>();
+const currentAf = new AsyncLocalStorage<AgentFlow>();
+let activeAfScopes = 0;
+/** Fallback for callers outside a flow's async context (keeps `globalThis.af`
+ * readable while a flow is active). */
+let latestAf: AgentFlow | undefined;
+let previousAfDescriptor: PropertyDescriptor | undefined;
+let hadPreviousAf = false;
+
+function installAfAccessor(): void {
+  const globals = globalThis as { af?: AgentFlow };
+  hadPreviousAf = Object.hasOwn(globals, "af");
+  previousAfDescriptor = Object.getOwnPropertyDescriptor(globals, "af");
+  Object.defineProperty(globals, "af", {
+    configurable: true,
+    get: () => currentAf.getStore() ?? latestAf,
+  });
+}
+
+function restoreAfGlobal(): void {
+  const globals = globalThis as { af?: AgentFlow };
+  if (hadPreviousAf && previousAfDescriptor) {
+    Object.defineProperty(globals, "af", previousAfDescriptor);
+  } else {
+    delete globals.af;
+  }
+  hadPreviousAf = false;
+  previousAfDescriptor = undefined;
+  latestAf = undefined;
+}
+
+/**
+ * Create the jiti instance that loads a flow. When the validated import graph
+ * is supplied, snapshots of its files are used for transformation instead of
+ * re-reading disk, and any file outside that snapshot is rejected. This closes
+ * the validation/execution TOCTOU window: the code that was validated is the
+ * code that runs.
+ */
+function createFlowJiti(
+  graph?: FlowImportGraph,
+): ReturnType<typeof createJiti> {
+  const baseOptions = { fsCache: false, moduleCache: false } as const;
+  if (!graph) return createJiti(import.meta.url, baseOptions);
+
+  const sources = new Map<string, string>();
+  for (const [path, source] of graph.files) {
+    sources.set(path, source);
+    try {
+      sources.set(realpathSync(path), source);
+    } catch {
+      // If the path no longer realpaths, keep the raw path mapping above.
+    }
+  }
+  const fallback = createJiti(import.meta.url, baseOptions);
+  const transform = (opts: TransformOptions): TransformResult => {
+    if (opts.filename === undefined) {
+      throw new Error(
+        "AgentFlow: jiti did not provide a filename for a flow module",
+      );
+    }
+    const source = sources.get(opts.filename);
+    if (source === undefined) {
+      throw new Error(
+        `AgentFlow: flow file changed after validation: "${opts.filename}" was not part of the validated import graph`,
+      );
+    }
+    return { code: fallback.transform({ ...opts, source }) };
+  };
+  return createJiti(import.meta.url, { ...baseOptions, transform });
+}
 
 /**
  * Execute a flow script by loading its entry as a module through jiti
  * (TypeScript transpilation, ESM/CJS interop, top-level `await`) with the
  * injected `af` global visible to the entry and to every module it imports.
  *
- * `af` is published as a real global (`globalThis.af`) for the duration of
- * the load and unwound in `finally`. Concurrent loads are normally prevented
- * by the one-flow-at-a-time guard in `index.ts`, but a *cancelled* run
- * deliberately abandons its script (it unwinds in the background), so a
- * lingering script can still be settling when the next flow starts —
- * installs then unwind out of order. Two rules keep the global sane:
- *
- * - identity guard: only restore/remove when the installed global is still
- *   ours, so a lingering script's cleanup can never delete a newer run's
- *   `af` (which would crash it with "af is not defined");
- * - liveness: restore the saved previous surface only while it is still
- *   live itself, else remove the global — restoring a settled run's surface
- *   would leak it forever.
- *
- * Residual limitation: while run B is in flight, a resumed run-A script's
- * `af.*` calls resolve to B's surface (logs and agents would be attributed
- * to B's runner). Fixing that requires per-run scoping of the `af` binding,
- * which the single-global jiti load model does not provide.
+ * `graph`, when supplied, is the validated snapshot built by
+ * `buildImportGraph`; execution then uses those in-memory sources instead of
+ * re-reading disk.
  */
 export async function executeFlowScript(
   flowPath: string,
   af: AgentFlow,
+  graph?: FlowImportGraph,
 ): Promise<void> {
-  const jiti = createJiti(import.meta.url, {
-    fsCache: false,
-    moduleCache: false,
-  });
-  const globals = globalThis as { af?: AgentFlow };
-  const hadAf = Object.hasOwn(globals, "af");
-  const previous = globals.af;
-  const previousIsLiveFlow =
-    previous !== undefined && liveAfSurfaces.has(previous);
-  liveAfSurfaces.add(af);
-  globals.af = af;
+  activeAfScopes += 1;
+  latestAf = af;
   try {
-    await jiti.import(flowPath);
+    if (activeAfScopes === 1) installAfAccessor();
+    const jiti = createFlowJiti(graph);
+    await currentAf.run(af, () => jiti.import(flowPath));
   } finally {
-    liveAfSurfaces.delete(af);
-    if (globals.af === af) {
-      if (hadAf && (!previousIsLiveFlow || liveAfSurfaces.has(previous))) {
-        globals.af = previous;
-      } else {
-        delete globals.af;
-      }
-    }
+    activeAfScopes -= 1;
+    if (activeAfScopes === 0) restoreAfGlobal();
   }
 }

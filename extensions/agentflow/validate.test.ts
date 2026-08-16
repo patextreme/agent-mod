@@ -312,6 +312,32 @@ test("validateFlowFile types a script by its local agentflow.d.ts without duplic
   }
 });
 
+test("validateFlowFile ignores an unrelated agentflow.d.ts basename collision", async () => {
+  const d = makeDir();
+  try {
+    const flowDir = join(d.cwd, ".pi", "agentflow");
+    mkdirSync(join(flowDir, "unrelated"));
+    writeFileSync(
+      join(flowDir, "unrelated", "agentflow.d.ts"),
+      "export type Collision = { id: string };\n",
+    );
+    writeFileSync(
+      join(flowDir, "collision.ts"),
+      [
+        'import type { Collision } from "./unrelated/agentflow.d.ts";',
+        'const c: Collision = { id: "x" };',
+        "af.log(c.id);",
+        "",
+      ].join("\n"),
+    );
+    const report = await validateFlowFile("collision", d.cwd);
+    assert.equal(report.ok, true);
+    assert.deepEqual(report.errors, []);
+  } finally {
+    d.cleanup();
+  }
+});
+
 // ─── af.bash type surface ──────────────────────────────────────────────────
 
 test("the shipped bash example type-checks against the af declarations", async () => {

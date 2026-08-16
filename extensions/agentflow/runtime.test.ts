@@ -19,6 +19,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
+import { buildImportGraph } from "./discovery.js";
 import { killProcessTree } from "./exec.js";
 import type { FlowAgentRecord } from "./runner.js";
 import { executeFlowScript, FlowRunner, renderFlowValue } from "./runner.js";
@@ -1005,12 +1006,8 @@ test("a lingering run settling mid-run cannot delete the newer run's `af` global
   try {
     // A cancelled run deliberately abandons its script (index.ts skips
     // `await scriptRun`), so it can still be settling when the next flow
-    // starts. The abandoned script's `finally` must not unwind the NEW
-    // run's global — before the identity guard it deleted it mid-run and
-    // the new flow died with "af is not defined". (The lingering script
-    // deliberately makes no `af` calls after resuming: while the newer run
-    // is in flight they would resolve to ITS surface — the documented
-    // single-global limitation, not something this test pins down.)
+    // starts. The abandoned script's cleanup must not delete the NEW run's
+    // `af` global binding.
     writeFileSync(
       join(d.dir, "lingering.ts"),
       "await new Promise((r) => setTimeout(r, 100));\n",
@@ -1035,6 +1032,69 @@ test("a lingering run settling mid-run cannot delete the newer run's `af` global
     await runB; // must complete without "af is not defined"
     assert.deepEqual(b.logs, ["b-done:B"]);
     assert.equal("af" in globalThis, false, "`af` removed after both runs");
+  } finally {
+    d.cleanup();
+  }
+});
+
+test("a lingering run settling mid-run still attributes af calls to its own surface", async () => {
+  const d = makeFlowDir();
+  try {
+    writeFileSync(
+      join(d.dir, "lingering-uses-af.ts"),
+      'await new Promise((r) => setTimeout(r, 100));\naf.log("A-sees:" + af.cwd);\n',
+    );
+    writeFileSync(
+      join(d.dir, "slow-b.ts"),
+      'await new Promise((r) => setTimeout(r, 350));\naf.log("B-sees:" + af.cwd);\n',
+    );
+    const a = recordingAf("A");
+    const b = recordingAf("B");
+
+    const runA = executeFlowScript(
+      join(d.dir, "lingering-uses-af.ts"),
+      a.af as never,
+    );
+    await new Promise((r) => setTimeout(r, 30)); // A is suspended on its timer
+    const runB = executeFlowScript(join(d.dir, "slow-b.ts"), b.af as never);
+
+    await runA; // A resumes and logs while B is still mid-run
+    assert.deepEqual(
+      a.logs,
+      ["A-sees:A"],
+      "A's resumed call is attributed to A",
+    );
+    assert.deepEqual(b.logs, [], "B has not logged yet");
+
+    await runB;
+    assert.deepEqual(b.logs, ["B-sees:B"], "B's own call is attributed to B");
+    assert.equal("af" in globalThis, false, "`af` removed after both runs");
+  } finally {
+    d.cleanup();
+  }
+});
+
+test("executeFlowScript uses the validated graph snapshot instead of re-reading disk", async () => {
+  const d = makeFlowDir();
+  try {
+    const entry = join(d.dir, "entry.ts");
+    writeFileSync(entry, 'import { hi } from "./helper.ts";\naf.log(hi());\n');
+    writeFileSync(
+      join(d.dir, "helper.ts"),
+      'export function hi(): string { return "validated"; }\n',
+    );
+    const graph = buildImportGraph(entry);
+
+    // Simulate a disk change between validation and execution: the run must
+    // use the validated snapshot, not the file that is now on disk.
+    writeFileSync(
+      join(d.dir, "helper.ts"),
+      'export function hi(): string { return "changed-after-validation"; }\n',
+    );
+
+    const { af, logs } = recordingAf(d.dir);
+    await executeFlowScript(entry, af as never, graph);
+    assert.deepEqual(logs, ["validated"]);
   } finally {
     d.cleanup();
   }

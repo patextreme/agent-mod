@@ -33,7 +33,6 @@ import {
   type FlowImportGraph,
   listFlowNames,
   PROJECT_FLOW_DIR,
-  readFlowScript,
   resolveFlowFile,
   typeCheckFlowScript,
 } from "./discovery.js";
@@ -131,9 +130,17 @@ async function runAgentFlow(
     //    `agentflow.d.ts`; diagnostics cover every file in the graph.
     if (resolved.isTypeScript) {
       try {
+        const entrySource = graph.files.get(resolved.path);
+        if (entrySource === undefined) {
+          ctx.ui.notify(
+            `AgentFlow: internal error — validated graph is missing "${resolved.path}"`,
+            "error",
+          );
+          return;
+        }
         await typeCheckFlowScript(
           resolved.path,
-          graph.files.get(resolved.path) ?? readFlowScript(resolved.path),
+          entrySource,
           DECLARATIONS_PATH,
           graph,
         );
@@ -176,7 +183,7 @@ async function runAgentFlow(
     });
 
     // 6. Run the script in the background; the fleet UI renders live.
-    const scriptRun = executeFlowScript(resolved.path, af).then(
+    const scriptRun = executeFlowScript(resolved.path, af, graph).then(
       () => runner.complete(),
       (err: unknown) =>
         runner.complete(err instanceof Error ? err.message : String(err)),

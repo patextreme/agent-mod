@@ -408,6 +408,62 @@ test('buildImportGraph accepts type-position import("./x").T (erased, not dynami
   }
 });
 
+test('buildImportGraph accepts type-alias import("./x").T (erased, not dynamic)', () => {
+  const d = makeDirs();
+  try {
+    writeFileSync(join(d.project, "nums.ts"), "export type Num = number;\n");
+    const entry = writeFlow(
+      d.project,
+      "typalias-ok",
+      'type N = import("./nums.ts").Num;\nconst n: N = 1;\naf.log(n);\n',
+    );
+    const graph = buildImportGraph(entry);
+    // No value or type edges: the annotation is erased by transpilation.
+    assert.equal(graph.edges.length, 0);
+  } finally {
+    d.cleanup();
+  }
+});
+
+test("buildImportGraph records inline `{ type X }` imports/exports as type edges", () => {
+  const d = makeDirs();
+  try {
+    writeFileSync(join(d.project, "nums.ts"), "export type Num = number;\n");
+    const entry = writeFlow(
+      d.project,
+      "inline-type",
+      'import { type Num } from "./nums.ts";\nexport { type Num } from "./nums.ts";\nconst n: Num = 1;\naf.log(n);\n',
+    );
+    const graph = buildImportGraph(entry);
+    assert.equal(graph.edges.length, 1);
+    assert.equal(graph.edges[0].kind, "type");
+    assert.equal(graph.edges[0].specifier, "./nums.ts");
+  } finally {
+    d.cleanup();
+  }
+});
+
+test("buildImportGraph rejects a bare specifier in an inline `import { type X }`", () => {
+  const d = makeDirs();
+  try {
+    const entry = writeFlow(
+      d.project,
+      "inline-bare",
+      'import { type X } from "zod";\nconst x: X = {} as X;\naf.log(x);\n',
+    );
+    assert.throws(
+      () => buildImportGraph(entry),
+      (err: unknown) => {
+        assert.ok(err instanceof Error);
+        assert.match(err.message, /bare specifier "zod"/);
+        return true;
+      },
+    );
+  } finally {
+    d.cleanup();
+  }
+});
+
 test("buildImportGraph rejects a missing import target with a located error", () => {
   const d = makeDirs();
   try {

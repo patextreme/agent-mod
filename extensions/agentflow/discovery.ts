@@ -16,7 +16,7 @@ import {
   statSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { createJiti } from "jiti";
 
 /** Result of resolving a flow name to a script file. */
@@ -203,26 +203,38 @@ function resolveRelativeImport(
 }
 
 /**
- * Blank out comments, string/template-literal text, and regex-literal bodies
- * with spaces while preserving offsets exactly (newlines are kept, so
- * positions in the mask map 1:1 to the input). This gives scans a
- * "code-only" view: tokens inside comments and literals can never match.
+ * Pair of masks produced by a single lexing pass over a source string:
  *
- * When `blankStrings` is false, string and template text is KEPT (only
- * comments and regex bodies are blanked) so quoted specifiers remain
- * findable; both modes tokenize identically, so positions agree.
+ * - `codeMask` blanks comments and regex-literal bodies while KEEPING string
+ *   and template-literal text, so quoted specifiers remain findable.
+ * - `fullMask` blanks strings, template text, comments, and regex bodies, so
+ *   tokens inside any non-code text can never match a scan.
+ *
+ * Both masks preserve offsets exactly (newlines are kept, so positions map
+ * 1:1 to the input), which means `codeMask`/`fullMask` can be compared at the
+ * same offsets.
  *
  * This is a heuristic (it does not fully model JS lexing — regex-vs-division
  * uses a prev-token check, nested template interpolations use a brace
  * counter), which is acceptable: it feeds coarse "is this token real code"
  * checks, with the runtime itself as the final authority.
  */
-function maskCode(code: string, blankStrings: boolean): string {
-  const chars = code.split("");
-  const blank = (start: number, end: number) => {
+interface MaskPair {
+  codeMask: string;
+  fullMask: string;
+}
+
+function maskCodePair(code: string): MaskPair {
+  const codeChars = code.split("");
+  const fullChars = code.split("");
+  const blank = (chars: string[], start: number, end: number) => {
     for (let k = start; k < end && k < code.length; k++) {
       if (chars[k] !== "\n" && chars[k] !== "\r") chars[k] = " ";
     }
+  };
+  const blankBoth = (start: number, end: number) => {
+    blank(codeChars, start, end);
+    blank(fullChars, start, end);
   };
 
   // Last significant code characters (never literal text), for regex/division.
@@ -265,14 +277,14 @@ function maskCode(code: string, blankStrings: boolean): string {
   };
 
   // Scan template-literal text from just after an opening backtick or a
-  // closing `}` of an interpolation. Blanks the text (blankStrings mode),
+  // closing `}` of an interpolation. Blanks the text in `fullMask` only,
   // handles escapes, and stops at the closing backtick or a `${` interpolation
   // (which re-enters code scanning).
   const scanTemplateText = (): void => {
     while (i < n) {
       const t = code[i];
       if (t === "\\") {
-        if (blankStrings) blank(i, Math.min(i + 2, n));
+        blank(fullChars, i, Math.min(i + 2, n));
         i += 2;
         continue;
       }
@@ -285,7 +297,7 @@ function maskCode(code: string, blankStrings: boolean): string {
         i += 2;
         return;
       }
-      if (blankStrings && t !== "\n" && t !== "\r") chars[i] = " ";
+      if (t !== "\n" && t !== "\r") fullChars[i] = " ";
       i++;
     }
   };
@@ -297,20 +309,20 @@ function maskCode(code: string, blankStrings: boolean): string {
     if (c === "/" && next === "/") {
       const end = code.indexOf("\n", i);
       const stop = end === -1 ? n : end;
-      blank(i, stop);
+      blankBoth(i, stop);
       i = stop;
       continue;
     }
     if (c === "/" && next === "*") {
       let end = code.indexOf("*/", i + 2);
       end = end === -1 ? n : end + 2;
-      blank(i, end);
+      blankBoth(i, end);
       i = end;
       continue;
     }
     if (c === '"' || c === "'") {
       const end = scanString(c);
-      if (blankStrings) blank(i, end);
+      blank(fullChars, i, end);
       pushTail(c);
       i = end;
       continue;
@@ -368,7 +380,7 @@ function maskCode(code: string, blankStrings: boolean): string {
         }
         j++;
       }
-      blank(i, j);
+      blankBoth(i, j);
       pushTail("/");
       i = j;
       continue;
@@ -376,7 +388,7 @@ function maskCode(code: string, blankStrings: boolean): string {
     if (!/\s/.test(c)) pushTail(c);
     i++;
   }
-  return chars.join("");
+  return { codeMask: codeChars.join(""), fullMask: fullChars.join("") };
 }
 
 /** 1-based line/column of a byte offset in `source`. */
@@ -423,9 +435,11 @@ function locateSpecifier(
  * text or comments are dropped). A call whose argument is not a string
  * literal cannot be statically resolved and is reported as `null`.
  */
-function extractRequireSpecifiers(output: string): (string | null)[] {
-  const codeMask = maskCode(output, false);
-  const fullMask = maskCode(output, true);
+function extractRequireSpecifiers(
+  output: string,
+  masks: MaskPair = maskCodePair(output),
+): (string | null)[] {
+  const { codeMask, fullMask } = masks;
   const specifiers: (string | null)[] = [];
   for (const match of codeMask.matchAll(/(?<![\w.$])require\s*\(/g)) {
     const index = match.index ?? 0;
@@ -454,10 +468,43 @@ function extractRequireSpecifiers(output: string): (string | null)[] {
   return specifiers;
 }
 
-/** `import type ... from "spec"` — erased by the transform, found in source. */
-const TYPE_IMPORT_RE = /\bimport\s+type\s+[^;'"()]*?from\s*(['"])([^'"]+)\1/g;
-/** `export type { ... } from "spec"` — likewise type-only. */
-const TYPE_EXPORT_RE = /\bexport\s+type\s*\{[^}]*\}\s*from\s*(['"])([^'"]+)\1/g;
+/** Match static import declarations, including `import type` and inline `{ type X }`. */
+const IMPORT_DECL_RE =
+  /\bimport\s*(type\s+)?([^;'"]*?)\s*from\s*(['"])([^'"]+)\3/g;
+/** Match static export-from declarations, including `export type` and inline `{ type X }`. */
+const EXPORT_DECL_RE =
+  /\bexport\s*(type\s+)?([^;'"]*?)\s*from\s*(['"])([^'"]+)\3/g;
+
+/** True when an import/export clause contains an inline `type` modifier. */
+function hasInlineTypeModifier(clause: string): boolean {
+  return /\btype\s+(?=[A-Za-z_$])/.test(clause);
+}
+
+/**
+ * Extract type-only import/export specifiers from a code mask. These are
+ * erased by jiti's transform, so they never appear as runtime `require` edges;
+ * without this pass an inline `import { type X } from "bare-module"` would
+ * otherwise bypass the relative-only import policy entirely.
+ */
+function collectTypeSpecifiers(sourceMask: string): Set<string> {
+  const specifiers = new Set<string>();
+  for (const match of sourceMask.matchAll(IMPORT_DECL_RE)) {
+    if (match[1] !== undefined || hasInlineTypeModifier(match[2])) {
+      specifiers.add(match[4]);
+    }
+  }
+  for (const match of sourceMask.matchAll(EXPORT_DECL_RE)) {
+    if (match[1] !== undefined || hasInlineTypeModifier(match[2])) {
+      specifiers.add(match[4]);
+    }
+  }
+  return specifiers;
+}
+
+/** True when a `.d.ts` file supplies the injected global `af` declaration. */
+function declaresGlobalAf(source: string): boolean {
+  return /\bdeclare\s+global\s*\{[^}]*\b(?:const|var|let)\s+af\b/s.test(source);
+}
 
 /**
  * Throw a located import-policy error. The `(line:col)` component is what
@@ -551,19 +598,27 @@ export function buildImportGraph(entryPath: string): FlowImportGraph {
     // there but must never enter a flow's graph).
     if (path.endsWith(".d.ts")) return;
 
+    const sourceMasks = maskCodePair(source);
+
     // Dynamic `import()` cannot be walked — reject before anything runs.
     // Type-position `import("./x").T` (annotations, type arguments, `as`/
-    // `satisfies`/`extends` operands) is NOT a dynamic import: it is erased
-    // by transpilation, so it is exempt via a lookbehind on the preceding
-    // mask text. The check is a heuristic — `cond ? a : import("./x")`
-    // would slip past it, which only skips this pre-flight check (the
-    // runtime still resolves it).
-    const fullMask = maskCode(source, true);
-    for (const match of fullMask.matchAll(/(?<![\w.$])import\s*\(/g)) {
+    // `satisfies`/`extends`/`typeof` operands) is NOT a dynamic import: it is
+    // erased by transpilation, so it is exempt via a lookbehind on the
+    // preceding mask text. This also covers the common `type X =
+    // import("./x").Y` idiom — a real `const x = import("./x")` must still be
+    // rejected. The check is a heuristic — `cond ? a : import("./x")` would
+    // slip past it, which only skips this pre-flight check (the runtime still
+    // resolves it).
+    for (const match of sourceMasks.fullMask.matchAll(
+      /(?<![\w.$])import\s*\(/g,
+    )) {
       const idx = match.index ?? 0;
-      const before = fullMask.slice(Math.max(0, idx - 32), idx);
+      const before = sourceMasks.fullMask.slice(Math.max(0, idx - 64), idx);
       if (
         /(?:(?:^|[^\w$.])(?:as|satisfies|extends|keyof|typeof|readonly|infer)|[:<])\s*$/.test(
+          before,
+        ) ||
+        /(?:^|[^\w$])type\s+[A-Za-z_$][\w$]*(?:\s*<[^>]*>)?\s*=\s*$/.test(
           before,
         )
       ) {
@@ -588,7 +643,8 @@ export function buildImportGraph(entryPath: string): FlowImportGraph {
         }`,
       );
     }
-    for (const specifier of extractRequireSpecifiers(output)) {
+    const outputMasks = maskCodePair(output);
+    for (const specifier of extractRequireSpecifiers(output, outputMasks)) {
       if (specifier === null) {
         throw importError(
           path,
@@ -624,15 +680,10 @@ export function buildImportGraph(entryPath: string): FlowImportGraph {
     }
 
     // Type edges: erased by the transform, so scan the source (comments
-    // masked so prose examples cannot trip it).
-    const sourceMask = maskCode(source, false);
-    const typeSpecifiers = new Set<string>();
-    for (const match of sourceMask.matchAll(TYPE_IMPORT_RE)) {
-      typeSpecifiers.add(match[2]);
-    }
-    for (const match of sourceMask.matchAll(TYPE_EXPORT_RE)) {
-      typeSpecifiers.add(match[2]);
-    }
+    // masked so prose examples cannot trip it). `collectTypeSpecifiers` also
+    // handles inline `{ type X }` imports/exports, which would otherwise be
+    // invisible to both the runtime-edge pass and the old `import type` regex.
+    const typeSpecifiers = collectTypeSpecifiers(sourceMasks.codeMask);
     for (const specifier of typeSpecifiers) {
       const loc = locateSpecifier(source, specifier);
       if (!specifier.startsWith("./") && !specifier.startsWith("../")) {
@@ -715,30 +766,23 @@ export async function typeCheckFlowScript(
     ...(graph ? [...graph.files] : []),
   ]);
   const graphHasDeclarations = graph
-    ? [...graph.files.keys()].some((f) => basename(f) === "agentflow.d.ts")
+    ? [...graph.files.entries()].some(
+        ([f, content]) => f.endsWith(".d.ts") && declaresGlobalAf(content),
+      )
     : false;
   const roots = [fileName];
   // Ambient `require`: `.ts` flows may use CommonJS `require("./x")` (the
   // import policy allows it and the runtime executes it), so tsc needs a
   // global declaration or it rejects the flow with "Cannot find name
-  // 'require'". It must be appended as a second `declare global` block — the
-  // declaration sources are modules (they import/export), so a top-level
-  // `declare function` there would be module-scoped, not global; separate
-  // `declare global` blocks merge. The result is `any`, keeping property
-  // access on the required module permissive.
+  // 'require'". It is appended to the entry — `moduleDetection: Force` makes it
+  // an external module, so a `declare global` block there is global rather
+  // than module-scoped. The result is `any`, keeping property access on the
+  // required module permissive.
   const AMBIENT_REQUIRE =
     "\ndeclare global {\n  function require(id: string): any;\n}\n";
-  if (graphHasDeclarations) {
-    for (const [f, content] of fileMap) {
-      if (basename(f) === "agentflow.d.ts") {
-        fileMap.set(f, content + AMBIENT_REQUIRE);
-      }
-    }
-  } else {
-    fileMap.set(
-      declarationsPath,
-      readFileSync(declarationsPath, "utf-8") + AMBIENT_REQUIRE,
-    );
+  fileMap.set(fileName, `${fileMap.get(fileName) ?? source}${AMBIENT_REQUIRE}`);
+  if (!graphHasDeclarations) {
+    fileMap.set(declarationsPath, readFileSync(declarationsPath, "utf-8"));
     roots.push(declarationsPath);
   }
   const origGetSourceFile = host.getSourceFile.bind(host);

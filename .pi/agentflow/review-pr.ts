@@ -14,13 +14,19 @@
  * Run with `/af review-pr`.
  */
 
-import type {
-  BashResult,
-  BashTimeoutError,
-  FlowAgent,
-} from "./agentflow.d.ts";
+import type { BashResult, FlowAgent } from "./agentflow.d.ts";
 
-const PR_NUMBER = "10";
+const PR_NUMBER_RES = await af.bash("gh pr view --json number --jq .number");
+if (PR_NUMBER_RES.code !== 0 || !PR_NUMBER_RES.stdout.trim()) {
+  throw new Error(
+    `Could not determine PR number: ${
+      PR_NUMBER_RES.stderr ||
+      PR_NUMBER_RES.stdout ||
+      `gh pr view exited ${PR_NUMBER_RES.code}`
+    }`,
+  );
+}
+const PR_NUMBER = PR_NUMBER_RES.stdout.trim();
 const MAX_ROUNDS = 20;
 const CLAUDE_LOG = "/tmp/agentflow-review-pr/claude-raw.log";
 const REVIEW_TIMEOUT_MS = 20 * 60 * 1000; // Claude review can take a while.
@@ -52,15 +58,18 @@ const verdictSchema = af.Type.Object({
  * structured verdict via `submit_result`. This avoids brittle regex over
  * Claude's prose.
  */
-async function evaluateVerdict(reviewText: string, round: number): Promise<Verdict> {
+async function evaluateVerdict(
+  reviewText: string,
+  round: number,
+): Promise<Verdict> {
   const evaluator: FlowAgent<VerdictResult> = await af.createAgent({
     name: `evaluator:${round}`,
     resultSchema: verdictSchema,
     systemPrompt:
       "You are a code-review adjudicator. You will be given the free-text " +
       "output of Claude Code's built-in /code-review command. Determine the " +
-      "verdict from it: \"approve\" when the review finds no issues or only " +
-      "benign/style nits; \"request-changes\" when it lists any real bug, " +
+      'verdict from it: "approve" when the review finds no issues or only ' +
+      'benign/style nits; "request-changes" when it lists any real bug, ' +
       "correctness risk, or required change. Use the submit_result tool to " +
       "return a JSON object of the shape { verdict, reason? }.",
   });
@@ -143,6 +152,31 @@ async function runQualityGate(
   return { ok: typecheckOk && testOk, detail: lines.join("\n") };
 }
 
+/**
+ * Commit and push the fixer's changes. Returns an error title/message string
+ * on the first failing git step, or `undefined` when all three steps pass.
+ */
+async function commitAndPush(round: number): Promise<string | undefined> {
+  const addRes = await af.bash("git add --all");
+  if (addRes.code !== 0) {
+    return `## git add failed\n\n${addRes.stderr}`;
+  }
+
+  const commitRes = await af.bash(
+    `git commit -m "fix: address code review feedback (round ${round})"`,
+  );
+  if (commitRes.code !== 0) {
+    return `## git commit failed\n\n${commitRes.stderr}`;
+  }
+
+  const pushRes = await af.bash("git push");
+  if (pushRes.code !== 0) {
+    return `## git push failed\n\n${pushRes.stderr}`;
+  }
+
+  return undefined;
+}
+
 async function drive() {
   const branch = (await af.bash("git branch --show-current")).stdout.trim();
   af.log(
@@ -193,7 +227,9 @@ grep '^{' ${CLAUDE_LOG} | jq -r '(select(.type=="stream_event" and .event.type==
       // `BashTimeoutError`, exposing `.stdout`/`.stderr`.
       if (af.isBashTimeoutError(err)) {
         af.log(`Round ${round}: Claude review timed out — stopping.`);
-        af.result(`## Claude review timed out\n\nStopped during round ${round}.`);
+        af.result(
+          `## Claude review timed out\n\nStopped during round ${round}.`,
+        );
         return;
       }
       throw err;
@@ -293,26 +329,10 @@ grep '^{' ${CLAUDE_LOG} | jq -r '(select(.type=="stream_event" and .event.type==
       return;
     }
 
-    const addRes = await af.bash("git add --all");
-    if (addRes.code !== 0) {
-      af.log(`git add failed: ${addRes.stderr}`);
-      af.result(`## git add failed\n\n${addRes.stderr}`);
-      return;
-    }
-
-    const commitRes = await af.bash(
-      `git commit -m "fix: address code review feedback (round ${round})"`,
-    );
-    if (commitRes.code !== 0) {
-      af.log(`git commit failed: ${commitRes.stderr}`);
-      af.result(`## git commit failed\n\n${commitRes.stderr}`);
-      return;
-    }
-
-    const pushRes = await af.bash("git push");
-    if (pushRes.code !== 0) {
-      af.log(`git push failed: ${pushRes.stderr}`);
-      af.result(`## git push failed\n\n${pushRes.stderr}`);
+    const gitError = await commitAndPush(round);
+    if (gitError) {
+      af.log(gitError.replace(/^##\s*/, ""));
+      af.result(gitError);
       return;
     }
 

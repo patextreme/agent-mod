@@ -121,9 +121,8 @@ export async function validateFlowFile(
     };
   }
 
-  let source: string;
   try {
-    source = readFlowScript(resolved.path);
+    readFlowScript(resolved.path);
   } catch (err) {
     // `readFlowScript` throws on a directory, unreadable file, etc. Surface it
     // as a structured report so `validateFlowFile` honors its never-throws
@@ -140,9 +139,21 @@ export async function validateFlowFile(
   try {
     const graph = buildImportGraph(resolved.path);
     if (resolved.isTypeScript) {
+      const entrySource = graph.files.get(resolved.path);
+      if (entrySource === undefined) {
+        return {
+          ok: false,
+          name,
+          errors: [
+            error(
+              `internal error: validated graph is missing entry "${resolved.path}"`,
+            ),
+          ],
+        };
+      }
       await typeCheckFlowScript(
         resolved.path,
-        graph.files.get(resolved.path) ?? source,
+        entrySource,
         DECLARATIONS_PATH,
         graph,
       );
