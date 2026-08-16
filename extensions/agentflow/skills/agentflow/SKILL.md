@@ -1,64 +1,53 @@
 ---
 name: agentflow
-description: Author and modify AgentFlow orchestration scripts for pi. Use when the user wants to create, edit, or run a flow that spawns isolated sub-agents (e.g. reviewcode, multi-step workflows). Covers the injected `af` surface (createAgent, sendMessage, log, result, cwd, bash), authoring conventions, the validation workflow, and the worked example.
+description: Author and modify AgentFlow orchestration scripts for pi. Use whenever the user wants to create, edit, debug, or run a flow that spawns isolated sub-agents (e.g. reviewcode, multi-step workflows), gate agent steps on shell commands, or check a flow with agentflow_validate / /af-validate before running /af. Covers the injected `af` surface (createAgent, sendMessage, log, result, cwd, bash, isBashTimeoutError), authoring conventions, the validation workflow, and examples.
 ---
 
 # AgentFlow — Authoring Guide
 
 AgentFlow turns an imperative TypeScript (or JavaScript) script into a repeatable
-multi-step workflow. The script ("flow") spawns *isolated sub-agent sessions* via
-the SDK, drives them step by step, and delivers a result back to the main session.
+multi-step workflow. The script ("flow") spawns *isolated sub-agent sessions*,
+drives them step by step, and delivers a result back to the main session.
 
-## How a flow is invoked
+A minimal flow (`.pi/agentflow/reviewcode.ts`, run with `/af reviewcode`):
+
+```ts
+const reviewer = await af.createAgent({
+  name: "reviewer",
+  systemPrompt: "You are a senior code reviewer. Be concise and concrete.",
+});
+const review = await reviewer.sendMessage("Review src/core.ts for correctness.");
+
+af.result(`## Review\n\n${review}`);
+```
+
+Use top-level `await` freely — the script body runs as an async module. Prefer
+`.ts`: it is type-checked before execution.
+
+## Running a flow
 
 - Flows live at `.pi/agentflow/<name>.ts` (project) or `~/.pi/agentflow/<name>.ts`
-  (global), with `.js` fallbacks.
-- Invoke with `/af <name>` (e.g. `/af reviewcode`), or `/af:<name>` (e.g.
-  `/af:reviewcode`) for any flow already on disk at session start.
+  (global), with `.js` fallbacks; project resolves first.
+- Invoke with `/af <name>`, or `/af:<name>` for any flow already on disk at
+  session start. Only one flow runs at a time.
 - Project scripts only run when the project is **trusted**.
-- In TUI mode the flow runs **alongside the editor** under a live fleet
-  widget below it: `main` + each running sub-agent, streamed `af.log` lines,
-  tap-in (view live conversation, steer, stop), and whole-run cancel. Only
-  one flow runs at a time. In non-TUI modes it runs without the UI.
-
-### The fleet widget (TUI)
-
-The widget below the editor is always visible for the duration of a run —
-there is nothing to re-open. Keys only act when the prompt editor is
-**focused and empty**, so normal typing is untouched:
-
-- `↓` or `←` at an empty prompt activates list navigation; any other key
-  deactivates it and flows into the editor.
-- `↑`/`↓` move the selection; `enter` opens the selection; `esc` leaves.
-- `enter` on an agent opens its live conversation overlay; on `main` it opens
-  the run's `af.log` stream.
-- `s` steers the selected agent (opens the composer directly).
-- `x` is two-press: on an agent it **stops** it (aborts and rejects any
-  further messages for this run, so the flow unwinds instead of reviving
-  it); on `main` it **cancels the whole run** (every agent stops and the
-  flow script unwinds at its next `af` call).
-- Steering messages queue between turns — the viewer shows them as
-  `[Steering · queued]` until they are delivered.
+- In the TUI, the run lives under a fleet widget below the editor: live status
+  of `main` + each agent, streamed `af.log` lines, and — activate with `↓`/`←`
+  at an empty prompt — per-agent conversation view, steer, stop, and whole-run
+  cancel. The widget shows its own key hints; non-TUI modes run without the UI.
 
 ## The `af` surface
 
-A flow gets exactly one injected global: `af`. It may import other files with
-relative specifiers (see [Imports](#imports)); `af` itself is the only
-injected global.
-
-### `af.Type`
-
-The TypeBox `Type` namespace (see [Structured results](#structured-results-resultSchema--submit_result)). Flows cannot import `typebox` (bare module
-specifiers are rejected), so `af.Type` is the way to construct a schema value
-that shares the SDK's schema-instance identity.
+A flow gets exactly one injected global, `af` (plus relative imports — see
+[Imports](#imports)).
 
 ### `af.createAgent(config)` → `Promise<FlowAgent>`
 
-Spawns an isolated sub-agent session. Config:
+Spawns an isolated sub-agent session:
 
 ```ts
 {
-  name: "reviewer",           // required, shown in the Orchestrator
+  name: "reviewer",           // required, shown in the fleet widget
   model?: "provider/modelId", // default: inherit the main session's model
   tools?: string[],           // default: inherit the main session's tools
   systemPrompt?: string,      // default: inherit the main session's system prompt
@@ -69,374 +58,173 @@ Spawns an isolated sub-agent session. Config:
 }
 ```
 
-### Drive the returned handle
+### Driving the handle
 
 ```ts
 const agent = await af.createAgent({ name: "reviewer" });
 const answer = await agent.sendMessage("Do the thing."); // blocks, returns final text
-answer;            // last step's final assistant text
-agent.result;      // same as above
-agent.sessionFile; // set only when persist: true
-agent.submittedResult(); // schema-typed value the agent submitted (see below)
-agent.clearResult(); // explicit reset of the submitted value
-await agent.abort(); // cancel mid-run
-agent.dispose();    // release the sub-session
+await agent.sendMessage("What is in this shot?", {       // images ride along (base64)
+  images: [{ type: "image", data: b64, mimeType: "image/png" }],
+});
+agent.result;             // last step's final assistant text
+agent.sessionFile;        // set only when persist: true
+agent.submittedResult();  // schema-typed value the agent submitted (see below)
+agent.clearResult();      // explicit reset of the submitted value
+await agent.abort();      // cancel mid-run; queued messages drop, agent stays usable
+agent.dispose();          // release the sub-session
 ```
 
-Sequential `sendMessage` calls on the same handle **share one conversation**, so
-task B sees task A's context. Messages are always delivered **in order**: if the
-agent is already streaming a previous step, the message is queued and delivered
-after the current work settles — `sendMessage` never fails on a busy agent.
-
-`sendMessage` **rejects** when the agent was stopped from the fleet UI or the
-whole run was cancelled — a stopped agent is stopped for the rest of the run
-and the flow unwinds (wrap the call in `try/catch` if a step may survive a
-stop). Parallelism is ordinary JS:
-
-```ts
-const [a, b] = await Promise.all([
-  x.sendMessage("Task A"),
-  y.sendMessage("Task B"),
-]);
-```
+- Sequential `sendMessage` calls on one handle **share one conversation** —
+  task B sees task A's context.
+- Messages are always delivered **in order**: a send to a busy agent queues
+  behind the running work; `sendMessage` never fails on a busy agent.
+- `sendMessage` **rejects** when the agent was stopped from the fleet UI or the
+  run was cancelled — a stopped agent is stopped for the rest of the run (wrap
+  in `try/catch` if a step must survive a stop).
+- Parallelism is ordinary JS:
+  `await Promise.all([x.sendMessage(...), y.sendMessage(...)])`.
 
 ## Structured results: `resultSchema` + `submit_result`
 
-Give an agent a **schema-validated result channel** by passing a TypeBox
-`resultSchema` to `af.createAgent`. When present, the sub-agent gets a
-`submit_result` tool to hand a typed value back to the flow; when absent, no
-tool is injected and `submittedResult()` is always `undefined`.
-
-The schema is a TypeBox `TSchema` built with the `af.Type` namespace (the same
-`typebox` version the SDK uses, `1.3.7`, so the schema shares the SDK's
-schema-instance identity). Bare module specifiers like `typebox` are rejected
-by the flow import policy, so `af.Type` is the way to construct a schema
-value:
+Pass a TypeBox `resultSchema` to give the agent a typed result channel; without
+one there is no `submit_result` tool and `submittedResult()` is always
+`undefined`. Build the schema with `af.Type` — the same `typebox` version the
+SDK uses (`1.3.7`), so the schema shares its instance identity, and bare module
+specifiers like `typebox` are rejected anyway ([Imports](#imports)):
 
 ```ts
-const packet = await af.createAgent<{
-  findings: string[];
-  confidence: number;
-}>({
-  name: "packet",
-  resultSchema: af.Type.Object({
-    findings: af.Type.Array(af.Type.String()),
-    confidence: af.Type.Number(),
-  }),
-});
-```
-
-### Reading and clearing a submitted result
-
-```ts
-const _text = await packet.sendMessage("Review src/core.ts and submit your findings.");
-const findings = packet.submittedResult(); // { findings: string[]; confidence: number } | undefined
-
-packet.clearResult(); // explicitly reset for the next iteration
-```
-
-- `submittedResult()` returns a **deep copy** of the most recent value the agent
-  submitted, typed as the flow's generic — mutating the returned object never
-  affects the handle's stored value.
-- `clearResult()` resets the stored value to `undefined`. There is **no
-  automatic reset** on `sendMessage` or steering; the flow owns freshness.
-- `submit_result` overwrites the previous value (last-write-wins). A malformed
-  value is rejected by schema validation so the agent sees the error and retries.
-- `sendMessage` still resolves with the final assistant text; the submitted
-  result is a separate, structured channel.
-
-### Orchestration patterns
-
-**Loop control** — iterate until the agent submits an accept verdict, clearing
-per turn so a stale value is never mistaken for this iteration's answer:
-
-```ts
-const checker = await af.createAgent<{
-  ok: boolean;
-  notes: string;
-}>({
+const checker = await af.createAgent<{ ok: boolean; notes: string }>({
   name: "checker",
   resultSchema: af.Type.Object({ ok: af.Type.Boolean(), notes: af.Type.String() }),
 });
+```
 
-let round = 0;
-while (round < 5) {
+- `submit_result` overwrites any previous value (last-write-wins); a malformed
+  value fails schema validation so the agent sees the error and retries.
+- `submittedResult()` returns a **deep copy** of the last submitted value —
+  mutating it never affects the handle.
+- There is **no automatic reset** on `sendMessage`; when reusing a handle
+  across rounds, `clearResult()` first so a stale value is never mistaken for
+  this round's answer:
+
+```ts
+for (let round = 0; round < 5; round++) {
   checker.clearResult(); // freshness: this round's verdict only
   await checker.sendMessage(`Round ${round + 1}: verify the fix and submit { ok, notes }.`);
   const verdict = checker.submittedResult();
-  if (verdict?.ok) {
-    af.log(`Accepted after round ${round + 1}: ${verdict.notes}`);
-    break;
-  }
-  round++;
+  if (verdict?.ok) break;
 }
 ```
 
-**Fan-out over a submitted array** — have a planner submit a list of items, then
-fan each item out to parallel workers that themselves submit structured results:
-
-```ts
-const planner = await af.createAgent<{ steps: string[] }>({
-  name: "planner",
-  resultSchema: af.Type.Object({ steps: af.Type.Array(af.Type.String()) }),
-});
-await planner.sendMessage("Break the task into steps and submit { steps }.");
-const steps = planner.submittedResult()?.steps ?? [];
-
-const workers = await Promise.all(
-  steps.map(async (step) => {
-    const w = await af.createAgent<{ output: string }>({
-      name: `worker:${step.slice(0, 12)}`,
-      resultSchema: af.Type.Object({ output: af.Type.String() }),
-    });
-    await w.sendMessage(`Execute this step and submit { output }: ${step}`);
-    return w.submittedResult()?.output ?? "";
-  }),
-);
-af.result(workers.join("\n\n"));
-```
-
-When a loop must **not** carry context between rounds (independent samples,
-retries, unbiased votes), create a **new agent per iteration** instead of
-reusing one handle — each round starts cold and fully isolated, so no
-`clearResult()` is needed and no prior turn can color the answer:
+When rounds must **not** share context (independent samples, retries, unbiased
+votes), create a **new agent per iteration** instead — each starts cold and
+isolated, so no `clearResult()` is needed:
 
 ```ts
 for (let round = 0; round < 3; round++) {
   const judge = await af.createAgent<{ accepts: boolean }>({
-    name: `judge:${round + 1}`, // fresh handle every turn
-    systemPrompt: "Judge only this turn; ignore prior context.",
+    name: `judge:${round + 1}`,
     resultSchema: af.Type.Object({ accepts: af.Type.Boolean() }),
   });
   await judge.sendMessage(`Round ${round + 1}: review and submit { accepts }.`);
-  const verdict = judge.submittedResult();
-  judge.dispose(); // discard — handle is single-use
+  judge.dispose(); // handle is single-use
 }
 ```
 
-**Fresh-agent-per-turn** (above) vs **reuse-one-handle** (loop-control): reuse
-keeps conversation history across rounds and pairs with `clearResult()` for
-result freshness; a new agent per turn loses all prior context in exchange for
-clean isolation. The fan-out pattern also runs each worker for a single turn,
-so no `clearResult()` is needed there either.
+Fan-out — a planner submits `steps`, parallel workers each submit an output via
+`Promise.all` — is shown in `../../examples/fanout.ts`.
 
-### `af.log(...parts)`
+### `af.log`, `af.result`, `af.cwd`
 
-Streams a progress line into the Orchestrator. **Not** sent to the LLM context.
-
-### `af.result(value)`
-
-Records the flow outcome. On completion it is injected into the main session as a
-custom message (`customType: "agentflow"`, `display: true`) visible to the
-orchestrating LLM. If you never call it, completion is still signalled without a
-result.
-
-### `af.cwd`
-
-The working directory the flow runs in (a string).
-
-### `af.bash(cmd, opts?)` → `Promise<{ stdout, stderr, code }>`
-
-Runs a shell command and resolves its captured output. A non-zero exit code is
-**data, not an exception** — branch on `code`. See
-[Running shell commands](#running-shell-commands-afbash) for the full contract
-(timeout, cancellation, conventions).
-
-```ts
-const test = await af.bash("npm test");
-if (test.code !== 0) af.log(`tests failed:\n${test.stdout}`);
-```
+- `af.log(...parts)` — streams a progress line into the fleet widget; never
+  sent to the LLM context.
+- `af.result(value)` — records the outcome, injected into the main session as a
+  visible custom message on completion. Optional: completion is signalled
+  without it.
+- `af.cwd` — the working directory the flow runs in.
 
 ## Running shell commands: `af.bash`
 
 `af.bash(cmd, opts?)` runs a command through the same shell resolution as pi's
-own bash tool (`/bin/bash` → `bash` on PATH → `sh -c`; Git Bash on Windows) and
-resolves a structured result — no LLM in the loop, so it is fast,
-deterministic, and cheap. It is the channel for orchestration logic a flow
-needs directly: check `git status` before reviewing, run `npm test` between
-agent rounds, verify a fix exists on disk, clean up after itself.
+bash tool and resolves `{ stdout, stderr, code }` — no LLM in the loop. Use it
+for what the flow can decide deterministically (git state, test runs, build
+gates, file checks) and reserve `createAgent` for steps that genuinely need
+reasoning:
 
 ```ts
-const r = await af.bash("npm test", { cwd: "packages/core", timeoutMs: 60_000 });
-// r: { stdout: string; stderr: string; code: number }
-```
-
-### Contract & conventions
-
-- **Non-zero exit is data, not an exception.** `code` is the exit code; branch on
-  it. `af.bash` only rejects on cancellation or timeout (below).
-- **`cwd` defaults to `af.cwd`** and is overridable via `opts.cwd`.
-- **`opts.timeoutMs` is opt-in.** Omit it for no timeout. When it elapses, the
-  call rejects with a `BashTimeoutError` carrying the partially-collected
-  `stdout`/`stderr`, and the child's process group is killed. A value import
-  of the declaration file is rejected, so discriminate by name (or use the
-  `af.isBashTimeoutError` type guard):
-
-  ```ts
-  try {
-    await af.bash("npm test", { timeoutMs: 30_000 });
-  } catch (err) {
-    if (err.name === "BashTimeoutError") {
-      // err.stdout / err.stderr hold what was captured before the timeout
-    }
-  }
-  ```
-
-- **Kill-on-cancel.** If the whole run is cancelled, every in-flight `af.bash`
-  child is killed together with its process group (grandchildren included) and
-  the pending call rejects with the flow's cancellation error — so the script
-  unwinds consistently with `sendMessage` and `createAgent`.
-- **Stdin is ignored**, so a command that reads stdin (e.g. `read x`) fails fast
-  instead of hanging.
-- **Ungated by the permission extension.** `af.bash` is static script code, not
-  an LLM-proposed command; the flow's trust gate (project scripts require trust)
-  is the security boundary. Same posture as sub-agent bash.
-- **Output is buffered unbounded** (no cap). For huge output, redirect to a file
-  inside the command and read what you need:
-
-  ```ts
-  await af.bash("npm test > /tmp/out.log 2>&1");
-  const tail = await af.bash("tail -n 200 /tmp/out.log");
-  ```
-
-- **Concurrent calls are allowed** and run independently — use `Promise.all`.
-- **Failure visibility.** Output is not streamed; on a non-zero exit the runner
-  emits a single one-line notice (`af.bash: "<cmd>" exited <code>`) to the fleet
-  log, so failures are visible without full streaming.
-
-### Orchestration pattern: gate a sub-agent on a command
-
-Combine deterministic commands with an LLM step — run a command, branch on its
-exit code, and only spend a sub-agent turn when there is something to do:
-
-```ts
-// Only review when there are uncommitted changes.
 const status = await af.bash("git status --porcelain");
 if (status.code === 0 && status.stdout.trim() !== "") {
   const diff = await af.bash("git diff");
-  const reviewer = await af.createAgent({
-    name: "reviewer",
-    systemPrompt: "You are a concise code reviewer.",
-  });
-  const review = await reviewer.sendMessage(`Review this diff:\n\n${diff.stdout}`);
-  reviewer.dispose();
-  af.result(review);
-} else {
-  af.result("Nothing to review.");
+  const reviewer = await af.createAgent({ name: "reviewer" });
+  af.result(await reviewer.sendMessage(`Review this diff:\n\n${diff.stdout}`));
 }
 ```
 
-Use `af.bash` for anything the flow can decide deterministically (file checks,
-test runs, git state, build gates), and reserve `createAgent` for the steps that
-genuinely need reasoning.
+- A non-zero exit is **data, not an exception** — branch on `code` (`-1` means
+  the process died from a signal).
+- `opts.cwd` defaults to `af.cwd`; `opts.timeoutMs` is opt-in — on timeout the
+  call rejects with a `BashTimeoutError` carrying the partial
+  `stdout`/`stderr` (check with `af.isBashTimeoutError(err)`) and kills the
+  process group.
+- Cancelling the run kills every in-flight child (process group, grandchildren
+  included); the call then rejects the same way `sendMessage` does.
+- Stdin is ignored (interactive commands fail fast); output is buffered
+  unbounded (redirect to a file and read what you need); concurrent calls are
+  fine; ungated by the permission extension — the flow's trust gate is the
+  security boundary.
 
 ## Imports
 
-Flow scripts may import other files — helpers, shared shapes, types — subject
-to a **relative-only** import policy:
+Flow scripts may import helpers with **relative-only** specifiers: `./`/`../`
+resolving to `.ts`/`.js` files anywhere on disk (escaping the flow directory is
+fine). ESM imports, `require()`, and `import type` all work; prefer explicit
+extensions (`"./helper.ts"`). Rejected at validation time — before any
+sub-agent spawns: bare module specifiers (`"zod"`, `"typebox"`), `node:`
+builtins, dynamic `import()`, non-literal `require()` arguments, missing
+targets, and value imports of `.d.ts` files (import those with `import type`
+only). The whole graph is validated: every file must exist and parse, and `.ts`
+type errors anywhere in the graph fail validation, reported with the file's
+path.
 
-- **Allowed**: specifiers starting with `./` or `../`, resolving to `.ts` or
-  `.js` files anywhere on disk (escaping the flow directory is fine). Both
-  `import ... from "./x.ts"` and CommonJS `require("./x.ts")` work, and
-  `import type` / `export type` are permitted for type-only edges.
-- **Rejected at validation time** (before any sub-agent spawns): bare module
-  specifiers (`"zod"`, `"typebox"`), `node:` builtins (`"node:fs"`), dynamic
-  `import()` expressions, missing import targets, and value imports of `.d.ts`
-  files (import those with `import type` only).
-- The whole import graph is validated: every imported file must exist and
-  parse, and (for `.ts`) type errors in *imported* files fail validation too,
-  reported with the file's path.
-- Prefer explicit extensions (`"./helper.ts"`) in specifiers.
+### Local declarations: `agentflow.d.ts`
 
-```ts
-import { summarize } from "./summarize.ts";
-import type { Finding } from "./types.ts";
-
-const finding: Finding = { ok: true };
-af.log(summarize(finding));
-```
-
-### Local declarations: `/af-init`
-
-External editors cannot see the injected `af` global on their own. Run
-`/af-init` in the project to write a self-contained copy of the `af`
-declarations to `.pi/agentflow/agentflow.d.ts` (created if missing,
-overwritten on re-run — re-run it after an extension upgrade to re-sync).
-Scripts can then `import type` from it, and editors type `af` through the
-file's `declare global`:
+If `.pi/agentflow/agentflow.d.ts` exists in the project (created by
+`/af-init` — run it if missing, and again after an extension upgrade since it
+overwrites), prefer `import type` from it whenever a flow needs explicit
+annotations or typed helpers:
 
 ```ts
-import type { AgentFlow, FlowAgent } from "./agentflow.d.ts";
+import type { FlowAgent } from "./agentflow.d.ts";
 
-const agent: FlowAgent<{ ok: boolean }> | undefined = undefined;
-const typed: AgentFlow = af;
+async function verify(agent: FlowAgent<{ ok: boolean }>, label: string) {
+  await agent.sendMessage(`Verify ${label} and submit { ok }.`);
+  return agent.submittedResult()?.ok ?? false;
+}
 ```
 
-The local copy has no module imports (the `typebox` dependency is replaced by
-structural stand-ins), so it type-checks in any project. In-pi validation
-keeps using the shipped declarations with full typebox fidelity; the local
-copy is looser only on `resultSchema`/`af.Type` typing.
+It pays off twice: named types (`AgentFlow`, `FlowAgent<T>`, `FlowAgentConfig`,
+…) for annotations, and — because the file's `declare global { const af }`
+joins the program once imported — external editors type the `af` global too.
+The copy is self-contained (typebox becomes structural stand-ins), so it
+type-checks in any project; validation is looser only on
+`resultSchema`/`af.Type` typing, and only when your script imports it
+(otherwise the shipped, full-fidelity declarations are used).
 
-## Authoring conventions
+## Validation
 
-- **Relative imports only**: use `./`/`../` specifiers (see
-  [Imports](#imports)); use only `af` and plain JS/TS otherwise.
-- `await` your steps; the script body runs as an async module.
-- Use `top-level await` freely.
-- Prefer TypeScript (`.ts`) — it is type-checked (including its import graph)
-  before execution.
+Before a flow runs it is validated: import-graph walk (policy above) → syntax
+of every file → for `.ts`, strict type-checking against the shipped
+declarations (or the project's local copy when the graph imports it). To check
+a draft while authoring, use the `agentflow_validate` tool —
+`agentflow_validate { "name": "myflow" }` — or `/af-validate <name>`; both run
+the exact same checks and report located `message`/`line`/`col` errors.
+Validating clean means running clean; an invalid script is reported as normal
+output, never a tool failure.
 
-## Validation workflow
+## Examples
 
-Before a flow runs, AgentFlow:
-1. **Walks the static import graph** (both `.ts` and `.js`): enforces the
-   relative-only import policy, verifies every imported file exists and parses,
-   and rejects dynamic `import()` — all before any sub-agent is spawned.
-2. **Type-checks** `.ts` files (entry and every imported file) against the `af`
-   declarations — the shipped ones, or the project's local
-   `.pi/agentflow/agentflow.d.ts` when the graph imports it — and aborts on
-   type errors.
-
-To validate a draft script **while authoring** — before it is ever executed — use
-the `agentflow_validate` tool (call it with the flow name), or for a human run
-`/af-validate <name>`. Both run the exact same checks as `/af` (resolve →
-import graph → syntax → type) and report located `message`/`line`/`col` errors
-(errors in imported files also carry the file's path), so a script that
-validates clean is a script that will run clean. An invalid script is reported
-as normal validation output, never a tool/command failure:
-
-```
-agentflow_validate { "name": "myflow" }
-```
-
-## Worked example
-
-See `extensions/agentflow/examples/reviewcode.ts` (basic sequential, reused
-handles), `extensions/agentflow/examples/fanout.ts` (structured results with
-loop/fan-out), `extensions/agentflow/examples/fresh-context.ts` (a new agent
-per iteration for fresh, isolated context), and
-`extensions/agentflow/examples/bash.ts` (command-driven orchestration with
-`af.bash`).
-Copy one to `.pi/agentflow/` and run `/af reviewcode` (or `/af fanout`):
-
-```ts
-const reviewer = await af.createAgent({
-  name: "reviewer",
-  systemPrompt: "You are a senior code reviewer. Be concise and concrete.",
-});
-const styleCoach = await af.createAgent({
-  name: "style",
-  systemPrompt: "You focus on style, naming, and maintainability.",
-});
-
-af.log("Asking reviewer to review src/core.ts");
-const review = await reviewer.sendMessage(
-  "Review src/core.ts for correctness.",
-);
-af.log("Asking style coach to assess the same file");
-const style = await styleCoach.sendMessage(
-  "Assess the style of src/core.ts.",
-);
-
-af.result(`## Code Review\n\n### Correctness\n${review}\n\n### Style\n${style}`);
-```
+Four runnable examples ship at `../../examples/`: `reviewcode` (sequential,
+reused handles), `fanout` (planner → parallel workers, structured results),
+`fresh-context` (new agent per iteration), `bash` (command-driven
+orchestration). Copy one to `.pi/agentflow/` and run `/af reviewcode` (or
+`/af fanout`).

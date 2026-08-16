@@ -68,6 +68,11 @@
           # the resources_discover event (skillPaths) when mounted standalone.
           mkdir -p $out/skills/agentflow
           cp $src/skills/agentflow/SKILL.md $out/skills/agentflow/SKILL.md
+          # Ship the runnable examples too — the bundled skill's "Worked
+          # example" section points at ../../examples/ relative to the skill,
+          # which resolves inside this output only if they are copied.
+          mkdir -p $out/examples
+          cp $src/examples/*.ts $out/examples/
           # Bundle the jiti and typebox runtime dependencies so the extension
           # resolves them when mounted standalone — the Nix path has no npm
           # install step, so runtime deps must ship inside the output.

@@ -1,5 +1,5 @@
 /**
- * fanout — AgentFlow example: structured results + loop control + fan-out.
+ * fanout — AgentFlow example: structured results + fan-out.
  *
  * Demonstrates the `resultSchema` / `submit_result` / `submittedResult()`
  * surface. A planner agent submits a list of steps; each step is fanned out
