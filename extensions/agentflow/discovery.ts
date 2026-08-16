@@ -13,10 +13,10 @@ import {
   readdirSync,
   readFileSync,
   realpathSync,
-  statSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { createJiti } from "jiti";
 
 /** Result of resolving a flow name to a script file. */
@@ -33,6 +33,50 @@ export interface ResolvedFlow {
 export const PROJECT_FLOW_DIR = ".pi/agentflow";
 /** The global flow directory, relative to the user's home directory. */
 export const GLOBAL_FLOW_DIR = ".pi/agentflow";
+/** Number of project-local candidates in {@link flowCandidates}. */
+const PROJECT_CANDIDATE_COUNT = 2;
+
+/**
+ * jiti extension order used for flow imports. It matches TypeScript's
+ * Bundler resolver preference (TypeScript before JavaScript) for extensionless
+ * specifiers, so the file that reaches `tsc` is the file jiti executes.
+ */
+export const FLOW_JITI_EXTENSIONS = [
+  ".ts",
+  ".tsx",
+  ".mts",
+  ".cts",
+  ".mtsx",
+  ".ctsx",
+  ".js",
+  ".mjs",
+  ".cjs",
+];
+
+/** True when a path names a TypeScript declaration file. */
+function isDeclarationFile(path: string): boolean {
+  return path.endsWith(".d.ts");
+}
+
+/** True when a path should be transpiled as TypeScript (`.ts`/`.tsx` and c/m variants). */
+function isTypeScriptPath(path: string): boolean {
+  return /\.[cm]?tsx?$/.test(path);
+}
+
+/**
+ * Return a path and its realpath alias (when different and resolvable). Used
+ * by both the import-graph snapshot and the type-check report filter so a
+ * symlinked file path matches either spelling without repeatedly calling
+ * `realpathSync` per diagnostic.
+ */
+export function pathAliases(path: string): string[] {
+  try {
+    const real = realpathSync(path);
+    return real === path ? [path] : [path, real];
+  } catch {
+    return [path];
+  }
+}
 
 /**
  * Build the ordered candidate paths for a flow name, project-first.
@@ -76,12 +120,12 @@ export function resolveFlowFile(
   for (let i = 0; i < candidates.length; i++) {
     // `.d.ts` files are declarations, not runnable flows — a name like
     // `agentflow.d` must not resolve to `agentflow.d.ts`.
-    if (candidates[i].endsWith(".d.ts")) continue;
+    if (isDeclarationFile(candidates[i])) continue;
     if (existsSync(candidates[i])) {
       return {
         path: candidates[i],
-        isProject: i < 2,
-        isTypeScript: candidates[i].endsWith(".ts"),
+        isProject: i < PROJECT_CANDIDATE_COUNT,
+        isTypeScript: isTypeScriptPath(candidates[i]),
       };
     }
   }
@@ -110,7 +154,7 @@ export function listFlowNames(
       continue;
     }
     for (const entry of entries) {
-      if (entry.endsWith(".d.ts")) continue;
+      if (isDeclarationFile(entry)) continue;
       const match = /^(.+)\.(ts|js)$/.exec(entry);
       if (match) names.add(match[1]);
     }
@@ -164,42 +208,64 @@ export interface FlowImportGraph {
   edges: FlowImportEdge[];
 }
 
-/** Extension probing order for resolving import specifiers (jiti's order). */
-const RESOLVE_EXTENSIONS = [
-  ".js",
-  ".mjs",
-  ".cjs",
-  ".ts",
-  ".tsx",
-  ".mts",
-  ".cts",
-  ".mtsx",
-  ".ctsx",
-];
+/** One located validation diagnostic with optionally carrying file context. */
+export interface FlowDiagnostic {
+  /** File the diagnostic is in, or undefined for the entry. */
+  file?: string;
+  /** 1-based line, or 0 when unavailable. */
+  line: number;
+  /** 1-based column, or 0 when unavailable. */
+  col: number;
+  /** Diagnostic message without leading location prefix. */
+  message: string;
+}
 
 /**
- * Resolve a relative import specifier against the importing file, probing
- * extensions (and `/index` files) the way jiti's loader does. Returns the
- * resolved absolute path, or null when no file matches.
+ * Error thrown by discovery/type-checking that already carries structured
+ * location data. `validate.ts` consumes `diagnostics` directly instead of
+ * parsing `(line:col)` prefixes back out of the message string.
+ */
+export class FlowLocatedError extends Error {
+  readonly diagnostics: FlowDiagnostic[];
+
+  constructor(message: string, diagnostics: FlowDiagnostic[]) {
+    super(message);
+    this.name = "FlowLocatedError";
+    this.diagnostics = diagnostics;
+  }
+}
+
+/**
+ * Resolve a relative import specifier with the same jiti resolver that will
+ * execute the file at runtime, so validation and execution cannot disagree
+ * about which file an extensionless (or `.js`-suffixed) specifier names.
+ * Results are cached per importer/specifier for the walk.
  */
 function resolveRelativeImport(
+  jiti: ReturnType<typeof createJiti>,
   specifier: string,
   fromPath: string,
+  cache: Map<string, string | null>,
 ): string | null {
-  const base = resolve(dirname(fromPath), specifier);
-  const candidates = [
-    base,
-    ...RESOLVE_EXTENSIONS.map((ext) => base + ext),
-    ...RESOLVE_EXTENSIONS.map((ext) => join(base, `index${ext}`)),
-  ];
-  for (const candidate of candidates) {
-    try {
-      if (statSync(candidate).isFile()) return candidate;
-    } catch {
-      // Nonexistent (or unreadable) candidate — keep probing.
+  const key = `${fromPath}\0${specifier}`;
+  if (cache.has(key)) return cache.get(key) ?? null;
+
+  let resolvedPath: string | null = null;
+  try {
+    const resolved = jiti.esmResolve(specifier, {
+      parentURL: pathToFileURL(fromPath).href,
+      try: true as const,
+    });
+    if (resolved) {
+      resolvedPath = resolved.startsWith("file://")
+        ? fileURLToPath(resolved)
+        : resolved;
     }
+  } catch {
+    resolvedPath = null;
   }
-  return null;
+  cache.set(key, resolvedPath);
+  return resolvedPath;
 }
 
 /**
@@ -411,16 +477,32 @@ function offsetToLineCol(
 
 /**
  * Locate the first quoted occurrence of an import specifier in a file's
- * source, for error reporting. Falls back to `0:0` when not found.
+ * source, for error reporting. The code mask keeps quoted text, so the
+ * specifier is findable; the full mask then confirms the associated
+ * `import`/`require`/`from` token is real code rather than prose inside a
+ * string or comment. Falls back to `0:0` when not found.
  */
 function locateSpecifier(
   source: string,
   specifier: string,
+  masks: MaskPair,
 ): { line: number; col: number } {
+  const { codeMask, fullMask } = masks;
   const escaped = specifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = new RegExp(`(['"])${escaped}\\1`).exec(source);
-  if (!match) return { line: 0, col: 0 };
-  return offsetToLineCol(source, match.index);
+  const specRe = new RegExp(`(['"])${escaped}\\1`, "g");
+  for (const match of codeMask.matchAll(specRe)) {
+    const index = match.index ?? 0;
+    const before = codeMask.slice(0, index);
+    // The quote must belong to an actual import-like source form. Walk back
+    // to the nearest `import(`/`require(`/`from` token before the quote.
+    const token = /(?:from\s*|require\s*\(|import\s*\()\s*$/.exec(before);
+    if (!token) continue;
+    const tokenStart = token.index;
+    const word = /[A-Za-z]+/.exec(token[0])?.[0] ?? "import";
+    if (fullMask.slice(tokenStart, tokenStart + word.length) !== word) continue;
+    return offsetToLineCol(source, index);
+  }
+  return { line: 0, col: 0 };
 }
 
 /**
@@ -463,7 +545,12 @@ function extractRequireSpecifiers(
       specifier += codeMask[j];
       j++;
     }
-    specifiers.push(specifier);
+    // The closing quote must be followed by the call's closing `)` (after
+    // whitespace). Anything else — `require("./x" + suffix)` — is a dynamic
+    // argument that cannot be statically resolved.
+    let after = j + 1;
+    while (after < codeMask.length && /\s/.test(codeMask[after])) after++;
+    specifiers.push(codeMask[after] === ")" ? specifier : null);
   }
   return specifiers;
 }
@@ -481,19 +568,32 @@ function hasInlineTypeModifier(clause: string): boolean {
 }
 
 /**
- * Extract type-only import/export specifiers from a code mask. These are
- * erased by jiti's transform, so they never appear as runtime `require` edges;
- * without this pass an inline `import { type X } from "bare-module"` would
- * otherwise bypass the relative-only import policy entirely.
+ * Extract type-only import/export specifiers from a file's source masks. These
+ * are erased by jiti's transform, so they never appear as runtime `require`
+ * edges; without this pass an inline `import { type X } from "bare-module"`
+ * would otherwise bypass the relative-only import policy entirely.
+ *
+ * Type declarations are read from the code mask (where quoted specifiers are
+ * readable) and cross-checked against the full mask, so lookalike import text
+ * inside strings/comments is ignored the same way `extractRequireSpecifiers`
+ * ignores it.
  */
-function collectTypeSpecifiers(sourceMask: string): Set<string> {
+function collectTypeSpecifiers(masks: MaskPair): Set<string> {
+  const { codeMask, fullMask } = masks;
   const specifiers = new Set<string>();
-  for (const match of sourceMask.matchAll(IMPORT_DECL_RE)) {
+  const realCode = (start: number, word: "import" | "export"): boolean =>
+    fullMask.slice(start, start + word.length) === word;
+
+  for (const match of codeMask.matchAll(IMPORT_DECL_RE)) {
+    const start = match.index ?? 0;
+    if (!realCode(start, "import")) continue;
     if (match[1] !== undefined || hasInlineTypeModifier(match[2])) {
       specifiers.add(match[4]);
     }
   }
-  for (const match of sourceMask.matchAll(EXPORT_DECL_RE)) {
+  for (const match of codeMask.matchAll(EXPORT_DECL_RE)) {
+    const start = match.index ?? 0;
+    if (!realCode(start, "export")) continue;
     if (match[1] !== undefined || hasInlineTypeModifier(match[2])) {
       specifiers.add(match[4]);
     }
@@ -501,14 +601,45 @@ function collectTypeSpecifiers(sourceMask: string): Set<string> {
   return specifiers;
 }
 
-/** True when a `.d.ts` file supplies the injected global `af` declaration. */
+/**
+ * True when a `.d.ts` file supplies the injected global `af` declaration.
+ * Uses a balanced-brace scan over the full mask (so comments/strings cannot
+ * hide a `}`) and then searches only inside the `declare global { ... }`
+ * block, which supports nested interface/namespace braces before `const af`.
+ */
 function declaresGlobalAf(source: string): boolean {
-  return /\bdeclare\s+global\s*\{[^}]*\b(?:const|var|let)\s+af\b/s.test(source);
+  const mask = maskCodePair(source).fullMask;
+  for (const match of mask.matchAll(/\bdeclare\s+global\b/g)) {
+    const start = match.index ?? 0;
+    const open = mask.indexOf("{", start + match[0].length);
+    if (open === -1) continue;
+    const close = matchingBraceEnd(mask, open);
+    if (close === -1) continue;
+    if (/\b(?:const|var|let)\s+af\b/.test(mask.slice(open + 1, close))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Return the index of `}` matching the `{` at `open`, or -1. */
+function matchingBraceEnd(mask: string, open: number): number {
+  let depth = 0;
+  for (let i = open; i < mask.length; i++) {
+    if (mask[i] === "{") {
+      depth++;
+    } else if (mask[i] === "}") {
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
 }
 
 /**
- * Throw a located import-policy error. The `(line:col)` component is what
- * `validate.ts` parses back out of the message.
+ * Throw a located import-policy error. The message keeps the human-readable
+ * location prefix; the structured `FlowDiagnostic` carries the same data for
+ * `validate.ts` without string parsing.
  */
 function importError(
   file: string,
@@ -516,7 +647,10 @@ function importError(
   loc: { line: number; col: number },
 ): Error {
   const at = loc.line > 0 ? ` (${loc.line}:${loc.col})` : "";
-  return new Error(`AgentFlow: import error in "${file}"${at}: ${detail}`);
+  return new FlowLocatedError(
+    `AgentFlow: import error in "${file}"${at}: ${detail}`,
+    [{ file, line: loc.line, col: loc.col, message: detail }],
+  );
 }
 
 /**
@@ -533,7 +667,7 @@ function transformFlowSource(
   // `.ts`/`.tsx` flows must be transpiled as TypeScript; jiti only enables
   // its TS plugin when told to, otherwise TS-only syntax (`interface`, `type`,
   // generics) is a plain-JS parse error.
-  const isTs = /\.[cm]?tsx?$/.test(filename);
+  const isTs = isTypeScriptPath(filename);
   const output = jiti.transform({
     source,
     filename,
@@ -547,18 +681,26 @@ function transformFlowSource(
   // "exports is not defined".
   const marker = /__JITI_ERROR__\s*=\s*(\{.*\})/s.exec(output);
   if (marker) {
+    let line = 0;
+    let col = 0;
     let detail = marker[1];
-    let at = "";
     try {
       const payload = JSON.parse(marker[1]);
       detail = payload.message ?? marker[1];
-      if (payload.line !== undefined && payload.column !== undefined) {
-        at = ` at ${payload.line}:${payload.column}`;
-      }
+      line = payload.line ?? 0;
+      col = payload.column ?? 0;
     } catch {
       // Keep the raw payload if it can't be parsed.
     }
-    throw new Error(`${detail}${at}`);
+    const at = line > 0 ? ` at ${line}:${col}` : "";
+    throw new FlowLocatedError(`AgentFlow: syntax error in "${filename}": ${detail}${at}`, [
+      {
+        file: filename,
+        line,
+        col,
+        message: `syntax error in "${filename}": ${detail}`,
+      },
+    ]);
   }
   return output;
 }
@@ -585,9 +727,11 @@ export function buildImportGraph(entryPath: string): FlowImportGraph {
   const jiti = createJiti(import.meta.url, {
     fsCache: false,
     moduleCache: false,
+    extensions: FLOW_JITI_EXTENSIONS,
   });
   const files = new Map<string, string>();
   const edges: FlowImportEdge[] = [];
+  const resolveCache = new Map<string, string | null>();
 
   const visit = (path: string): void => {
     if (files.has(path)) return;
@@ -596,47 +740,21 @@ export function buildImportGraph(entryPath: string): FlowImportGraph {
     // Declaration files are terminal: types only, no runtime edges of their
     // own (the shipped `agentflow.d.ts` imports `typebox`, which is fine
     // there but must never enter a flow's graph).
-    if (path.endsWith(".d.ts")) return;
+    if (isDeclarationFile(path)) return;
 
     const sourceMasks = maskCodePair(source);
 
-    // Dynamic `import()` cannot be walked — reject before anything runs.
-    // Type-position `import("./x").T` (annotations, type arguments, `as`/
-    // `satisfies`/`extends`/`typeof` operands) is NOT a dynamic import: it is
-    // erased by transpilation, so it is exempt via a lookbehind on the
-    // preceding mask text. This also covers the common `type X =
-    // import("./x").Y` idiom — a real `const x = import("./x")` must still be
-    // rejected. The check is a heuristic — `cond ? a : import("./x")` would
-    // slip past it, which only skips this pre-flight check (the runtime still
-    // resolves it).
-    for (const match of sourceMasks.fullMask.matchAll(
-      /(?<![\w.$])import\s*\(/g,
-    )) {
-      const idx = match.index ?? 0;
-      const before = sourceMasks.fullMask.slice(Math.max(0, idx - 64), idx);
-      if (
-        /(?:(?:^|[^\w$.])(?:as|satisfies|extends|keyof|typeof|readonly|infer)|[:<])\s*$/.test(
-          before,
-        ) ||
-        /(?:^|[^\w$])type\s+[A-Za-z_$][\w$]*(?:\s*<[^>]*>)?\s*=\s*$/.test(
-          before,
-        )
-      ) {
-        continue;
-      }
-      throw importError(
-        path,
-        "dynamic import() is not allowed in flow scripts — use a static relative import",
-        offsetToLineCol(source, idx),
-      );
-    }
-
-    // Value edges: transform (catches syntax errors with locations), then
-    // read the surviving `require("...")` calls out of the output.
+    // Value edges first: transform (catches syntax errors with locations),
+    // then read the surviving `require("...")` calls out of the output. jiti
+    // lowers any real runtime `import()` expression to `jitiImport(...)`, so
+    // checking the transformed output also closes the old source-heuristic
+    // ternary bypass (`cond ? a : import("./x")`) while still ignoring
+    // type-position `import("./x").T (which is erased).
     let output: string;
     try {
       output = transformFlowSource(jiti, source, path);
     } catch (err) {
+      if (err instanceof FlowLocatedError) throw err;
       throw new Error(
         `AgentFlow: syntax error in "${path}": ${
           err instanceof Error ? err.message : String(err)
@@ -644,6 +762,8 @@ export function buildImportGraph(entryPath: string): FlowImportGraph {
       );
     }
     const outputMasks = maskCodePair(output);
+    assertNoRuntimeDynamicImport(outputMasks, source, sourceMasks, path);
+
     for (const specifier of extractRequireSpecifiers(output, outputMasks)) {
       if (specifier === null) {
         throw importError(
@@ -652,7 +772,7 @@ export function buildImportGraph(entryPath: string): FlowImportGraph {
           { line: 0, col: 0 },
         );
       }
-      const loc = locateSpecifier(source, specifier);
+      const loc = locateSpecifier(source, specifier, sourceMasks);
       if (!specifier.startsWith("./") && !specifier.startsWith("../")) {
         throw importError(
           path,
@@ -660,7 +780,12 @@ export function buildImportGraph(entryPath: string): FlowImportGraph {
           loc,
         );
       }
-      const resolved = resolveRelativeImport(specifier, path);
+      const resolved = resolveRelativeImport(
+        jiti,
+        specifier,
+        path,
+        resolveCache,
+      );
       if (resolved === null) {
         throw importError(
           path,
@@ -668,7 +793,7 @@ export function buildImportGraph(entryPath: string): FlowImportGraph {
           loc,
         );
       }
-      if (resolved.endsWith(".d.ts")) {
+      if (isDeclarationFile(resolved)) {
         throw importError(
           path,
           `declaration files can only be imported for types — use \`import type\` for "${specifier}"`,
@@ -679,13 +804,14 @@ export function buildImportGraph(entryPath: string): FlowImportGraph {
       visit(resolved);
     }
 
-    // Type edges: erased by the transform, so scan the source (comments
-    // masked so prose examples cannot trip it). `collectTypeSpecifiers` also
-    // handles inline `{ type X }` imports/exports, which would otherwise be
-    // invisible to both the runtime-edge pass and the old `import type` regex.
-    const typeSpecifiers = collectTypeSpecifiers(sourceMasks.codeMask);
+    // Type edges: erased by the transform, so scan the source (comments and
+    // strings masked so prose examples cannot trip it). `collectTypeSpecifiers`
+    // also handles inline `{ type X }` imports/exports, which would otherwise
+    // be invisible to both the runtime-edge pass and the old `import type`
+    // regex.
+    const typeSpecifiers = collectTypeSpecifiers(sourceMasks);
     for (const specifier of typeSpecifiers) {
-      const loc = locateSpecifier(source, specifier);
+      const loc = locateSpecifier(source, specifier, sourceMasks);
       if (!specifier.startsWith("./") && !specifier.startsWith("../")) {
         throw importError(
           path,
@@ -693,7 +819,12 @@ export function buildImportGraph(entryPath: string): FlowImportGraph {
           loc,
         );
       }
-      const resolved = resolveRelativeImport(specifier, path);
+      const resolved = resolveRelativeImport(
+        jiti,
+        specifier,
+        path,
+        resolveCache,
+      );
       if (resolved === null) {
         throw importError(
           path,
@@ -708,6 +839,63 @@ export function buildImportGraph(entryPath: string): FlowImportGraph {
 
   visit(entryPath);
   return { entry: entryPath, files, edges };
+}
+
+/**
+ * Reject any runtime `import()` in jiti's transformed output. The transform
+ * rewrites actual dynamic imports to `jitiImport(...)`; type-position
+ * imports are erased in the output, so checking the output is not fooled by
+ * ternary branches or `import("./x")` text inside the source. The source
+ * masks are used only to pick a helpful error location.
+ */
+function assertNoRuntimeDynamicImport(
+  outputMasks: MaskPair,
+  source: string,
+  sourceMasks: MaskPair,
+  file: string,
+): void {
+  if (/(?:^|[^\w.$])jitiImport\s*\(/.test(outputMasks.fullMask)) {
+    const idx = findRuntimeDynamicImport(sourceMasks.fullMask);
+    const loc = idx >= 0 ? offsetToLineCol(source, idx) : { line: 0, col: 0 };
+    throw importError(
+      file,
+      "dynamic import() is not allowed in flow scripts — use a static relative import",
+      loc,
+    );
+  }
+}
+
+/** Find the first source `import(` that is not clearly in a type position. */
+function findRuntimeDynamicImport(sourceMask: string): number {
+  const re = /(?<![\w.$])import\s*\(/g;
+  for (const match of sourceMask.matchAll(re)) {
+    const idx = match.index ?? 0;
+    const before = sourceMask.slice(Math.max(0, idx - 96), idx);
+    if (!isTypePositionImport(before)) return idx;
+  }
+  return -1;
+}
+
+/** Best-effort type-position check used only for locating a detected import. */
+function isTypePositionImport(before: string): boolean {
+  if (
+    /(?:^|[^\w$.])(?:as|satisfies|extends|keyof|typeof|readonly|infer)\s*$/.test(
+      before,
+    ) ||
+    /(?:^|[^\w$])type\s+[A-Za-z_$][\w$]*(?:\s*<[^>]*>)?\s*=\s*$/.test(
+      before,
+    ) ||
+    /<[^<>]*$/.test(before)
+  ) {
+    return true;
+  }
+  if (/:\s*$/.test(before)) {
+    // A colon can start a type annotation (`const n: import(...)`) or separate
+    // a ternary's false branch (`cond ? a : import(...)`). Only the latter
+    // reaches runtime.
+    return !/\?[^:?]*:\s*$/.test(before);
+  }
+  return false;
 }
 
 /**
@@ -767,7 +955,7 @@ export async function typeCheckFlowScript(
   ]);
   const graphHasDeclarations = graph
     ? [...graph.files.entries()].some(
-        ([f, content]) => f.endsWith(".d.ts") && declaresGlobalAf(content),
+        ([f, content]) => isDeclarationFile(f) && declaresGlobalAf(content),
       )
     : false;
   const roots = [fileName];
@@ -815,43 +1003,80 @@ export async function typeCheckFlowScript(
   // both raw and realpath-normalized so symlinked temp dirs still line up.
   const reportable = new Set<string>(graph ? graph.files.keys() : [fileName]);
   reportable.add(fileName);
-  const normalized = new Set<string>();
+  const reportableAliases = new Set<string>();
   for (const p of reportable) {
-    try {
-      normalized.add(realpathSync(p));
-    } catch {
-      normalized.add(p);
-    }
+    for (const alias of pathAliases(p)) reportableAliases.add(alias);
   }
-  const inGraph = (name: string): boolean => {
-    if (reportable.has(name)) return true;
-    try {
-      return normalized.has(realpathSync(name));
-    } catch {
-      return false;
-    }
-  };
+  const inGraph = (name: string): boolean => reportableAliases.has(name);
 
   const diagnostics = ts
     .getPreEmitDiagnostics(program)
     .filter((d) => d.file !== undefined && inGraph(d.file.fileName));
   if (diagnostics.length > 0) {
-    const messages = diagnostics
+    const withLocation = diagnostics.map((d): FlowDiagnostic => {
+      const pos =
+        d.start !== undefined
+          ? d.file?.getLineAndCharacterOfPosition(d.start)
+          : undefined;
+      const line = pos ? pos.line + 1 : 0;
+      const col = pos ? pos.character + 1 : 0;
+      const file =
+        d.file && d.file.fileName !== fileName ? d.file.fileName : undefined;
+      return {
+        file,
+        line,
+        col,
+        message: ts.flattenDiagnosticMessageText(d.messageText, "\n"),
+      };
+    });
+    const messages = withLocation
       .map((d) => {
-        const pos =
-          d.start !== undefined
-            ? d.file?.getLineAndCharacterOfPosition(d.start)
-            : undefined;
-        const loc = pos ? `${pos.line + 1}:${pos.character + 1}` : "?";
-        // Non-entry diagnostics carry their file so the report can say where
-        // the error lives; the entry keeps the old `line:col` shape.
-        const prefix =
-          d.file && d.file.fileName !== fileName
-            ? `${d.file.fileName}:${loc}`
-            : loc;
-        return `  ${prefix}\t${ts.flattenDiagnosticMessageText(d.messageText, "\n")}`;
+        const loc = d.line > 0 ? `${d.line}:${d.col}` : "?";
+        const prefix = d.file !== undefined ? `${d.file}:${loc}` : loc;
+        return `  ${prefix}\t${d.message}`;
       })
       .join("\n");
-    throw new Error(`AgentFlow: type errors in "${path}":\n${messages}`);
+    throw new FlowLocatedError(
+      `AgentFlow: type errors in "${path}":\n${messages}`,
+      withLocation,
+    );
   }
+}
+
+/**
+ * Shared validation sequence for the run path and on-demand validation:
+ * build the import graph, then type-check `.ts` flows against the supplied
+ * declarations. Callers still choose how to surface thrown errors (UI vs.
+ * structured report), but the checks themselves live in one place.
+ */
+export async function validateResolvedFlow(
+  resolvedPath: string,
+  isTypeScript: boolean,
+  declarationsPath: string,
+): Promise<FlowImportGraph> {
+  const graph = buildImportGraph(resolvedPath);
+  if (!isTypeScript) return graph;
+
+  const entrySource = graph.files.get(resolvedPath);
+  if (entrySource === undefined) {
+    throw new FlowLocatedError(
+      `AgentFlow: internal error — validated graph is missing "${resolvedPath}"`,
+      [
+        {
+          file: resolvedPath,
+          line: 0,
+          col: 0,
+          message: `internal error: validated graph is missing "${resolvedPath}"`,
+        },
+      ],
+    );
+  }
+
+  await typeCheckFlowScript(
+    resolvedPath,
+    entrySource,
+    declarationsPath,
+    graph,
+  );
+  return graph;
 }

@@ -251,6 +251,25 @@ test("buildImportGraph allows `../` escapes above the flow directory", () => {
   }
 });
 
+test("buildImportGraph resolves extensionless specifiers like TypeScript (ts preferred over js)", () => {
+  const d = makeDirs();
+  try {
+    // Both files exist: TypeScript's Bundler resolver picks `mod.ts`, so the
+    // validation graph must pick the same file jiti will execute.
+    writeFileSync(join(d.project, "mod.ts"), "export const y = 'ts';\n");
+    writeFileSync(join(d.project, "mod.js"), "export const y = 'js';\n");
+    const entry = writeFlow(
+      d.project,
+      "preferred",
+      'import { y } from "./mod";\naf.log(y);\n',
+    );
+    const graph = buildImportGraph(entry);
+    assert.equal(graph.edges[0].resolved, join(d.project, "mod.ts"));
+  } finally {
+    d.cleanup();
+  }
+});
+
 test("buildImportGraph walks extensionless specifiers via probing", () => {
   const d = makeDirs();
   try {
@@ -286,6 +305,25 @@ test("buildImportGraph records type-only edges and stops at .d.ts files", () => 
     assert.equal(graph.edges[0].kind, "type");
     assert.equal(graph.edges[0].resolved, join(d.project, "agentflow.d.ts"));
     assert.ok(graph.files.has(join(d.project, "agentflow.d.ts")));
+  } finally {
+    d.cleanup();
+  }
+});
+
+test("buildImportGraph rejects a non-literal require argument", () => {
+  // `require("./legacy.cjs" + suffix)` is not statically resolvable, so it must
+  // be rejected instead of truncated to its first literal chunk.
+  const d = makeDirs();
+  try {
+    const entry = writeFlow(
+      d.project,
+      "dynamic-require",
+      'const m = require("./legacy.cjs" + suffix);\naf.log(m);\n',
+    );
+    assert.throws(
+      () => buildImportGraph(entry),
+      /require\(\) with a non-literal argument/,
+    );
   } finally {
     d.cleanup();
   }
@@ -365,6 +403,29 @@ test("buildImportGraph rejects dynamic import() with a located error", () => {
         assert.ok(err instanceof Error);
         assert.match(err.message, /dynamic import\(\) is not allowed/);
         assert.match(err.message, /\(1:19\)/);
+        return true;
+      },
+    );
+  } finally {
+    d.cleanup();
+  }
+});
+
+test("buildImportGraph rejects dynamic import() in a ternary false branch", () => {
+  // Real runtime import expressions hide in ordinary expressions; jiti lowers
+  // them to `jitiImport(...)`, so the walker must reject them after transform.
+  const d = makeDirs();
+  try {
+    const entry = writeFlow(
+      d.project,
+      "ternary-dynamic",
+      'const mod = cond ? a : import("./helper.ts");\naf.log(mod);\n',
+    );
+    assert.throws(
+      () => buildImportGraph(entry),
+      (err: unknown) => {
+        assert.ok(err instanceof Error);
+        assert.match(err.message, /dynamic import\(\) is not allowed/);
         return true;
       },
     );
@@ -529,6 +590,21 @@ test("buildImportGraph rejects a syntax error in an imported helper, naming the 
         return true;
       },
     );
+  } finally {
+    d.cleanup();
+  }
+});
+
+test("buildImportGraph ignores import-type text inside a string literal", () => {
+  const d = makeDirs();
+  try {
+    const entry = writeFlow(
+      d.project,
+      "import-like-string",
+      'af.log("import type { X } from \'./doesnotexist.ts\'");\n',
+    );
+    const graph = buildImportGraph(entry);
+    assert.equal(graph.edges.length, 0);
   } finally {
     d.cleanup();
   }

@@ -282,6 +282,33 @@ test("validateFlowFile reports type errors in imported files with the file name"
   }
 });
 
+test("validateFlowFile detects a nested-brace local `declare global { const af }`", async () => {
+  const d = makeDir();
+  try {
+    const flowDir = join(d.cwd, ".pi", "agentflow");
+    // A realistic declaration file can have an interface (or namespace) with
+    // braces before `const af`; the old `[^}]*` regex stopped at the first
+    // nested `}`, so the shipped declarations were injected and duplicate
+    // globals were reported.
+    writeFileSync(
+      join(flowDir, "agentflow.d.ts"),
+      [
+        "declare global {",
+        "  interface Nested { value: string }",
+        "  const af: { log(...parts: unknown[]): void }",
+        "}",
+        "",
+      ].join("\n"),
+    );
+    writeFileSync(join(flowDir, "nested-decl.ts"), 'af.log("ok");\n');
+    const report = await validateFlowFile("nested-decl", d.cwd);
+    assert.equal(report.ok, true);
+    assert.deepEqual(report.errors, []);
+  } finally {
+    d.cleanup();
+  }
+});
+
 test("validateFlowFile types a script by its local agentflow.d.ts without duplicate globals", async () => {
   const d = makeDir();
   try {

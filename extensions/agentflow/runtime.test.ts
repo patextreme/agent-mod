@@ -1024,10 +1024,15 @@ test("a lingering run settling mid-run cannot delete the newer run's `af` global
     await new Promise((r) => setTimeout(r, 30)); // A is now suspended on its timer
     const runB = executeFlowScript(join(d.dir, "slow-b.ts"), b.af as never);
     await runA; // A settles while B is still mid-run
+    // The accessor resolves via AsyncLocalStorage, so outside B's async
+    // context the getter intentionally returns undefined. The invariant here is
+    // that the property binding itself (installed for the still-live B run)
+    // survives A's cleanup; B completing without "af is not defined" proves it
+    // still resolves inside B's own context.
     assert.equal(
-      (globalThis as { af?: unknown }).af,
-      b.af,
-      "B's `af` global survives A's cleanup",
+      Object.hasOwn(globalThis as object, "af"),
+      true,
+      "B's `af` global binding survives A's cleanup",
     );
     await runB; // must complete without "af is not defined"
     assert.deepEqual(b.logs, ["b-done:B"]);

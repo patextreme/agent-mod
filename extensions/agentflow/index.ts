@@ -29,12 +29,11 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import {
-  buildImportGraph,
   type FlowImportGraph,
   listFlowNames,
   PROJECT_FLOW_DIR,
   resolveFlowFile,
-  typeCheckFlowScript,
+  validateResolvedFlow,
 } from "./discovery.js";
 import { killProcessTree } from "./exec.js";
 import { generateLocalDeclarations } from "./init.js";
@@ -114,43 +113,20 @@ async function runAgentFlow(
       return;
     }
 
-    // 3. Walk the static import graph: relative-only import policy, target
-    //    existence, and syntax of every graph file — all before any
-    //    sub-agent is spawned. (This also syntax-validates the entry.)
+    // 3. Walk the static import graph (relative-only import policy, target
+    //    existence, syntax of every graph file) and type-check `.ts` flows.
+    //    This shared sequence is the same one `/af-validate` uses, so "validates
+    //    clean" and "runs clean" remain one set of checks.
     let graph: FlowImportGraph;
     try {
-      graph = buildImportGraph(resolved.path);
+      graph = await validateResolvedFlow(
+        resolved.path,
+        resolved.isTypeScript,
+        DECLARATIONS_PATH,
+      );
     } catch (err) {
       ctx.ui.notify(err instanceof Error ? err.message : String(err), "error");
       return;
-    }
-
-    // 4. Type-check `.ts` scripts against the `af` declarations. The shipped
-    //    declarations are injected only when the graph has no local
-    //    `agentflow.d.ts`; diagnostics cover every file in the graph.
-    if (resolved.isTypeScript) {
-      try {
-        const entrySource = graph.files.get(resolved.path);
-        if (entrySource === undefined) {
-          ctx.ui.notify(
-            `AgentFlow: internal error — validated graph is missing "${resolved.path}"`,
-            "error",
-          );
-          return;
-        }
-        await typeCheckFlowScript(
-          resolved.path,
-          entrySource,
-          DECLARATIONS_PATH,
-          graph,
-        );
-      } catch (err) {
-        ctx.ui.notify(
-          err instanceof Error ? err.message : String(err),
-          "error",
-        );
-        return;
-      }
     }
 
     // 5. Build the runner and the injected `af` surface.

@@ -12,7 +12,6 @@
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import { spawn } from "node:child_process";
-import { realpathSync } from "node:fs";
 import type {
   AgentSession,
   AgentSessionEvent,
@@ -23,7 +22,11 @@ import type { TransformOptions, TransformResult } from "jiti";
 import { createJiti } from "jiti";
 import { Type } from "typebox";
 import type { AgentFlow, FlowAgent, FlowAgentConfig } from "./agentflow.js";
-import type { FlowImportGraph } from "./discovery.js";
+import {
+  FLOW_JITI_EXTENSIONS,
+  pathAliases,
+  type FlowImportGraph,
+} from "./discovery.js";
 import {
   type BashResult,
   isBashTimeoutError,
@@ -521,9 +524,6 @@ export class FlowRunner {
  */
 const currentAf = new AsyncLocalStorage<AgentFlow>();
 let activeAfScopes = 0;
-/** Fallback for callers outside a flow's async context (keeps `globalThis.af`
- * readable while a flow is active). */
-let latestAf: AgentFlow | undefined;
 let previousAfDescriptor: PropertyDescriptor | undefined;
 let hadPreviousAf = false;
 
@@ -533,7 +533,7 @@ function installAfAccessor(): void {
   previousAfDescriptor = Object.getOwnPropertyDescriptor(globals, "af");
   Object.defineProperty(globals, "af", {
     configurable: true,
-    get: () => currentAf.getStore() ?? latestAf,
+    get: () => currentAf.getStore(),
   });
 }
 
@@ -546,7 +546,6 @@ function restoreAfGlobal(): void {
   }
   hadPreviousAf = false;
   previousAfDescriptor = undefined;
-  latestAf = undefined;
 }
 
 /**
@@ -559,16 +558,17 @@ function restoreAfGlobal(): void {
 function createFlowJiti(
   graph?: FlowImportGraph,
 ): ReturnType<typeof createJiti> {
-  const baseOptions = { fsCache: false, moduleCache: false } as const;
+  const baseOptions = {
+    fsCache: false,
+    moduleCache: false,
+    extensions: FLOW_JITI_EXTENSIONS,
+  } as const;
   if (!graph) return createJiti(import.meta.url, baseOptions);
 
   const sources = new Map<string, string>();
   for (const [path, source] of graph.files) {
-    sources.set(path, source);
-    try {
-      sources.set(realpathSync(path), source);
-    } catch {
-      // If the path no longer realpaths, keep the raw path mapping above.
+    for (const alias of pathAliases(path)) {
+      sources.set(alias, source);
     }
   }
   const fallback = createJiti(import.meta.url, baseOptions);
@@ -604,7 +604,6 @@ export async function executeFlowScript(
   graph?: FlowImportGraph,
 ): Promise<void> {
   activeAfScopes += 1;
-  latestAf = af;
   try {
     if (activeAfScopes === 1) installAfAccessor();
     const jiti = createFlowJiti(graph);

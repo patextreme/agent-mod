@@ -18,10 +18,9 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  buildImportGraph,
-  readFlowScript,
+  FlowLocatedError,
   resolveFlowFile,
-  typeCheckFlowScript,
+  validateResolvedFlow,
 } from "./discovery.js";
 
 /** Absolute path to this module's directory. */
@@ -56,53 +55,6 @@ function error(message: string): FlowValidationError {
 }
 
 /**
- * Parse location info out of a thrown runner message. The runners emit
- * `line:col` inside their error text (jiti's embedded parse errors, the
- * `  (line:col): message` import-policy form, and the `  line:col\tmessage`
- * blocks from `typeCheckFlowScript`). We take the first `(\d+):(\d+)` we
- * find; when none is present we fall back to `0` locations.
- */
-function parseLocation(message: string): { line: number; col: number } {
-  const match = /(\d+):(\d+)/.exec(message);
-  if (match) return { line: Number(match[1]), col: Number(match[2]) };
-  return { line: 0, col: 0 };
-}
-
-/**
- * Extract the located per-diag error entries from a `typeCheckFlowScript`
- * message body, which lists diagnostics one per line:
- *   - entry-file diagnostics as `  line:col\tmessage`
- *   - imported-file diagnostics as `  file:line:col\tmessage`
- * Returns an empty array when the message does not match that shape.
- */
-function extractLocatedErrors(message: string): FlowValidationError[] {
-  const errors: FlowValidationError[] = [];
-  const lines = message.split("\n");
-  // Each diagnostic block starts at a line matching `  [file:]line:col\tmsg`.
-  // A chained TypeScript diagnostic spans multiple lines (its message text is
-  // joined with "\n"), so any following line that does not itself start with a
-  // `line:col\t` loc is a continuation of the previous diagnostic's message —
-  // fold it back in instead of dropping it. The optional non-space `file:`
-  // prefix captures the importing-file name for non-entry diagnostics.
-  const locRe = /^\s*(?:(\S+?):\s*)?(\d+):(\d+)\t(.*)$/;
-  for (const line of lines) {
-    const m = locRe.exec(line);
-    if (m) {
-      errors.push({
-        message: m[4],
-        line: Number(m[2]),
-        col: Number(m[3]),
-        ...(m[1] !== undefined ? { file: m[1] } : {}),
-      });
-    } else if (errors.length > 0) {
-      errors[errors.length - 1].message += `\n${line}`;
-    }
-  }
-  for (const e of errors) e.message = e.message.replace(/\s+$/, "");
-  return errors;
-}
-
-/**
  * Validate a flow script by name, reusing the run path's exact checks and
  * search order (project → global, `.ts` → `.js`). Never throws: an invalid or
  * unresolvable script is reported as a structured `FlowValidationReport`.
@@ -121,51 +73,32 @@ export async function validateFlowFile(
     };
   }
 
-  try {
-    readFlowScript(resolved.path);
-  } catch (err) {
-    // `readFlowScript` throws on a directory, unreadable file, etc. Surface it
-    // as a structured report so `validateFlowFile` honors its never-throws
-    // contract (mirroring the `/af` run path, which guards the same call).
-    const message = err instanceof Error ? err.message : String(err);
-    return { ok: false, name, errors: [error(message)] };
-  }
-
   // 2. Walk the static import graph (policy + existence + syntax across the
   //    whole graph — this also syntax-validates the entry itself), then
   //    type-check `.ts` scripts against the declarations (raw source, so tsc
   //    sees the TypeScript; graph-aware diagnostics and conditional
   //    declaration injection).
   try {
-    const graph = buildImportGraph(resolved.path);
-    if (resolved.isTypeScript) {
-      const entrySource = graph.files.get(resolved.path);
-      if (entrySource === undefined) {
-        return {
-          ok: false,
-          name,
-          errors: [
-            error(
-              `internal error: validated graph is missing entry "${resolved.path}"`,
-            ),
-          ],
-        };
-      }
-      await typeCheckFlowScript(
-        resolved.path,
-        entrySource,
-        DECLARATIONS_PATH,
-        graph,
-      );
-    }
+    await validateResolvedFlow(
+      resolved.path,
+      resolved.isTypeScript,
+      DECLARATIONS_PATH,
+    );
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    const located = extractLocatedErrors(message);
-    if (located.length > 0) {
-      return { ok: false, name, errors: located };
+    if (err instanceof FlowLocatedError) {
+      return {
+        ok: false,
+        name,
+        errors: err.diagnostics.map((d) => ({
+          message: d.message,
+          line: d.line,
+          col: d.col,
+          ...(d.file !== undefined ? { file: d.file } : {}),
+        })),
+      };
     }
-    const { line, col } = parseLocation(message);
-    return { ok: false, name, errors: [{ message, line, col }] };
+    const message = err instanceof Error ? err.message : String(err);
+    return { ok: false, name, errors: [error(message)] };
   }
 
   return { ok: true, name, errors: [] };

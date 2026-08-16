@@ -13,6 +13,13 @@ function shippedSource(): string {
   return readFileSync(join(here, "agentflow.d.ts"), "utf-8");
 }
 
+test("the checked-in local copy stays in sync with generateLocalDeclarations", () => {
+  const checkedIn = readFileSync(
+    join(here, "..", "..", ".pi", "agentflow", "agentflow.d.ts"),
+    "utf-8",
+  );
+  assert.equal(checkedIn, generateLocalDeclarations(shippedSource()));
+});
 test("generateLocalDeclarations removes the typebox module import", () => {
   const generated = generateLocalDeclarations(shippedSource());
   // No module imports of any kind survive the surgery.

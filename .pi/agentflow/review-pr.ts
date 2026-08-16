@@ -90,21 +90,20 @@ async function evaluateVerdict(
 }
 
 /**
- * Parse `git status --porcelain` output into a path → status map.
+ * Parse `git status --porcelain` output into the set of changed paths.
  * Handles rename entries ("XY old -> new") by taking the new path.
  */
-function porcelainPaths(out: string): Map<string, string> {
-  const map = new Map<string, string>();
+function porcelainChangedPaths(out: string): Set<string> {
+  const paths = new Set<string>();
   for (const line of out.split("\n")) {
     if (line.length < 4) continue;
-    const status = line.slice(0, 2);
     let path = line.slice(3);
     const arrow = path.indexOf(" -> ");
     if (arrow !== -1) path = path.slice(arrow + 4);
     path = path.replace(/^"(.*)"$/, "$1"); // strip porcelain quoting
-    map.set(path, status);
+    paths.add(path);
   }
-  return map;
+  return paths;
 }
 
 /**
@@ -303,7 +302,7 @@ grep '^{' ${CLAUDE_LOG} | jq -r '(select(.type=="stream_event" and .event.type==
     // diffing paths, which silently dropped already-dirty files the fixer also
     // touched.
     const afterStatus = await af.bash("git status --porcelain");
-    const changedPaths = porcelainPaths(afterStatus.stdout);
+    const changedPaths = porcelainChangedPaths(afterStatus.stdout);
 
     if (changedPaths.size === 0) {
       af.log(
