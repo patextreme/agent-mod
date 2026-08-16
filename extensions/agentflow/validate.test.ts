@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { readFlowScript, typeCheckFlowScript } from "./discovery.js";
+import { generateLocalDeclarations } from "./init.js";
 import { validateFlowFile } from "./validate.js";
 
 /** Absolute path to this module's directory (sibling of `agentflow.d.ts`). */
@@ -124,6 +125,188 @@ test("validateFlowFile preserves multi-line (chained) type diagnostics", async (
       /Type 'number' is not assignable to type 'string'/,
       "chained continuation line is preserved, not truncated",
     );
+  } finally {
+    d.cleanup();
+  }
+});
+
+// ─── Import-graph validation ───────────────────────────────────────────────
+
+test("validateFlowFile reports a valid flow with relative imports as ok", async () => {
+  const d = makeDir();
+  try {
+    const flowDir = join(d.cwd, ".pi", "agentflow");
+    writeFileSync(join(flowDir, "helper.ts"), "export const MAGIC = 41;\n");
+    writeFileSync(
+      join(flowDir, "importing.ts"),
+      'import { MAGIC } from "./helper.ts";\nconst n: number = MAGIC + 1;\naf.log(n);\n',
+    );
+    const report = await validateFlowFile("importing", d.cwd);
+    assert.equal(report.ok, true);
+    assert.deepEqual(report.errors, []);
+  } finally {
+    d.cleanup();
+  }
+});
+
+test("validateFlowFile reports import-policy violations with locations", async () => {
+  const d = makeDir();
+  try {
+    writeFileSync(
+      join(d.cwd, ".pi", "agentflow", "bare.ts"),
+      'import { z } from "zod";\naf.log(z);\n',
+    );
+    const report = await validateFlowFile("bare", d.cwd);
+    assert.equal(report.ok, false);
+    assert.equal(report.errors.length, 1);
+    assert.match(report.errors[0].message, /bare specifier "zod"/);
+    assert.ok(report.errors[0].line > 0, "located line");
+    assert.ok(report.errors[0].col > 0, "located column");
+  } finally {
+    d.cleanup();
+  }
+});
+
+test("validateFlowFile reports dynamic import() as invalid", async () => {
+  const d = makeDir();
+  try {
+    writeFileSync(
+      join(d.cwd, ".pi", "agentflow", "dynamic.ts"),
+      'const m = await import("./helper.ts");\naf.log(m);\n',
+    );
+    const report = await validateFlowFile("dynamic", d.cwd);
+    assert.equal(report.ok, false);
+    assert.match(report.errors[0].message, /dynamic import\(\) is not allowed/);
+    assert.ok(report.errors[0].line > 0);
+  } finally {
+    d.cleanup();
+  }
+});
+
+test("validateFlowFile reports a missing import target as invalid", async () => {
+  const d = makeDir();
+  try {
+    writeFileSync(
+      join(d.cwd, ".pi", "agentflow", "missing.ts"),
+      'import { gone } from "./gone.ts";\naf.log(gone);\n',
+    );
+    const report = await validateFlowFile("missing", d.cwd);
+    assert.equal(report.ok, false);
+    assert.match(
+      report.errors[0].message,
+      /cannot resolve import "\.\/gone\.ts"/,
+    );
+  } finally {
+    d.cleanup();
+  }
+});
+
+test("validateFlowFile accepts a .ts flow using CommonJS require of a relative file", async () => {
+  const d = makeDir();
+  try {
+    const flowDir = join(d.cwd, ".pi", "agentflow");
+    // The import policy documents `require("./x")` and the runtime executes
+    // it, so the type-checker needs an ambient `require` declaration —
+    // without one tsc rejects the flow with "Cannot find name 'require'".
+    writeFileSync(join(flowDir, "legacy.cjs"), "module.exports = { n: 3 };\n");
+    writeFileSync(
+      join(flowDir, "cjsuser.ts"),
+      'const legacy = require("./legacy.cjs");\naf.log(legacy.n);\n',
+    );
+    const report = await validateFlowFile("cjsuser", d.cwd);
+    assert.equal(report.ok, true);
+    assert.deepEqual(report.errors, []);
+  } finally {
+    d.cleanup();
+  }
+});
+
+test("validateFlowFile accepts a .ts flow importing a .js helper", async () => {
+  const d = makeDir();
+  try {
+    const flowDir = join(d.cwd, ".pi", "agentflow");
+    // Documented (".ts or .js files anywhere on disk") and executed by jiti;
+    // needs `allowJs` or tsc rejects the import with TS7016.
+    writeFileSync(join(flowDir, "helper.js"), "export const MAGIC = 41;\n");
+    writeFileSync(
+      join(flowDir, "jsimporter.ts"),
+      'import { MAGIC } from "./helper.js";\nconst n: number = MAGIC + 1;\naf.log(n);\n',
+    );
+    const report = await validateFlowFile("jsimporter", d.cwd);
+    assert.equal(report.ok, true);
+    assert.deepEqual(report.errors, []);
+  } finally {
+    d.cleanup();
+  }
+});
+
+test("validateFlowFile accepts type-position import(...) annotations", async () => {
+  const d = makeDir();
+  try {
+    const flowDir = join(d.cwd, ".pi", "agentflow");
+    writeFileSync(join(flowDir, "nums.ts"), "export type Num = number;\n");
+    writeFileSync(
+      join(flowDir, "typdyn.ts"),
+      'const n: import("./nums.ts").Num = 41;\naf.log(n);\n',
+    );
+    const report = await validateFlowFile("typdyn", d.cwd);
+    assert.equal(report.ok, true);
+    assert.deepEqual(report.errors, []);
+  } finally {
+    d.cleanup();
+  }
+});
+
+test("validateFlowFile reports type errors in imported files with the file name", async () => {
+  const d = makeDir();
+  try {
+    const flowDir = join(d.cwd, ".pi", "agentflow");
+    writeFileSync(
+      join(flowDir, "helper.ts"),
+      "export const n: number = 'not a number';\n",
+    );
+    writeFileSync(
+      join(flowDir, "entry.ts"),
+      'import { n } from "./helper.ts";\naf.log(n);\n',
+    );
+    const report = await validateFlowFile("entry", d.cwd);
+    assert.equal(report.ok, false);
+    assert.ok(report.errors.length > 0);
+    const inHelper = report.errors.find((e) => e.file !== undefined);
+    assert.ok(inHelper, "at least one error carries a file");
+    assert.equal(inHelper?.file, join(flowDir, "helper.ts"));
+    assert.ok(inHelper !== undefined && inHelper.line > 0);
+    assert.match(inHelper.message, /not assignable to type 'number'/);
+  } finally {
+    d.cleanup();
+  }
+});
+
+test("validateFlowFile types a script by its local agentflow.d.ts without duplicate globals", async () => {
+  const d = makeDir();
+  try {
+    const flowDir = join(d.cwd, ".pi", "agentflow");
+    // The graph contains a local `agentflow.d.ts` → the shipped declarations
+    // must NOT be injected (`af` declared exactly once). Use the real
+    // generated copy so the surface matches what `/af-init` produces.
+    writeFileSync(
+      join(flowDir, "agentflow.d.ts"),
+      generateLocalDeclarations(readFlowScript(DECLARATIONS)),
+    );
+    writeFileSync(
+      join(flowDir, "localdecl.ts"),
+      [
+        'import type { AgentFlow, FlowAgent } from "./agentflow.d.ts";',
+        "const typed: AgentFlow = af;",
+        "const agent: FlowAgent<{ ok: boolean }> | undefined = undefined;",
+        "af.log(typed.cwd, agent);",
+        "af.result(af.Type.Object({ done: af.Type.Boolean() }));",
+        "",
+      ].join("\n"),
+    );
+    const report = await validateFlowFile("localdecl", d.cwd);
+    assert.equal(report.ok, true);
+    assert.deepEqual(report.errors, []);
   } finally {
     d.cleanup();
   }

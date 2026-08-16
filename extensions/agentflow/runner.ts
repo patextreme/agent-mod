@@ -17,6 +17,7 @@ import type {
   ExtensionContext,
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
+import { createJiti } from "jiti";
 import { Type } from "typebox";
 import type { AgentFlow, FlowAgent, FlowAgentConfig } from "./agentflow.js";
 import {
@@ -175,7 +176,8 @@ export class FlowRunner {
     const runner = this;
     return {
       // Expose the TypeBox `Type` namespace so flow scripts can build a
-      // `resultSchema` without importing (scripts cannot import).
+      // `resultSchema` without importing `typebox` (bare module specifiers
+      // are not allowed in flow scripts).
       Type,
       async createAgent<T = unknown>(
         config: FlowAgentConfig,
@@ -506,17 +508,64 @@ export class FlowRunner {
 }
 
 /**
- * Execute a flow script's (already-transpiled, JS) source with the injected
- * `af` global. Wraps the body in an `AsyncFunction` — the only identifier in
- * scope beyond native JS is `af`.
+ * `af` surfaces whose `executeFlowScript` load is still in flight.
+ *
+ * The global is managed as a save/restore chain, but abandoned scripts
+ * (cancelled runs settle out of order — not LIFO) would otherwise resurrect
+ * a dead run's `af`: restoring is only correct while the previous surface is
+ * itself still live, which is exactly what this set tracks.
+ */
+const liveAfSurfaces = new Set<AgentFlow>();
+
+/**
+ * Execute a flow script by loading its entry as a module through jiti
+ * (TypeScript transpilation, ESM/CJS interop, top-level `await`) with the
+ * injected `af` global visible to the entry and to every module it imports.
+ *
+ * `af` is published as a real global (`globalThis.af`) for the duration of
+ * the load and unwound in `finally`. Concurrent loads are normally prevented
+ * by the one-flow-at-a-time guard in `index.ts`, but a *cancelled* run
+ * deliberately abandons its script (it unwinds in the background), so a
+ * lingering script can still be settling when the next flow starts —
+ * installs then unwind out of order. Two rules keep the global sane:
+ *
+ * - identity guard: only restore/remove when the installed global is still
+ *   ours, so a lingering script's cleanup can never delete a newer run's
+ *   `af` (which would crash it with "af is not defined");
+ * - liveness: restore the saved previous surface only while it is still
+ *   live itself, else remove the global — restoring a settled run's surface
+ *   would leak it forever.
+ *
+ * Residual limitation: while run B is in flight, a resumed run-A script's
+ * `af.*` calls resolve to B's surface (logs and agents would be attributed
+ * to B's runner). Fixing that requires per-run scoping of the `af` binding,
+ * which the single-global jiti load model does not provide.
  */
 export async function executeFlowScript(
-  transpiledSource: string,
+  flowPath: string,
   af: AgentFlow,
 ): Promise<void> {
-  const fn = new Function(
-    "af",
-    `"use strict"; return (async () => {\n${transpiledSource}\n})();`,
-  ) as (af: AgentFlow) => Promise<unknown>;
-  await fn(af);
+  const jiti = createJiti(import.meta.url, {
+    fsCache: false,
+    moduleCache: false,
+  });
+  const globals = globalThis as { af?: AgentFlow };
+  const hadAf = Object.hasOwn(globals, "af");
+  const previous = globals.af;
+  const previousIsLiveFlow =
+    previous !== undefined && liveAfSurfaces.has(previous);
+  liveAfSurfaces.add(af);
+  globals.af = af;
+  try {
+    await jiti.import(flowPath);
+  } finally {
+    liveAfSurfaces.delete(af);
+    if (globals.af === af) {
+      if (hadAf && (!previousIsLiveFlow || liveAfSurfaces.has(previous))) {
+        globals.af = previous;
+      } else {
+        delete globals.af;
+      }
+    }
+  }
 }

@@ -3,17 +3,21 @@
  *
  * Invoke a flow with `/af <flow-name>`. AgentFlow resolves `.pi/agentflow/
  * <name>.ts` (project, trusted), then global `~/.pi/agentflow/<name>.ts`
- * (and `.js` variants), validates/type-checks it, and runs it alongside the
- * editor under the fleet widget (TUI): a live list of `main` + each
+ * (and `.js` variants), walks its static import graph (relative-only import
+ * policy), validates/type-checks it, and runs it alongside the editor under
+ * the fleet widget (TUI): a live list of `main` + each
  * flow-agent below the editor, overlay conversation/log viewers, steering,
  * per-agent stop, and whole-run cancel. In non-TUI modes it runs without
  * the UI.
  *
  * Flows are imperative TS/JS scripts that get a single injected `af` global
- * (`createAgent`, `log`, `result`, `cwd`, `bash`) and may appear in the docs as
- * the `/af:<name>` family; the runtime command is `/af <name>`.
+ * (`createAgent`, `log`, `result`, `cwd`, `bash`), may import other files with
+ * relative specifiers, and may appear in the docs as the `/af:<name>` family;
+ * the runtime command is `/af <name>`. `/af-init` writes a local, importable
+ * copy of the `af` declarations into the project.
  */
 
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -25,13 +29,16 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import {
+  buildImportGraph,
+  type FlowImportGraph,
   listFlowNames,
+  PROJECT_FLOW_DIR,
   readFlowScript,
   resolveFlowFile,
   typeCheckFlowScript,
-  validateFlowSyntax,
 } from "./discovery.js";
 import { killProcessTree } from "./exec.js";
+import { generateLocalDeclarations } from "./init.js";
 import { runNonTuiFlow, runTuiFlow } from "./orchestrator.js";
 import {
   executeFlowScript,
@@ -40,7 +47,7 @@ import {
   renderFlowValue,
   spawnAgentSession,
 } from "./runtime.js";
-import { validateFlowFile } from "./validate.js";
+import { type FlowValidationError, validateFlowFile } from "./validate.js";
 
 /** Absolute path to this extension's directory. */
 const here = dirname(fileURLToPath(import.meta.url));
@@ -108,25 +115,27 @@ async function runAgentFlow(
       return;
     }
 
-    // 3. Syntax-validate (aborts before any sub-agent is spawned).
-    let transpiled: string;
+    // 3. Walk the static import graph: relative-only import policy, target
+    //    existence, and syntax of every graph file — all before any
+    //    sub-agent is spawned. (This also syntax-validates the entry.)
+    let graph: FlowImportGraph;
     try {
-      transpiled = validateFlowSyntax(
-        readFlowScript(resolved.path),
-        resolved.path,
-      );
+      graph = buildImportGraph(resolved.path);
     } catch (err) {
       ctx.ui.notify(err instanceof Error ? err.message : String(err), "error");
       return;
     }
 
-    // 4. Type-check `.ts` scripts against the shipped declarations.
+    // 4. Type-check `.ts` scripts against the `af` declarations. The shipped
+    //    declarations are injected only when the graph has no local
+    //    `agentflow.d.ts`; diagnostics cover every file in the graph.
     if (resolved.isTypeScript) {
       try {
         await typeCheckFlowScript(
           resolved.path,
-          readFlowScript(resolved.path),
+          graph.files.get(resolved.path) ?? readFlowScript(resolved.path),
           DECLARATIONS_PATH,
+          graph,
         );
       } catch (err) {
         ctx.ui.notify(
@@ -167,7 +176,7 @@ async function runAgentFlow(
     });
 
     // 6. Run the script in the background; the fleet UI renders live.
-    const scriptRun = executeFlowScript(transpiled, af).then(
+    const scriptRun = executeFlowScript(resolved.path, af).then(
       () => runner.complete(),
       (err: unknown) =>
         runner.complete(err instanceof Error ? err.message : String(err)),
@@ -310,10 +319,7 @@ function buildValidateTool(): ToolDefinition {
         : `AgentFlow script "${report.name}" has ${
             report.errors.length
           } error(s):\n\n${report.errors
-            .map(
-              (e) =>
-                `  ${e.line > 0 ? `${e.line}:${e.col}\t` : ""}${e.message}`,
-            )
+            .map((e) => `  ${formatErrorLocation(e)}${e.message}`)
             .join("\n")}`;
       return {
         content: [{ type: "text", text: body }],
@@ -321,6 +327,14 @@ function buildValidateTool(): ToolDefinition {
       };
     },
   });
+}
+
+/** Render one located error as `file:line:col\t`, `line:col\t`, or "". */
+function formatErrorLocation(e: FlowValidationError): string {
+  if (e.file !== undefined && e.line > 0)
+    return `${e.file}:${e.line}:${e.col}\t`;
+  if (e.line > 0) return `${e.line}:${e.col}\t`;
+  return "";
 }
 
 /**
@@ -346,14 +360,43 @@ function registerValidateCommand(pi: ExtensionAPI): void {
         return;
       }
       const detail = report.errors
-        .map((e) =>
-          e.line > 0 ? `${e.line}:${e.col}\t${e.message}` : e.message,
-        )
+        .map((e) => `${formatErrorLocation(e)}${e.message}`)
         .join("\n");
       ctx.ui.notify(
         `AgentFlow: "${report.name}" is invalid:\n${detail}`,
         "error",
       );
+    },
+  });
+}
+
+/**
+ * Register `/af-init`: write a self-contained local copy of the `af`
+ * declarations to `<cwd>/.pi/agentflow/agentflow.d.ts` (creating the
+ * directory, overwriting any existing file) so flow scripts can `import
+ * type` the API surface and external editors can type the `af` global.
+ * Re-running it re-syncs the copy after an extension upgrade.
+ */
+function registerInitCommand(pi: ExtensionAPI): void {
+  pi.registerCommand("af-init", {
+    description:
+      "Write a self-contained copy of the af declarations to .pi/agentflow/agentflow.d.ts (overwrites), so flows can import types and editors can type the af global.",
+    handler: async (_args, ctx) => {
+      const target = join(ctx.cwd, PROJECT_FLOW_DIR, "agentflow.d.ts");
+      try {
+        const source = readFileSync(DECLARATIONS_PATH, "utf-8");
+        const generated = generateLocalDeclarations(source);
+        mkdirSync(dirname(target), { recursive: true });
+        writeFileSync(target, generated, "utf-8");
+        ctx.ui.notify(`AgentFlow: declarations written to ${target}`, "info");
+      } catch (err) {
+        ctx.ui.notify(
+          `AgentFlow: could not write declarations to ${target}: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+          "error",
+        );
+      }
     },
   });
 }
@@ -396,6 +439,9 @@ export default function agentFlowExtension(pi: ExtensionAPI): void {
   // script, so neither gates on project trust (unlike `/af`).
   pi.registerTool(buildValidateTool());
   registerValidateCommand(pi);
+
+  // Local declaration initialization (opt-in, project-scoped, no LLM tool).
+  registerInitCommand(pi);
 
   // Register `/af:<name>` shortcuts for already-discovered flows. The generic
   // `/af <name>` command above remains the fallback for flows created after

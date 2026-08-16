@@ -42,11 +42,15 @@ there is nothing to re-open. Keys only act when the prompt editor is
 
 ## The `af` surface
 
-A flow gets exactly one injected global: `af`. It has no other imports or globals.
+A flow gets exactly one injected global: `af`. It may import other files with
+relative specifiers (see [Imports](#imports)); `af` itself is the only
+injected global.
 
 ### `af.Type`
 
-The TypeBox `Type` namespace (see [Structured results](#structured-results-resultSchema--submit_result)). Used to build `resultSchema` values since scripts cannot `import`.
+The TypeBox `Type` namespace (see [Structured results](#structured-results-resultSchema--submit_result)). Flows cannot import `typebox` (bare module
+specifiers are rejected), so `af.Type` is the way to construct a schema value
+that shares the SDK's schema-instance identity.
 
 ### `af.createAgent(config)` → `Promise<FlowAgent>`
 
@@ -105,8 +109,9 @@ tool is injected and `submittedResult()` is always `undefined`.
 
 The schema is a TypeBox `TSchema` built with the `af.Type` namespace (the same
 `typebox` version the SDK uses, `1.3.7`, so the schema shares the SDK's
-schema-instance identity). Flow scripts cannot `import`, so `af.Type` is the
-way to construct a schema value:
+schema-instance identity). Bare module specifiers like `typebox` are rejected
+by the flow import policy, so `af.Type` is the way to construct a schema
+value:
 
 ```ts
 const packet = await af.createAgent<{
@@ -263,8 +268,9 @@ const r = await af.bash("npm test", { cwd: "packages/core", timeoutMs: 60_000 })
 - **`cwd` defaults to `af.cwd`** and is overridable via `opts.cwd`.
 - **`opts.timeoutMs` is opt-in.** Omit it for no timeout. When it elapses, the
   call rejects with a `BashTimeoutError` carrying the partially-collected
-  `stdout`/`stderr`, and the child's process group is killed. Scripts cannot
-  `import` the class, so discriminate by name:
+  `stdout`/`stderr`, and the child's process group is killed. A value import
+  of the declaration file is rejected, so discriminate by name (or use the
+  `af.isBashTimeoutError` type guard):
 
   ```ts
   try {
@@ -324,27 +330,80 @@ Use `af.bash` for anything the flow can decide deterministically (file checks,
 test runs, git state, build gates), and reserve `createAgent` for the steps that
 genuinely need reasoning.
 
+## Imports
+
+Flow scripts may import other files — helpers, shared shapes, types — subject
+to a **relative-only** import policy:
+
+- **Allowed**: specifiers starting with `./` or `../`, resolving to `.ts` or
+  `.js` files anywhere on disk (escaping the flow directory is fine). Both
+  `import ... from "./x.ts"` and CommonJS `require("./x.ts")` work, and
+  `import type` / `export type` are permitted for type-only edges.
+- **Rejected at validation time** (before any sub-agent spawns): bare module
+  specifiers (`"zod"`, `"typebox"`), `node:` builtins (`"node:fs"`), dynamic
+  `import()` expressions, missing import targets, and value imports of `.d.ts`
+  files (import those with `import type` only).
+- The whole import graph is validated: every imported file must exist and
+  parse, and (for `.ts`) type errors in *imported* files fail validation too,
+  reported with the file's path.
+- Prefer explicit extensions (`"./helper.ts"`) in specifiers.
+
+```ts
+import { summarize } from "./summarize.ts";
+import type { Finding } from "./types.ts";
+
+const finding: Finding = { ok: true };
+af.log(summarize(finding));
+```
+
+### Local declarations: `/af-init`
+
+External editors cannot see the injected `af` global on their own. Run
+`/af-init` in the project to write a self-contained copy of the `af`
+declarations to `.pi/agentflow/agentflow.d.ts` (created if missing,
+overwritten on re-run — re-run it after an extension upgrade to re-sync).
+Scripts can then `import type` from it, and editors type `af` through the
+file's `declare global`:
+
+```ts
+import type { AgentFlow, FlowAgent } from "./agentflow.d.ts";
+
+const agent: FlowAgent<{ ok: boolean }> | undefined = undefined;
+const typed: AgentFlow = af;
+```
+
+The local copy has no module imports (the `typebox` dependency is replaced by
+structural stand-ins), so it type-checks in any project. In-pi validation
+keeps using the shipped declarations with full typebox fidelity; the local
+copy is looser only on `resultSchema`/`af.Type` typing.
+
 ## Authoring conventions
 
-- **Self-contained**: no `import`/`require`; use only `af` and plain JS/TS.
-- `await` your steps; the script body runs inside an async function.
-- Use `top-level await` freely (the runtime wraps the body in an async IIFE).
-- Prefer TypeScript (`.ts`) — it is type-checked before execution.
+- **Relative imports only**: use `./`/`../` specifiers (see
+  [Imports](#imports)); use only `af` and plain JS/TS otherwise.
+- `await` your steps; the script body runs as an async module.
+- Use `top-level await` freely.
+- Prefer TypeScript (`.ts`) — it is type-checked (including its import graph)
+  before execution.
 
 ## Validation workflow
 
-Before a `.ts` flow runs, AgentFlow:
-1. **Syntax-validates** the source (both `.ts` and `.js`) and aborts on a syntax
-   error before any sub-agent is spawned.
-2. **Type-checks** `.ts` files against `agentflow.d.ts` (best-effort when the
-   TypeScript compiler is available) and aborts on type errors.
+Before a flow runs, AgentFlow:
+1. **Walks the static import graph** (both `.ts` and `.js`): enforces the
+   relative-only import policy, verifies every imported file exists and parses,
+   and rejects dynamic `import()` — all before any sub-agent is spawned.
+2. **Type-checks** `.ts` files (entry and every imported file) against the `af`
+   declarations — the shipped ones, or the project's local
+   `.pi/agentflow/agentflow.d.ts` when the graph imports it — and aborts on
+   type errors.
 
 To validate a draft script **while authoring** — before it is ever executed — use
 the `agentflow_validate` tool (call it with the flow name), or for a human run
 `/af-validate <name>`. Both run the exact same checks as `/af` (resolve →
-syntax → type) and report located `message`/`line`/`col` errors, so a script that
-validates clean is a script that will run clean. An invalid script is reported as
-normal validation output, never a tool/command failure:
+import graph → syntax → type) and report located `message`/`line`/`col` errors
+(errors in imported files also carry the file's path), so a script that
+validates clean is a script that will run clean. An invalid script is reported
+as normal validation output, never a tool/command failure:
 
 ```
 agentflow_validate { "name": "myflow" }

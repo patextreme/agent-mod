@@ -2,11 +2,17 @@
  * AgentFlow — type declarations for the injected `af` scripting surface.
  *
  * Flow scripts (`.pi/agentflow/<name>.ts`) are executed with a single global
- * `af` object in scope. This file declares its full type surface so scripts
- * can be type-checked with `tsc --noEmit` before execution.
+ * `af` object in scope (the entry and every module it imports see the same
+ * object). This file declares its full type surface so scripts can be
+ * type-checked with `tsc --noEmit` before execution.
  *
- * Scripts SHALL NOT import anything and SHALL NOT rely on any other global.
- * The only orchestration identifier available is `af`.
+ * Scripts MAY import other files with relative specifiers (`./module`,
+ * `../module` — `.ts`/`.js`, anywhere on disk). Bare module specifiers
+ * (`"zod"`), `node:` builtins, and dynamic `import()` are rejected at
+ * validation time; `.d.ts` files may be imported for types only. Scripts
+ * that want these types locally can run `/af-init` to generate a
+ * self-contained copy at `.pi/agentflow/agentflow.d.ts` and `import type`
+ * from it. The only injected orchestration global is `af`.
  */
 
 import { type TSchema, Type } from "typebox";
@@ -29,10 +35,11 @@ export interface BashResult {
 
 /**
  * Rejected by `af.bash` when the call exceeds its `opts.timeoutMs`. Carries the
- * partially-collected output so the hang is diagnosable. Flow scripts cannot
- * `import` this class, so distinguish a timeout with `af.isBashTimeoutError`
- * (a type-checked guard) rather than a bare `err.name === "BashTimeoutError"`
- * string compare, which a typo can silently break past validation.
+ * partially-collected output so the hang is diagnosable. A value import of
+ * this declaration file is rejected by the flow import policy, so distinguish
+ * a timeout with `af.isBashTimeoutError` (a type-checked guard) rather than a
+ * bare `err.name === "BashTimeoutError"` string compare, which a typo can
+ * silently break past validation.
  */
 export interface BashTimeoutError extends Error {
   readonly name: "BashTimeoutError";
@@ -134,8 +141,9 @@ export interface FlowAgent<T = unknown> {
 export interface AgentFlow {
   /**
    * The TypeBox `Type` namespace, exposed so flow scripts can build a
-   * `resultSchema` without importing (scripts cannot import). Use it to
-   * construct schema values, e.g. `af.Type.Object({ done: af.Type.Boolean() })`.
+   * `resultSchema` without importing `typebox` (bare module specifiers are
+   * rejected by the flow import policy). Use it to construct schema values,
+   * e.g. `af.Type.Object({ done: af.Type.Boolean() })`.
    */
   Type: typeof Type;
   /**

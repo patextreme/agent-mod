@@ -2,12 +2,14 @@
  * validate.ts — On-demand validation of a flow script by name.
  *
  * The run path (`runAgentFlow`) already validates a flow script right before it
- * executes: `resolveFlowFile` → `validateFlowSyntax` (jiti) → (for `.ts`)
- * `typeCheckFlowScript`. This module reuses those exact checks as the basis for
- * an *on-demand* entry point so the main-session LLM (via the
+ * executes: `resolveFlowFile` → `buildImportGraph` (import policy + existence
+ * + syntax for every graph file) → (for `.ts`) `typeCheckFlowScript` against
+ * the `af` declarations. This module reuses those exact checks as the basis
+ * for an *on-demand* entry point so the main-session LLM (via the
  * `agentflow_validate` tool) and humans (via `/af-validate`) can check a draft
  * script while authoring, before it is ever executed. "Validates clean" here
- * means the same as "runs clean" — one source of truth for what a valid flow is.
+ * means the same as "runs clean" — one source of truth for what a valid flow
+ * is.
  *
  * An invalid script is reported as a structured `FlowValidationReport` (never
  * thrown), so a fixable script surfaces as data, not as a tool/command failure.
@@ -16,10 +18,10 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  buildImportGraph,
   readFlowScript,
   resolveFlowFile,
   typeCheckFlowScript,
-  validateFlowSyntax,
 } from "./discovery.js";
 
 /** Absolute path to this module's directory. */
@@ -34,6 +36,11 @@ export interface FlowValidationError {
   line: number;
   /** 1-based column, or 0 when the message carries no location. */
   col: number;
+  /**
+   * The file the error is located in, for errors in imported (non-entry)
+   * files. Undefined for entry-file errors and location-less messages.
+   */
+  file?: string;
 }
 
 /** The structured outcome of validating a flow script by name. */
@@ -49,10 +56,11 @@ function error(message: string): FlowValidationError {
 }
 
 /**
- * Parse location info out of a thrown runner message. The existing runners emit
- * `line:col` inside their error text (jiti's embedded parse errors and the
- * `  line:col\tmessage` blocks from `typeCheckFlowScript`). We take the first
- * `(\d+):(\d+)` we find; when none is present we fall back to `0` locations.
+ * Parse location info out of a thrown runner message. The runners emit
+ * `line:col` inside their error text (jiti's embedded parse errors, the
+ * `  (line:col): message` import-policy form, and the `  line:col\tmessage`
+ * blocks from `typeCheckFlowScript`). We take the first `(\d+):(\d+)` we
+ * find; when none is present we fall back to `0` locations.
  */
 function parseLocation(message: string): { line: number; col: number } {
   const match = /(\d+):(\d+)/.exec(message);
@@ -62,25 +70,29 @@ function parseLocation(message: string): { line: number; col: number } {
 
 /**
  * Extract the located per-diag error entries from a `typeCheckFlowScript`
- * message body, which lists diagnostics one per line as `  line:col\tmessage`.
+ * message body, which lists diagnostics one per line:
+ *   - entry-file diagnostics as `  line:col\tmessage`
+ *   - imported-file diagnostics as `  file:line:col\tmessage`
  * Returns an empty array when the message does not match that shape.
  */
 function extractLocatedErrors(message: string): FlowValidationError[] {
   const errors: FlowValidationError[] = [];
   const lines = message.split("\n");
-  // Each diagnostic block starts at a line matching `  line:col\tmessage`.
+  // Each diagnostic block starts at a line matching `  [file:]line:col\tmsg`.
   // A chained TypeScript diagnostic spans multiple lines (its message text is
   // joined with "\n"), so any following line that does not itself start with a
   // `line:col\t` loc is a continuation of the previous diagnostic's message —
-  // fold it back in instead of dropping it.
-  const locRe = /^\s*(\d+):(\d+)\t(.*)$/;
+  // fold it back in instead of dropping it. The optional non-space `file:`
+  // prefix captures the importing-file name for non-entry diagnostics.
+  const locRe = /^\s*(?:(\S+?):\s*)?(\d+):(\d+)\t(.*)$/;
   for (const line of lines) {
     const m = locRe.exec(line);
     if (m) {
       errors.push({
-        message: m[3],
-        line: Number(m[1]),
-        col: Number(m[2]),
+        message: m[4],
+        line: Number(m[2]),
+        col: Number(m[3]),
+        ...(m[1] !== undefined ? { file: m[1] } : {}),
       });
     } else if (errors.length > 0) {
       errors[errors.length - 1].message += `\n${line}`;
@@ -120,29 +132,29 @@ export async function validateFlowFile(
     return { ok: false, name, errors: [error(message)] };
   }
 
-  // 2. Syntax-validate (both `.ts` and `.js`).
+  // 2. Walk the static import graph (policy + existence + syntax across the
+  //    whole graph — this also syntax-validates the entry itself), then
+  //    type-check `.ts` scripts against the declarations (raw source, so tsc
+  //    sees the TypeScript; graph-aware diagnostics and conditional
+  //    declaration injection).
   try {
-    validateFlowSyntax(source, resolved.path);
+    const graph = buildImportGraph(resolved.path);
+    if (resolved.isTypeScript) {
+      await typeCheckFlowScript(
+        resolved.path,
+        graph.files.get(resolved.path) ?? source,
+        DECLARATIONS_PATH,
+        graph,
+      );
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    const located = extractLocatedErrors(message);
+    if (located.length > 0) {
+      return { ok: false, name, errors: located };
+    }
     const { line, col } = parseLocation(message);
     return { ok: false, name, errors: [{ message, line, col }] };
-  }
-
-  // 3. Type-check `.ts` scripts against the shipped declarations (raw source,
-  // so tsc sees the TypeScript, not the transpiled JS).
-  if (resolved.isTypeScript) {
-    try {
-      await typeCheckFlowScript(resolved.path, source, DECLARATIONS_PATH);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      const located = extractLocatedErrors(message);
-      const errors =
-        located.length > 0
-          ? located
-          : [{ message: error(message).message, line: 0, col: 0 }];
-      return { ok: false, name, errors };
-    }
   }
 
   return { ok: true, name, errors: [] };
