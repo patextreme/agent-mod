@@ -1,15 +1,15 @@
 /**
- * review-pr — AgentFlow: loop-review a pull request with the Claude CLI.
+ * review-pr — AgentFlow: loop-review a pull request with a reviewer sub-agent.
  *
  * Drives this loop:
- *   1. Run `claude -p "/code-review <PR>"` (stream-json) to review the PR
- *      with Claude Code's built-in `/code-review` slash command.
+ *   1. A reviewer sub-agent (model `qwencloud/deepseek-v4-pro-0813`) reviews
+ *      the PR using `prompts/review.md` as its instructions.
  *   2. An evaluator sub-agent reads the review text and submits a structured
  *      verdict via `submit_result` (rather than regex over free text).
  *   3. APPROVE           → exit the loop (PR is safe to merge).
  *      REQUEST_CHANGES   → dispatch a fixer sub-agent to edit the code,
  *                          then commit + push the changed files.
- *   4. Repeat until Claude approves, or the round cap is hit.
+ *   4. Repeat until the reviewer approves, or the round cap is hit.
  *
  * Run with `/af review-pr`.
  */
@@ -28,10 +28,8 @@ if (PR_NUMBER_RES.code !== 0 || !PR_NUMBER_RES.stdout.trim()) {
 }
 const PR_NUMBER = PR_NUMBER_RES.stdout.trim();
 const MAX_ROUNDS = 20;
-const CLAUDE_DIR = "/tmp/agentflow-review-pr";
-const CLAUDE_RESULT = `${CLAUDE_DIR}/claude-result.json`;
-const CLAUDE_ERROR = `${CLAUDE_DIR}/claude-error.log`;
-const REVIEW_TIMEOUT_MS = 20 * 60 * 1000; // Claude review can take a while.
+const REVIEWER_MODEL = "qwencloud/deepseek-v4-pro-0813";
+const REVIEW_PROMPT_PATH = "prompts/review.md";
 
 type Verdict = "approve" | "request-changes";
 
@@ -55,10 +53,63 @@ const verdictSchema = af.Type.Object({
 });
 
 /**
- * Determine the verdict for a `/code-review` run by delegating to a dedicated
+ * Strip a leading YAML frontmatter block (`---\n…\n---\n`) from a prompt
+ * template file so the reviewer agent receives only the instructions.
+ */
+function stripFrontmatter(text: string): string {
+  if (!text.startsWith("---\n")) return text;
+  const end = text.indexOf("\n---\n", 4);
+  if (end === -1) return text;
+  return text.slice(end + "\n---\n".length);
+}
+
+/**
+ * Load `prompts/review.md` and substitute the PR number for the template's
+ * `$ARGUMENTS` placeholder.
+ */
+async function loadReviewPrompt(): Promise<string> {
+  const read = await af.bash(`cat "${REVIEW_PROMPT_PATH}"`);
+  if (read.code !== 0) {
+    throw new Error(
+      `Could not read ${REVIEW_PROMPT_PATH}: ${
+        read.stderr || read.stdout || `cat exited ${read.code}`
+      }`,
+    );
+  }
+  return stripFrontmatter(read.stdout)
+    .trim()
+    .split("$ARGUMENTS")
+    .join(`#${PR_NUMBER}`);
+}
+
+/**
+ * Review the PR with a dedicated reviewer sub-agent whose instructions are
+ * `prompts/review.md` (with the PR number filled in). Returns the reviewer's
+ * free-text review.
+ */
+async function reviewPR(round: number): Promise<string> {
+  const systemPrompt = await loadReviewPrompt();
+
+  const reviewer: FlowAgent = await af.createAgent({
+    name: `reviewer:${round}`,
+    model: REVIEWER_MODEL,
+    systemPrompt,
+  });
+
+  try {
+    return await reviewer.sendMessage(
+      `Review pull request #${PR_NUMBER} and report your findings.`,
+    );
+  } finally {
+    reviewer.dispose();
+  }
+}
+
+/**
+ * Determine the verdict for a review run by delegating to a dedicated
  * evaluator sub-agent that reads the free-text review and submits a
  * structured verdict via `submit_result`. This avoids brittle regex over
- * Claude's prose.
+ * the reviewer's prose.
  */
 async function evaluateVerdict(
   reviewText: string,
@@ -69,14 +120,16 @@ async function evaluateVerdict(
     resultSchema: verdictSchema,
     systemPrompt:
       "You are a code-review adjudicator. You will be given the free-text " +
-      "output of Claude Code's built-in /code-review command. Determine the " +
-      'verdict from it by issue severity: "request-changes" only when the ' +
-      'review lists at least one issue of "medium" severity or higher (i.e. ' +
-      '"medium", "high", or "critical"). Issues below medium ("low", "info", ' +
-      '"nit", or benign style suggestions) can be safely ignored and must not ' +
-      'block approval. Return "approve" when the review has no medium-or-higher ' +
-      "severity issue. Use the submit_result tool to return a JSON object of " +
-      "the shape { verdict, reason? }.",
+      "output of a reviewer that followed an instruction template to review " +
+      "the pull request (read the diff, then the full files, and focus on " +
+      "bugs, security, structure, performance, and behavior changes). " +
+      'Determine the verdict: "request-changes" only when the review reports ' +
+      "at least one definite, actionable defect the author should fix before " +
+      "merge — a real bug, security issue, broken error handling, or an " +
+      'unintended behavior change. Pure style preferences, nits, and ' +
+      '"consider" suggestions must not block approval. Return "approve" when ' +
+      "the review has no must-fix defect. Use the submit_result tool to " +
+      "return a JSON object of the shape { verdict, reason? }.",
   });
 
   try {
@@ -270,92 +323,24 @@ async function drive() {
     return;
   }
 
-  // Claude Code's builtin /code-review slash command: it runs `gh pr view` /
-  // `gh pr diff` and analyzes the diff itself. Use `--output-format json` and
-  // parse the single structured result object directly instead of grepping
-  // stream-json events from a mixed stdout/stderr log.
-  const REVIEW_CMD = `
-set +e
-mkdir -p ${CLAUDE_DIR}
-claude -p "/code-review ${PR_NUMBER}" --dangerously-skip-permissions --setting-sources "" \
-  --output-format json \
-  > ${CLAUDE_RESULT} 2> ${CLAUDE_ERROR}
-code=$?
-printf 'CLAUDE_EXIT=%s\\n' "$code"
-if [ -s ${CLAUDE_RESULT} ] && jq -e . ${CLAUDE_RESULT} >/dev/null 2>&1; then
-  jq -c '{is_error: (.is_error // false), result: (.result // "")}' ${CLAUDE_RESULT}
-else
-  printf 'CLAUDE_JSON_PARSE_ERROR=true\\n'
-  tail -c 4000 ${CLAUDE_RESULT} 2>/dev/null || true
-  tail -c 4000 ${CLAUDE_ERROR} 2>/dev/null || true
-fi
-`;
-
   let lastText = "";
 
   for (let round = 1; round <= MAX_ROUNDS; round++) {
     af.log(
-      `Round ${round}/${MAX_ROUNDS}: running Claude review of PR #${PR_NUMBER}…`,
+      `Round ${round}/${MAX_ROUNDS}: reviewer reviewing PR #${PR_NUMBER}…`,
     );
 
-    let res: BashResult | undefined;
-    try {
-      res = await af.bash(REVIEW_CMD, { timeoutMs: REVIEW_TIMEOUT_MS });
-    } catch (err) {
-      // `isBashTimeoutError` narrows the `unknown` catch clause to
-      // `BashTimeoutError`, exposing `.stdout`/`.stderr`.
-      if (af.isBashTimeoutError(err)) {
-        af.log(`Round ${round}: Claude review timed out — stopping.`);
-        af.result(
-          `## Claude review timed out\n\nStopped during round ${round}.`,
-        );
-        return;
-      }
-      throw err;
-    }
-
-    const rawText = res.stdout;
-    lastText = rawText;
-
-    const exitMatch = rawText.match(/CLAUDE_EXIT=(\d+)/);
-    const claudeExit = exitMatch ? Number(exitMatch[1]) : null;
-
-    let reviewText = "";
-    let isError = false;
-    let parseError = /CLAUDE_JSON_PARSE_ERROR=true/.test(rawText);
-    const jsonLine = rawText.split("\n").find((line) => line.startsWith("{"));
-    if (jsonLine !== undefined) {
-      try {
-        const parsed = JSON.parse(jsonLine) as {
-          is_error?: boolean;
-          result?: string;
-        };
-        isError = parsed.is_error === true;
-        reviewText = (parsed.result ?? "").trim();
-      } catch {
-        parseError = true;
-      }
-    } else {
-      parseError = true;
-    }
-
-    if (claudeExit === null || claudeExit !== 0 || isError || parseError) {
-      af.log(
-        `Round ${round}: Claude CLI failed (claude exit=${claudeExit}, is_error=${isError}, json_parse_error=${parseError}). Stopping.`,
-      );
-      af.result(
-        `## Claude review failed in round ${round}\n\nclaude exit=${claudeExit}, is_error=${isError}, json_parse_error=${parseError}\n\nRaw tail:\n\n${rawText.slice(-4000)}`,
-      );
-      return;
-    }
+    const reviewText = await reviewPR(round);
+    lastText = reviewText;
+    af.log(`Round ${round}: review produced ${reviewText.length} characters.`);
 
     const verdict = await evaluateVerdict(reviewText, round);
     af.log(`Round ${round}: verdict = ${verdict}`);
 
     if (verdict === "approve") {
-      af.log("Claude approved — exiting the loop.");
+      af.log("Reviewer approved — exiting the loop.");
       af.result(
-        `## ✅ Claude approved PR #${PR_NUMBER}\n\n` +
+        `## ✅ Reviewer approved PR #${PR_NUMBER}\n\n` +
           `Approved after ${round} round(s) on branch \`${branch}\`. The PR is ready to merge.\n\n` +
           `<details><summary>Final review text</summary>\n\n${reviewText}\n\n</details>`,
       );
@@ -364,7 +349,7 @@ fi
 
     // REQUEST_CHANGES: fix, commit, push.
     af.log(
-      `Round ${round}: Claude requested changes. Dispatching a fixer agent…`,
+      `Round ${round}: reviewer requested changes. Dispatching a fixer agent…`,
     );
 
     const fixer: FlowAgent = await af.createAgent({
@@ -375,18 +360,20 @@ fi
         "for permission/tps/agentflow plus prompt templates; no build step, " +
         "`tsc --noEmit` only, biome for format/lint). Read AGENTS.md and the " +
         "relevant files before editing. Make minimal, targeted edits that " +
-        'address only issues of "medium" severity or higher ("medium", "high", or ' +
-        '"critical"); ignore low/info/nit/style-only findings. Do NOT run git ' +
+        "address only the definite, must-fix defects the reviewer raised (real " +
+        "bugs, security issues, broken error handling, unintended behavior " +
+        "changes); ignore pure style/nit suggestions. Do NOT run git " +
         'add/commit/push — the orchestrator commits your edits. You may run read-only checks such as ' +
         "`npm run typecheck` or `npm test` to verify.",
     });
 
     try {
       const fixSummary = await fixer.sendMessage(
-        `Claude reviewed PR #${PR_NUMBER} (branch \`${branch}\`) and requested changes. ` +
+        `A reviewer reviewed PR #${PR_NUMBER} (branch \`${branch}\`) and requested changes. ` +
           `Here is the review:\n\n${reviewText}\n\n` +
-          `Fix every issue of "medium" severity or higher ("medium", "high", or ` +
-          `"critical"). Ignore low/info/nit/style-only findings, then reply with a ` +
+          `Fix the definite, must-fix defects the review raises (real bugs, ` +
+          `security issues, broken error handling, unintended behavior ` +
+          `changes). Ignore pure style/nit suggestions, then reply with a ` +
           `short summary of exactly which files you changed and why.`,
       );
       af.log(`Round ${round} fixer: ${fixSummary.slice(0, 400)}`);
@@ -417,7 +404,7 @@ fi
         `Round ${round}: fixer made no changes to the tree — cannot progress. Stopping.`,
       );
       af.result(
-        `## ⚠️ Stuck (round ${round})\n\nClaude requested changes but the fixer did not modify any files.\n\nRequested fixes:\n\n${reviewText}`,
+        `## ⚠️ Stuck (round ${round})\n\nThe reviewer requested changes but the fixer did not modify any files.\n\nRequested fixes:\n\n${reviewText}`,
       );
       return;
     }
@@ -450,7 +437,7 @@ fi
 
   af.result(
     `## ⏳ Still not approved after ${MAX_ROUNDS} round(s)\n\n` +
-      `Claude kept requesting changes after ${MAX_ROUNDS} fix rounds. Latest review:\n\n${lastText}`,
+      `The reviewer kept requesting changes after ${MAX_ROUNDS} fix rounds. Latest review:\n\n${lastText}`,
   );
 }
 
