@@ -276,10 +276,13 @@ function deliverResult(
 }
 
 /**
- * Build the `agentflow_validate` tool. Always-on, read-only: it validates a
- * flow script by name (resolve → syntax → type) and returns the report as
- * normal text content. An invalid script is reported as content — never thrown
- * — so the LLM can distinguish "I called the tool wrong" from "the script has
+ * Build the `agentflow_validate` tool. Always-on and non-executing, but not
+ * completely free of security gating: building the import graph reads files
+ * reachable from the script, so project-local scripts are gated on project
+ * trust just like `/af` before validation. It otherwise validates a flow
+ * script by name (resolve → syntax → type) and returns the report as normal
+ * text content. An invalid script is reported as content — never thrown — so
+ * the LLM can distinguish "I called the tool wrong" from "the script has
  * errors" and fix + re-validate.
  */
 function buildValidateTool(): ToolDefinition {
@@ -296,6 +299,18 @@ function buildValidateTool(): ToolDefinition {
     ],
     parameters: Type.Object({ name: Type.String() }),
     execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => {
+      const resolved = resolveFlowFile(params.name, ctx.cwd);
+      if (resolved?.isProject && !ctx.isProjectTrusted()) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `AgentFlow: project script "${resolved.path}" cannot be validated because the project is not trusted.`,
+            },
+          ],
+          details: undefined,
+        };
+      }
       const report = await validateFlowFile(params.name, ctx.cwd);
       const body = report.ok
         ? `AgentFlow script "${report.name}" is valid.`
@@ -321,8 +336,9 @@ function formatErrorLocation(e: FlowValidationError): string {
 }
 
 /**
- * Register a `/af-validate <name>` command (read-only, no trust gate). It
- * validates a flow by name and reports the outcome via `ctx.ui.notify`.
+ * Register a `/af-validate <name>` command. It does not execute the script,
+ * but import-graph construction reads reachable files, so project-local
+ * scripts are gated on project trust before validation.
  */
 function registerValidateCommand(pi: ExtensionAPI): void {
   pi.registerCommand("af-validate", {
@@ -334,6 +350,14 @@ function registerValidateCommand(pi: ExtensionAPI): void {
         ctx.ui.notify(
           "Usage: /af-validate <flow-name> — e.g. /af-validate reviewcode",
           "warning",
+        );
+        return;
+      }
+      const resolved = resolveFlowFile(name, ctx.cwd);
+      if (resolved?.isProject && !ctx.isProjectTrusted()) {
+        ctx.ui.notify(
+          `AgentFlow: project script "${resolved.path}" cannot be validated because the project is not trusted.`,
+          "error",
         );
         return;
       }

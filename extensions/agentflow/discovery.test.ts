@@ -258,6 +258,21 @@ test("buildImportGraph allows `../` escapes above the flow directory", () => {
   }
 });
 
+test("buildImportGraph rejects imports that escape the inferred project root", () => {
+  const d = makeDirs();
+  try {
+    writeFileSync(join(d.root, "outside.ts"), "export const secret = 1;\n");
+    const entry = writeFlow(
+      d.project,
+      "root-escape",
+      'import { secret } from "../../../outside.ts";\naf.log(secret);\n',
+    );
+    assert.throws(() => buildImportGraph(entry), /escapes the flow root/);
+  } finally {
+    d.cleanup();
+  }
+});
+
 test("buildImportGraph resolves extensionless specifiers like TypeScript (ts preferred over js)", () => {
   const d = makeDirs();
   try {
@@ -331,6 +346,40 @@ test("buildImportGraph rejects a non-literal require argument", () => {
       () => buildImportGraph(entry),
       /require\(\) with a non-literal argument/,
     );
+  } finally {
+    d.cleanup();
+  }
+});
+
+test("buildImportGraph rejects a bare specifier passed through an aliased require", () => {
+  const d = makeDirs();
+  try {
+    const entry = writeFlow(
+      d.project,
+      "alias-bare",
+      'const r = require;\naf.log(r("node:os"));\n',
+    );
+    assert.throws(() => buildImportGraph(entry), /bare specifier "node:os"/);
+  } finally {
+    d.cleanup();
+  }
+});
+
+test("buildImportGraph walks a relative require passed through an alias", () => {
+  const d = makeDirs();
+  try {
+    writeFileSync(
+      join(d.project, "legacy.cjs"),
+      "module.exports = { n: 4 };\n",
+    );
+    const entry = writeFlow(
+      d.project,
+      "alias-relative",
+      'const r = require;\naf.log(r("./legacy.cjs").n);\n',
+    );
+    const graph = buildImportGraph(entry);
+    assert.equal(graph.edges[0].kind, "value");
+    assert.equal(graph.edges[0].specifier, "./legacy.cjs");
   } finally {
     d.cleanup();
   }
@@ -724,7 +773,7 @@ test("buildImportGraph ignores import-type text inside a string literal", () => 
     const entry = writeFlow(
       d.project,
       "import-like-string",
-      'af.log("import type { X } from \'./doesnotexist.ts\'");\n',
+      "af.log(\"import type { X } from './doesnotexist.ts'\");\n",
     );
     const graph = buildImportGraph(entry);
     assert.equal(graph.edges.length, 0);

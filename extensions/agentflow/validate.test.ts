@@ -226,7 +226,7 @@ test("validateFlowFile accepts a .ts flow importing a .js helper", async () => {
   const d = makeDir();
   try {
     const flowDir = join(d.cwd, ".pi", "agentflow");
-    // Documented (".ts or .js files anywhere on disk") and executed by jiti;
+    // Documented (".ts or .js files inside the flow root") and executed by jiti;
     // needs `allowJs` or tsc rejects the import with TS7016.
     writeFileSync(join(flowDir, "helper.js"), "export const MAGIC = 41;\n");
     writeFileSync(

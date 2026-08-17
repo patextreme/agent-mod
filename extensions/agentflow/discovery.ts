@@ -8,14 +8,9 @@
  * the graph already contains) before execution.
  */
 
-import {
-  existsSync,
-  readdirSync,
-  readFileSync,
-  realpathSync,
-} from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, isAbsolute, join, relative } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createJiti } from "jiti";
 
@@ -63,6 +58,22 @@ function isDeclarationFile(path: string): boolean {
 /** True when a path should be transpiled as TypeScript (`.ts`/`.tsx` and c/m variants). */
 function isTypeScriptPath(path: string): boolean {
   return /\.[cm]?tsx?$/.test(path);
+}
+
+/** True when `child` is `root` or located inside it. Both paths are canonical. */
+function isPathInside(root: string, child: string): boolean {
+  const rel = relative(root, child);
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
+/**
+ * Infer the flow root for a canonical flow entry. Project flow entries live
+ * at `<root>/.pi/agentflow/<name>.{ts,js}`; the root is the parent of `.pi`.
+ */
+function inferImportRoot(entryPath: string): string {
+  let root = dirname(entryPath);
+  root = dirname(root);
+  return dirname(root);
 }
 
 /** Return the realpath for an existing file, retaining the input on lookup failure. */
@@ -427,16 +438,20 @@ function maskCodePair(code: string): MaskPair {
       continue;
     }
     if (c === "/" && regexCanFollow()) {
-      // Regex literal: blank the whole thing (its body is never code).
+      // Regex literal: blank the whole thing (its body is never code) only
+      // when it is a real, terminated literal. Bailing at a newline means the
+      // slash was something else (e.g. an unterminated expression); erasing
+      // through that newline used to hide real imports later on the line.
       let j = i + 1;
       let inClass = false;
+      let closed = false;
       while (j < n) {
         const r = code[j];
         if (r === "\\") {
           j += 2;
           continue;
         }
-        if (r === "\n") break; // not a regex after all — bail at the newline
+        if (r === "\n") break;
         if (inClass) {
           if (r === "]") inClass = false;
           j++;
@@ -450,13 +465,19 @@ function maskCodePair(code: string): MaskPair {
         if (r === "/") {
           j++;
           while (j < n && /[a-z]/i.test(code[j])) j++; // flags
+          closed = true;
           break;
         }
         j++;
       }
-      blankBoth(i, j);
+      if (closed) {
+        blankBoth(i, j);
+        pushTail("/");
+        i = j;
+        continue;
+      }
       pushTail("/");
-      i = j;
+      i++;
       continue;
     }
     if (!/\s/.test(c)) pushTail(c);
@@ -559,6 +580,79 @@ function extractRequireSpecifiers(
     let after = j + 1;
     while (after < codeMask.length && /\s/.test(codeMask[after])) after++;
     specifiers.push(codeMask[after] === ")" ? specifier : null);
+  }
+  return specifiers;
+}
+
+/**
+ * Find local `require` aliases (`const r = require`) written in real code.
+ * Any call through one of these aliases is a runtime `require` even though
+ * jiti's transform only rewrites direct `require("...")` calls.
+ */
+function collectRequireAliases(masks: MaskPair): Set<string> {
+  const { codeMask, fullMask } = masks;
+  const aliases = new Set<string>();
+  const aliasDecl =
+    /(?<![\w.$])(const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?<![\w.$])require(?!\w|\$|\.)/g;
+  for (const match of codeMask.matchAll(aliasDecl)) {
+    const start = match.index ?? 0;
+    const keyword = match[1];
+    const alias = match[2];
+    // Real code only: the full mask must still spell the declaration and the
+    // alias in this exact spot (strings/comments are blanked there).
+    if (fullMask.slice(start, start + keyword.length) !== keyword) continue;
+    let cursor = keyword.length;
+    while (cursor < match[0].length && /\s/.test(match[0][cursor])) cursor++;
+    const aliasStart = start + cursor;
+    if (match[0].slice(cursor, cursor + alias.length) !== alias) continue;
+    if (fullMask.slice(aliasStart, aliasStart + alias.length) !== alias)
+      continue;
+    aliases.add(alias);
+  }
+  return aliases;
+}
+
+/**
+ * Extract specifiers passed to `require` aliases found in `source`. Mirrors
+ * `extractRequireSpecifiers` for the alias-call form: only calls whose alias
+ * is still real code and whose argument is a single string literal produce a
+ * specifier; anything dynamic produces `null` so the caller can reject it.
+ */
+function extractAliasedRequireSpecifiers(
+  source: string,
+  aliases: Set<string>,
+  masks: MaskPair = maskCodePair(source),
+): (string | null)[] {
+  const { codeMask, fullMask } = masks;
+  const specifiers: (string | null)[] = [];
+  for (const alias of aliases) {
+    const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const callRe = new RegExp(`(?<![\\w.$])${escaped}\\s*\\(`, "g");
+    for (const match of codeMask.matchAll(callRe)) {
+      const index = match.index ?? 0;
+      if (fullMask.slice(index, index + alias.length) !== alias) continue;
+      let i = index + match[0].length;
+      while (i < codeMask.length && /\s/.test(codeMask[i])) i++;
+      const quote = codeMask[i];
+      if (quote !== '"' && quote !== "'") {
+        specifiers.push(null);
+        continue;
+      }
+      let j = i + 1;
+      let specifier = "";
+      while (j < codeMask.length && codeMask[j] !== quote) {
+        if (codeMask[j] === "\\") {
+          specifier += codeMask.slice(j, Math.min(j + 2, codeMask.length));
+          j += 2;
+          continue;
+        }
+        specifier += codeMask[j];
+        j++;
+      }
+      let after = j + 1;
+      while (after < codeMask.length && /\s/.test(codeMask[after])) after++;
+      specifiers.push(codeMask[after] === ")" ? specifier : null);
+    }
   }
   return specifiers;
 }
@@ -732,14 +826,17 @@ function transformFlowSource(
       // Keep the raw payload if it can't be parsed.
     }
     const at = line > 0 ? ` at ${line}:${col}` : "";
-    throw new FlowLocatedError(`AgentFlow: syntax error in "${filename}": ${detail}${at}`, [
-      {
-        file: filename,
-        line,
-        col,
-        message: `syntax error in "${filename}": ${detail}`,
-      },
-    ]);
+    throw new FlowLocatedError(
+      `AgentFlow: syntax error in "${filename}": ${detail}${at}`,
+      [
+        {
+          file: filename,
+          line,
+          col,
+          message: `syntax error in "${filename}": ${detail}`,
+        },
+      ],
+    );
   }
   return output;
 }
@@ -758,11 +855,17 @@ function transformFlowSource(
  *   declaration file is rejected);
  * - dynamic `import()` expressions are rejected outright (they cannot be
  *   walked statically);
- * - `require()` with a non-literal argument is rejected (unverifiable).
+ * - `require()` with a non-literal argument is rejected (unverifiable);
+ *   calls through local `require` aliases are treated the same.
  *
- * Relative imports may escape the flow directory — there is no confinement.
+ * Relative imports are confined to the flow root (the project for `.pi/
+ * agentflow` project scripts, derived from the entry path when no explicit
+ * root is supplied).
  */
-export function buildImportGraph(entryPath: string): FlowImportGraph {
+export function buildImportGraph(
+  entryPath: string,
+  options?: { rootDir?: string },
+): FlowImportGraph {
   const jiti = createJiti(import.meta.url, {
     fsCache: false,
     moduleCache: false,
@@ -774,6 +877,7 @@ export function buildImportGraph(entryPath: string): FlowImportGraph {
   const resolveCache = new Map<string, string | null>();
 
   const entry = canonicalPath(entryPath);
+  const root = canonicalPath(options?.rootDir ?? inferImportRoot(entry));
 
   const visit = (path: string): void => {
     if (files.has(path)) return;
@@ -837,10 +941,14 @@ export function buildImportGraph(entryPath: string): FlowImportGraph {
           loc(),
         );
       }
-      if (
-        isDeclarationFile(resolved) &&
-        declarationRule === "reject"
-      ) {
+      if (!isPathInside(root, resolved)) {
+        throw importError(
+          path,
+          `import "${specifier}" escapes the flow root "${root}" — flow imports must stay within the project`,
+          loc(),
+        );
+      }
+      if (isDeclarationFile(resolved) && declarationRule === "reject") {
         throw importError(
           path,
           `declaration files can only be imported for types — use \`import type\` for "${specifier}"`,
@@ -852,7 +960,12 @@ export function buildImportGraph(entryPath: string): FlowImportGraph {
     };
 
     const outputSpecifiers = extractRequireSpecifiers(output, outputMasks);
-    for (const specifier of outputSpecifiers) {
+    const requireAliases = collectRequireAliases(sourceMasks);
+    const aliasRequireSpecifiers =
+      requireAliases.size > 0
+        ? extractAliasedRequireSpecifiers(source, requireAliases, sourceMasks)
+        : [];
+    for (const specifier of [...outputSpecifiers, ...aliasRequireSpecifiers]) {
       if (specifier === null) {
         throw importError(
           path,
@@ -878,7 +991,9 @@ export function buildImportGraph(entryPath: string): FlowImportGraph {
     // `node:` specifier written this way used to disappear before validation,
     // and an unmarked `.d.ts` import could avoid the "types only" rule.
     const runtimeSpecifiers = new Set(
-      outputSpecifiers.filter((s): s is string => s !== null),
+      [...outputSpecifiers, ...aliasRequireSpecifiers].filter(
+        (s): s is string => s !== null,
+      ),
     );
     const unmarkedSpecifiers = collectUnmarkedSourceSpecifiers(sourceMasks);
     for (const specifier of unmarkedSpecifiers) {
@@ -934,9 +1049,7 @@ function isTypePositionImport(before: string): boolean {
     /(?:^|[^\w$.])(?:as|satisfies|extends|keyof|typeof|readonly|infer)\s*$/.test(
       before,
     ) ||
-    /(?:^|[^\w$])type\s+[A-Za-z_$][\w$]*(?:\s*<[^>]*>)?\s*=\s*$/.test(
-      before,
-    ) ||
+    /(?:^|[^\w$])type\s+[A-Za-z_$][\w$]*(?:\s*<[^>]*>)?\s*=\s*$/.test(before) ||
     /<[^<>]*$/.test(before)
   ) {
     return true;
@@ -1121,11 +1234,6 @@ export async function validateResolvedFlow(
     );
   }
 
-  await typeCheckFlowScript(
-    entryPath,
-    entrySource,
-    declarationsPath,
-    graph,
-  );
+  await typeCheckFlowScript(entryPath, entrySource, declarationsPath, graph);
   return graph;
 }

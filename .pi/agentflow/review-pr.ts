@@ -179,7 +179,16 @@ async function commitAndPush(round: number): Promise<string | undefined> {
 }
 
 async function drive() {
-  const branch = (await af.bash("git branch --show-current")).stdout.trim();
+  const branchRes = await af.bash("git branch --show-current");
+  if (branchRes.code !== 0 || !branchRes.stdout.trim()) {
+    af.result(
+      `## ⚠️ Could not determine current branch\n\n` +
+        `\`git branch --show-current\` failed (exit ${branchRes.code}):\n\n` +
+        `\`\`\`\n${(branchRes.stdout + branchRes.stderr).trim()}\n\`\`\``,
+    );
+    return;
+  }
+  const branch = branchRes.stdout.trim();
   af.log(
     `PR #${PR_NUMBER} on branch '${branch}' — up to ${MAX_ROUNDS} review rounds.`,
   );
@@ -189,6 +198,14 @@ async function drive() {
   // PR commit, or an already-dirty file the fixer also edits could not be
   // attributed to the fixer. Refuse to run until the tree is clean.
   const precheck = await af.bash("git status --porcelain");
+  if (precheck.code !== 0) {
+    af.result(
+      `## ⚠️ Could not check working tree state\n\n` +
+        `\`git status --porcelain\` failed with exit code ${precheck.code}:\n\n` +
+        `\`\`\`\n${(precheck.stdout + precheck.stderr).trim()}\n\`\`\``,
+    );
+    return;
+  }
   if (precheck.stdout.trim() !== "") {
     af.result(
       `## ⚠️ Working tree is not clean\n\n` +
@@ -269,12 +286,7 @@ fi
       parseError = true;
     }
 
-    if (
-      claudeExit === null ||
-      claudeExit !== 0 ||
-      isError ||
-      parseError
-    ) {
+    if (claudeExit === null || claudeExit !== 0 || isError || parseError) {
       af.log(
         `Round ${round}: Claude CLI failed (claude exit=${claudeExit}, is_error=${isError}, json_parse_error=${parseError}). Stopping.`,
       );
@@ -329,6 +341,17 @@ fi
     // diffing paths, which silently dropped already-dirty files the fixer also
     // touched.
     const afterStatus = await af.bash("git status --porcelain");
+    if (afterStatus.code !== 0) {
+      af.log(
+        `Round ${round}: git status failed after fixer — cannot verify changes.`,
+      );
+      af.result(
+        `## ❌ Could not verify fixer changes (round ${round})\n\n` +
+          `\`git status --porcelain\` failed with exit code ${afterStatus.code}:\n\n` +
+          `\`\`\`\n${(afterStatus.stdout + afterStatus.stderr).trim()}\n\`\`\``,
+      );
+      return;
+    }
     const changedPaths = porcelainChangedPaths(afterStatus.stdout);
 
     if (changedPaths.size === 0) {

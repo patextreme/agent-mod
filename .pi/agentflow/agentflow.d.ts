@@ -7,7 +7,8 @@
  * type-checked with `tsc --noEmit` before execution.
  *
  * Scripts MAY import other files with relative specifiers (`./module`,
- * `../module` — `.ts`/`.js`, anywhere on disk). Bare module specifiers
+ * `../module` — `.ts`/`.js` inside the flow root; project flows are confined
+ * to the project, global flows to the user's home directory). Bare module specifiers
  * (`"zod"`), `node:` builtins, and dynamic `import()` are rejected at
  * validation time; `.d.ts` files may be imported for types only. Scripts
  * that want these types locally can run `/af-init` to generate a

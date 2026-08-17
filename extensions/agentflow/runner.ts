@@ -22,10 +22,7 @@ import type { TransformOptions, TransformResult } from "jiti";
 import { createJiti } from "jiti";
 import { Type } from "typebox";
 import type { AgentFlow, FlowAgent, FlowAgentConfig } from "./agentflow.js";
-import {
-  FLOW_JITI_EXTENSIONS,
-  type FlowImportGraph,
-} from "./discovery.js";
+import { FLOW_JITI_EXTENSIONS, type FlowImportGraph } from "./discovery.js";
 import {
   type BashResult,
   isBashTimeoutError,
@@ -48,6 +45,11 @@ export type AgentStatus =
   | "stopped"
   | "error"
   | "disposed";
+
+/** True for statuses that are final and must never transition again. */
+function isTerminalAgentStatus(status: AgentStatus): boolean {
+  return status === "stopped" || status === "error" || status === "disposed";
+}
 
 /**
  * Render a flow-provided value for display: strings verbatim, everything else
@@ -347,12 +349,7 @@ export class FlowRunner {
     const update = (activity: string, status?: AgentStatus) => {
       // Terminal states are final: late events after an abort/error/dispose
       // must not flip a stopped, errored, or disposed agent back to running.
-      if (
-        record.status === "stopped" ||
-        record.status === "error" ||
-        record.status === "disposed"
-      )
-        return;
+      if (isTerminalAgentStatus(record.status)) return;
       record.activity = activity;
       if (status) record.status = status;
       this.emit({ type: "agent_updated", record });
@@ -390,12 +387,7 @@ export class FlowRunner {
   markErrored(agentId: string, detail?: string): void {
     const record = this.agents.find((a) => a.id === agentId);
     if (!record) return;
-    if (
-      record.status === "stopped" ||
-      record.status === "disposed" ||
-      record.status === "error"
-    )
-      return;
+    if (isTerminalAgentStatus(record.status)) return;
     record.status = "error";
     record.activity = detail ? `error: ${detail}` : "error";
     record.completedAt = Date.now();
@@ -410,12 +402,7 @@ export class FlowRunner {
     // errored agent back to "stopped" (a disposed agent would then reappear in
     // the fleet roster, which only hides "disposed" — a regression of the
     // hide-disposed fix), and re-stopping an already-stopped agent is a no-op.
-    if (
-      record.status === "disposed" ||
-      record.status === "error" ||
-      record.status === "stopped"
-    )
-      return;
+    if (isTerminalAgentStatus(record.status)) return;
     record.status = "stopped";
     record.activity = "stopped";
     record.completedAt = Date.now();
@@ -430,12 +417,7 @@ export class FlowRunner {
   markDisposed(agentId: string): void {
     const record = this.agents.find((a) => a.id === agentId);
     if (!record) return;
-    if (
-      record.status === "stopped" ||
-      record.status === "error" ||
-      record.status === "disposed"
-    )
-      return;
+    if (isTerminalAgentStatus(record.status)) return;
     record.status = "disposed";
     record.activity = "disposed";
     record.completedAt = Date.now();
@@ -462,12 +444,7 @@ export class FlowRunner {
     if (this.cancelled) return;
     this.cancelled = true;
     for (const record of this.agents) {
-      if (
-        record.status === "stopped" ||
-        record.status === "error" ||
-        record.status === "disposed"
-      )
-        continue;
+      if (isTerminalAgentStatus(record.status)) continue;
       void record.handle.stop();
       this.markStopped(record.id);
     }

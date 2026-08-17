@@ -176,8 +176,10 @@ if (status.code === 0 && status.stdout.trim() !== "") {
 ## Imports
 
 Flow scripts may import helpers with **relative-only** specifiers: `./`/`../`
-resolving to `.ts`/`.js` files anywhere on disk (escaping the flow directory is
-fine). ESM imports, `require()`, and `import type` all work; prefer explicit
+resolving to `.ts`/`.js` files inside the flow root. Escaping the script's own
+`.pi/agentflow` directory is fine (e.g. `../../shared/util.ts`), but imports
+may not escape the project for project flows (or the home directory for global
+flows). ESM imports, `require()`, and `import type` all work; prefer explicit
 extensions (`"./helper.ts"`). Rejected at validation time — before any
 sub-agent spawns: bare module specifiers (`"zod"`, `"typebox"`), `node:`
 builtins, dynamic `import()`, non-literal `require()` arguments, missing
