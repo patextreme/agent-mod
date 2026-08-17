@@ -2,8 +2,8 @@
  * review-pr — AgentFlow: loop-review a pull request with a reviewer sub-agent.
  *
  * Drives this loop:
- *   1. A reviewer sub-agent (model `qwencloud/deepseek-v4-pro-0813`) reviews
- *      the PR using `prompts/review.md` as its instructions.
+ *   1. A reviewer sub-agent (inheriting the session's model) reviews the PR
+ *      using `prompts/review.md` as its instructions.
  *   2. An evaluator sub-agent reads the review text and submits a structured
  *      verdict via `submit_result` (rather than regex over free text).
  *   3. APPROVE           → exit the loop (PR is safe to merge).
@@ -28,7 +28,6 @@ if (PR_NUMBER_RES.code !== 0 || !PR_NUMBER_RES.stdout.trim()) {
 }
 const PR_NUMBER = PR_NUMBER_RES.stdout.trim();
 const MAX_ROUNDS = 20;
-const REVIEWER_MODEL = "qwencloud/deepseek-v4-pro-0813";
 const REVIEW_PROMPT_PATH = "prompts/review.md";
 
 type Verdict = "approve" | "request-changes";
@@ -92,7 +91,6 @@ async function reviewPR(round: number): Promise<string> {
 
   const reviewer: FlowAgent = await af.createAgent({
     name: `reviewer:${round}`,
-    model: REVIEWER_MODEL,
     systemPrompt,
   });
 
