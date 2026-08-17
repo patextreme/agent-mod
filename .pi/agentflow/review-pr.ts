@@ -124,7 +124,7 @@ async function evaluateVerdict(
       'Determine the verdict: "request-changes" only when the review reports ' +
       "at least one definite, actionable defect the author should fix before " +
       "merge — a real bug, security issue, broken error handling, or an " +
-      'unintended behavior change. Pure style preferences, nits, and ' +
+      "unintended behavior change. Pure style preferences, nits, and " +
       '"consider" suggestions must not block approval. Return "approve" when ' +
       "the review has no must-fix defect. Use the submit_result tool to " +
       "return a JSON object of the shape { verdict, reason? }.",
@@ -155,13 +155,11 @@ async function evaluateVerdict(
  */
 function parsePorcelainPath(raw: string): string {
   if (!(raw.startsWith('"') && raw.endsWith('"'))) return raw;
-  return raw
-    .slice(1, -1)
-    .replace(/\\([\\"nt])/g, (_match, c: string) => {
-      if (c === "n") return "\n";
-      if (c === "t") return "\t";
-      return c;
-    });
+  return raw.slice(1, -1).replace(/\\([\\"nt])/g, (_match, c: string) => {
+    if (c === "n") return "\n";
+    if (c === "t") return "\t";
+    return c;
+  });
 }
 
 /**
@@ -361,7 +359,7 @@ async function drive() {
         "address only the definite, must-fix defects the reviewer raised (real " +
         "bugs, security issues, broken error handling, unintended behavior " +
         "changes); ignore pure style/nit suggestions. Do NOT run git " +
-        'add/commit/push — the orchestrator commits your edits. You may run read-only checks such as ' +
+        "add/commit/push — the orchestrator commits your edits. You may run read-only checks such as " +
         "`npm run typecheck` or `npm test` to verify.",
     });
 

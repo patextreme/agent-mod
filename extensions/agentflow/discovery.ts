@@ -603,10 +603,7 @@ function extractRequireSpecifiers(
 ): (string | null)[] {
   const { codeMask, fullMask } = masks;
   const specifiers: (string | null)[] = [];
-  const forms = [
-    /(?<![\w.$])require\s*\(/g,
-    /(?<![\w.$])require\s*\)\s*\(/g,
-  ];
+  const forms = [/(?<![\w.$])require\s*\(/g, /(?<![\w.$])require\s*\)\s*\(/g];
   for (const form of forms) {
     for (const match of codeMask.matchAll(form)) {
       const index = match.index ?? 0;
@@ -698,9 +695,7 @@ function assertNoUnknownRequireReferences(
     if (/^\s*\(/.test(after)) continue; // direct require(...)
     if (/^\s*\)\s*\(/.test(after)) continue; // (0, require)(...)
     const exactAliasBefore =
-      /(?:^|[^\w.$])(?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=\s*$/.test(
-        before,
-      );
+      /(?:^|[^\w.$])(?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=\s*$/.test(before);
     const exactAliasTerminated =
       /^\s*(?:;|$)/.test(after) || /^\s*[\r\n]/.test(after);
     if (exactAliasBefore && exactAliasTerminated) {
@@ -1151,12 +1146,57 @@ export async function typeCheckFlowScript(
   declarationsPath: string,
   graph?: FlowImportGraph,
 ): Promise<void> {
-  let ts: typeof import("typescript");
+  let ts: typeof import("typescript") | undefined;
   try {
     ts = await import("typescript");
   } catch {
-    // TypeScript not resolvable at runtime → fall back to syntax validation only.
-    return;
+    // `import("typescript")` resolves only from this module's own directory
+    // chain, which does not include pi's package install root
+    // (`~/.pi/agent/npm/` — see docs/packages.md) where the TypeScript
+    // compiler lives on default installs. The Nix-built extension bundles
+    // only its runtime deps (`jiti`, `typebox`), so without the explicit
+    // fallback below, type-checking silently degrades to syntax-only
+    // validation and type-invalid flows pass as "valid".
+    //
+    // Loading strategy: a *computed* dynamic import of the package's entry
+    // file. Inside pi, extensions are transpiled by jiti, which rewrites
+    // literal dynamic imports and syntactic `require(...)` calls to its own
+    // resolver — that resolver cannot see the npm root, so both
+    // `import("typescript")` and `require(absPath)` fail there. A computed
+    // `file://` URL is not statically rewritable, so it reaches Node's
+    // native import (which loads CommonJS `lib/typescript.js` fine).
+    const candidates = [
+      join(homedir(), ".pi", "agent", "npm", "node_modules", "typescript"),
+      join(
+        dirname(fileURLToPath(import.meta.url)),
+        "..",
+        "..",
+        "npm",
+        "node_modules",
+        "typescript",
+      ),
+    ];
+    for (const candidate of candidates) {
+      if (!existsSync(candidate)) continue;
+      try {
+        const pkg = JSON.parse(
+          readFileSync(join(candidate, "package.json"), "utf-8"),
+        ) as { main?: string };
+        const entry = join(candidate, pkg.main ?? "lib/typescript.js");
+        if (!existsSync(entry)) continue;
+        ts = (await import(
+          pathToFileURL(entry).href
+        )) as typeof import("typescript");
+        break;
+      } catch {
+        // Unusable install — try the next candidate.
+      }
+    }
+    if (ts === undefined) {
+      // TypeScript not resolvable at runtime → fall back to syntax
+      // validation only.
+      return;
+    }
   }
 
   const fileName = path;
