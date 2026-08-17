@@ -540,14 +540,30 @@ function locateSpecifier(
  * closed immediately after it; otherwise returns `null` so callers can treat
  * the call as unverifiable/dynamic.
  */
-function readRequireStringArgument(
+interface LocatedRequireArgument {
+  specifier: string | null;
+  /** Offset of the argument's opening quote in `mask`, or -1 when unavailable. */
+  loc: number;
+}
+
+/**
+ * Read a single quoted-string argument from a masked call, with its location.
+ *
+ * `afterOpenParen` is the index just past the opening `(` of the call.
+ * Returns the literal argument and the offset of its opening quote when the
+ * whole argument is one string literal and the call is closed immediately
+ * after it; otherwise `specifier` is `null` so callers can treat the call as
+ * unverifiable/dynamic.
+ */
+function readRequireStringArgumentLocated(
   mask: string,
   afterOpenParen: number,
-): string | null {
+): LocatedRequireArgument {
   let i = afterOpenParen;
   while (i < mask.length && /\s/.test(mask[i])) i++;
   const quote = mask[i];
-  if (quote !== '"' && quote !== "'") return null;
+  if (quote !== '"' && quote !== "'") return { specifier: null, loc: -1 };
+  const loc = i;
   let j = i + 1;
   let specifier = "";
   while (j < mask.length && mask[j] !== quote) {
@@ -564,7 +580,16 @@ function readRequireStringArgument(
   // argument that cannot be statically resolved.
   let after = j + 1;
   while (after < mask.length && /\s/.test(mask[after])) after++;
-  return mask[after] === ")" ? specifier : null;
+  return mask[after] === ")"
+    ? { specifier, loc }
+    : { specifier: null, loc };
+}
+
+function readRequireStringArgument(
+  mask: string,
+  afterOpenParen: number,
+): string | null {
+  return readRequireStringArgumentLocated(mask, afterOpenParen).specifier;
 }
 
 /**
@@ -633,27 +658,42 @@ function collectRequireAliases(masks: MaskPair): Set<string> {
 }
 
 /**
+ * One specifier passed to a local `require` alias (`const r = require`).
+ * `loc` is the offset of the argument's opening quote in `source` (or -1) so
+ * import-policy violations can be reported at the alias call site, not `0:0`.
+ */
+interface AliasedRequireSpecifier {
+  specifier: string | null;
+  loc: number;
+}
+
+/**
  * Extract specifiers passed to `require` aliases found in `source`. Mirrors
  * `extractRequireSpecifiers` for the alias-call form: only calls whose alias
  * is still real code and whose argument is a single string literal produce a
  * specifier; anything dynamic produces `null` so the caller can reject it.
+ * Each entry also carries the offset of the opening quote (when there is one)
+ * because `locateSpecifier` only understands direct `import`/`require`/`from`
+ * forms and cannot map an alias call back to its specifier.
  */
 function extractAliasedRequireSpecifiers(
   source: string,
   aliases: Set<string>,
   masks: MaskPair = maskCodePair(source),
-): (string | null)[] {
+): AliasedRequireSpecifier[] {
   const { codeMask, fullMask } = masks;
-  const specifiers: (string | null)[] = [];
+  const specifiers: AliasedRequireSpecifier[] = [];
   for (const alias of aliases) {
     const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const callRe = new RegExp(`(?<![\\w.$])${escaped}\\s*\\(`, "g");
     for (const match of codeMask.matchAll(callRe)) {
       const index = match.index ?? 0;
       if (fullMask.slice(index, index + alias.length) !== alias) continue;
-      specifiers.push(
-        readRequireStringArgument(codeMask, index + match[0].length),
+      const argument = readRequireStringArgumentLocated(
+        codeMask,
+        index + match[0].length,
       );
+      specifiers.push({ specifier: argument.specifier, loc: argument.loc });
     }
   }
   return specifiers;
@@ -1014,11 +1054,14 @@ export function buildImportGraph(entryPath: string): FlowImportGraph {
       specifier: string,
       kind: FlowImportEdge["kind"],
       declarationRule: "allow" | "reject",
+      locator?: () => { line: number; col: number },
     ): void => {
       // Defer location lookup until the edge actually fails; most edges are
-      // valid and never need the source scan.
-      const loc = (): { line: number; col: number } =>
-        locateSpecifier(source, specifier, sourceMasks);
+      // valid and never need the source scan. Aliased-require edges supply
+      // their own call-site locator because `locateSpecifier` cannot map
+      // `r("node:os")` back to the alias call.
+      const loc =
+        locator ?? (() => locateSpecifier(source, specifier, sourceMasks));
 
       if (!specifier.startsWith("./") && !specifier.startsWith("../")) {
         throw importError(
@@ -1060,7 +1103,7 @@ export function buildImportGraph(entryPath: string): FlowImportGraph {
       requireAliases.size > 0
         ? extractAliasedRequireSpecifiers(source, requireAliases, sourceMasks)
         : [];
-    for (const specifier of [...outputSpecifiers, ...aliasRequireSpecifiers]) {
+    for (const specifier of outputSpecifiers) {
       if (specifier === null) {
         throw importError(
           path,
@@ -1069,6 +1112,20 @@ export function buildImportGraph(entryPath: string): FlowImportGraph {
         );
       }
       validateSpecifier(specifier, "value", "reject");
+    }
+    for (const aliasRequire of aliasRequireSpecifiers) {
+      const aliasLoc = (): { line: number; col: number } =>
+        aliasRequire.loc >= 0
+          ? offsetToLineCol(source, aliasRequire.loc)
+          : { line: 0, col: 0 };
+      if (aliasRequire.specifier === null) {
+        throw importError(
+          path,
+          "require() with a non-literal argument cannot be statically verified — use a literal relative specifier",
+          aliasLoc(),
+        );
+      }
+      validateSpecifier(aliasRequire.specifier, "value", "reject", aliasLoc);
     }
 
     // Type edges: erased by the transform, so scan the source (comments and
@@ -1087,9 +1144,10 @@ export function buildImportGraph(entryPath: string): FlowImportGraph {
     // `node:` specifier written this way used to disappear before validation,
     // and an unmarked `.d.ts` import could avoid the "types only" rule.
     const runtimeSpecifiers = new Set(
-      [...outputSpecifiers, ...aliasRequireSpecifiers].filter(
-        (s): s is string => s !== null,
-      ),
+      [
+        ...outputSpecifiers,
+        ...aliasRequireSpecifiers.map((entry) => entry.specifier),
+      ].filter((s): s is string => s !== null),
     );
     for (const specifier of unmarkedSpecifiers) {
       if (runtimeSpecifiers.has(specifier) || typeSpecifiers.has(specifier)) {
@@ -1260,11 +1318,20 @@ export async function typeCheckFlowScript(
 
   const program = ts.createProgram(roots, compilerOptions, host);
 
-  // Report diagnostics for the entry and every graph file — but nothing else
-  // (in particular not the injected shipped declarations). Entry and graph
-  // paths are already canonical, so TypeScript reports matching names.
+  // Report diagnostics for the entry and every graph file, plus any other
+  // non-external source file TypeScript actually resolved. The extra files
+  // cover type-position `import("./nums.ts").Num`: jiti erases that import,
+  // so it is deliberately absent from `graph.files`, but tsc still parses and
+  // diagnoses `nums.ts`. Without this, a type error inside that referenced
+  // file is dropped. The injected shipped declaration is a program root only
+  // when the graph lacks a local `agentflow.d.ts`, and it is excluded here.
   const reportable = new Set<string>(graph ? graph.files.keys() : [fileName]);
   reportable.add(fileName);
+  for (const sourceFile of program.getSourceFiles()) {
+    if (program.isSourceFileFromExternalLibrary(sourceFile)) continue;
+    if (sourceFile.fileName === declarationsPath) continue;
+    reportable.add(sourceFile.fileName);
+  }
   const inGraph = (name: string): boolean => reportable.has(name);
 
   const diagnostics = ts

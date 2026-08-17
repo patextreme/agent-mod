@@ -168,6 +168,28 @@ test("validateFlowFile reports import-policy violations with locations", async (
   }
 });
 
+test("validateFlowFile reports aliased-require import-policy violations with a location", async () => {
+  const d = makeDir();
+  try {
+    // `locateSpecifier` only understands direct import/require forms. The
+    // aliased-require extractor must therefore carry the alias call-site
+    // offset forward; otherwise the violation is reported at `0:0`.
+    writeFileSync(
+      join(d.cwd, ".pi", "agentflow", "alias-bare.ts"),
+      'const r = require;\naf.log(r("node:os"));\n',
+    );
+    const report = await validateFlowFile("alias-bare", d.cwd);
+    assert.equal(report.ok, false);
+    assert.equal(report.errors.length, 1);
+    assert.match(report.errors[0].message, /bare specifier "node:os"/);
+    assert.ok(report.errors[0].line > 0, "aliased require violation has line");
+    assert.ok(report.errors[0].col > 0, "aliased require violation has column");
+    assert.equal(report.errors[0].file, undefined, "entry errors omit file");
+  } finally {
+    d.cleanup();
+  }
+});
+
 test("validateFlowFile reports dynamic import() as invalid", async () => {
   const d = makeDir();
   try {
@@ -276,6 +298,34 @@ test("validateFlowFile accepts type-position import(...) annotations", async () 
     const report = await validateFlowFile("typdyn", d.cwd);
     assert.equal(report.ok, true);
     assert.deepEqual(report.errors, []);
+  } finally {
+    d.cleanup();
+  }
+});
+
+test("validateFlowFile reports type errors in a type-position import() target", async () => {
+  const d = makeDir();
+  try {
+    const flowDir = join(d.cwd, ".pi", "agentflow");
+    // `entry.ts` itself is clean, but the file referenced only through an
+    // erased `import("./nums.ts").Num` annotation is still type-checked by tsc.
+    // It must not be dropped just because the walker omits that edge from
+    // `graph.files`.
+    writeFileSync(
+      join(flowDir, "nums.ts"),
+      'export type Num = number;\nexport const bad: number = "not a number";\n',
+    );
+    writeFileSync(
+      join(flowDir, "entry.ts"),
+      'const n: import("./nums.ts").Num = 1;\naf.log(n);\n',
+    );
+    const report = await validateFlowFile("entry", d.cwd);
+    assert.equal(report.ok, false);
+    const inNums = report.errors.find((e) => e.file !== undefined);
+    assert.ok(inNums, "type error in the import()-referenced file is reported");
+    assert.equal(inNums?.file, join(flowDir, "nums.ts"));
+    assert.ok(inNums !== undefined && inNums.line > 0);
+    assert.match(inNums.message, /not assignable to type 'number'/);
   } finally {
     d.cleanup();
   }
