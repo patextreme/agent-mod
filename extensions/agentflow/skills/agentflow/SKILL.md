@@ -176,17 +176,17 @@ if (status.code === 0 && status.stdout.trim() !== "") {
 ## Imports
 
 Flow scripts may import helpers with **relative-only** specifiers: `./`/`../`
-resolving to `.ts`/`.js` files inside the flow root. Escaping the script's own
-`.pi/agentflow` directory is fine (e.g. `../../shared/util.ts`), but imports
-may not escape the project for project flows (or the home directory for global
-flows). ESM imports, `require()`, and `import type` all work; prefer explicit
-extensions (`"./helper.ts"`). Rejected at validation time — before any
-sub-agent spawns: bare module specifiers (`"zod"`, `"typebox"`), `node:`
-builtins, dynamic `import()`, non-literal `require()` arguments, missing
-targets, and value imports of `.d.ts` files (import those with `import type`
-only). The whole graph is validated: every file must exist and parse, and `.ts`
-type errors anywhere in the graph fail validation, reported with the file's
-path.
+resolving to `.ts`/`.js` files. Relative imports MAY resolve to any path,
+including outside the flow directory (e.g. `../../shared/util.ts` in a
+monorepo works because no directory confinement is enforced). ESM imports,
+`require()`, and `import type` all work; prefer explicit extensions
+(`"./helper.ts"`). Rejected at validation time — before any sub-agent spawns:
+bare module specifiers (`"zod"`, `"typebox"`), `node:` builtins, dynamic
+`import()`, `eval()`, `module.require`/`module.createRequire`, non-literal
+`require()` arguments, missing targets, and value imports of `.d.ts` files
+(import those with `import type` only). The whole graph is validated: every
+file must exist and parse, and `.ts` type errors anywhere in the graph fail
+validation, reported with the file's path.
 
 ### Local declarations: `agentflow.d.ts`
 

@@ -30,7 +30,7 @@ A recursive walker transforms each file with jiti and extracts the *remaining* m
 - resolves relative specifiers against the importing file's directory (probing jiti's extension list), rejecting missing targets and `.d.ts` targets (value-importing a declaration file);
 - transforms each target (syntax errors surface with location) and recurses.
 
-Direct `require("./x")` calls in author source are tolerated and walked like imports; jiti has no resolution hook to block bare specifiers at load time, which is why enforcement is static. Dynamic `import()` can't be walked, so it is rejected outright: detected with the existing comment/string-stripping scan (`stripCommentsAndStrings`) applied to each file's source (`/\bimport\s*\(/` on stripped code).
+Direct `require("./x")` calls in author source are tolerated and walked like imports; jiti has no resolution hook to block bare specifiers at load time, which is why enforcement is static. Dynamic `import()` can't be walked, so it is rejected outright: detected with the existing comment/string-stripping scan (`stripCommentsAndStrings`) applied to each file's source (`/\bimport\s*\(/` on stripped code). The same static-walk gap applies to `module.require`, `module.createRequire`, and direct `eval()` calls (which can reach CommonJS `require`), so those loader entry points are rejected too.
 
 - Alternative: parse an AST per file — heavier machinery for the same outcome; the transpiled-output scan reuses what jiti already produces.
 

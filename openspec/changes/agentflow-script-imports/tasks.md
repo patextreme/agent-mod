@@ -5,7 +5,7 @@
 ## 2. Import graph walker (discovery.ts)
 
 - [x] 2.1 Implement the recursive import-graph walker: transform each file with jiti, extract remaining value edges from the transpiled output, resolve relative specifiers against the importing file's directory with extension probing, and return the graph (both value and type edges)
-- [x] 2.2 Enforce the import policy in the walker with located errors: reject non-relative specifiers, missing targets, value imports of `.d.ts` files, and dynamic `import()` expressions (detected via the comment/string-stripped source scan)
+- [x] 2.2 Enforce the import policy in the walker with located errors: reject non-relative specifiers, missing targets, value imports of `.d.ts` files, dynamic `import()` expressions (detected via the comment/string-stripped source scan), `module.require`/`module.createRequire`, and `eval()` calls
 - [x] 2.3 Remove `hasModuleSyntax` and its rejection path from `validateFlowSyntax` (imports/exports/require no longer banned)
 - [x] 2.4 Exclude `.d.ts` files from `listFlowNames` and flow resolution candidates (prevents the phantom `agentflow.d` flow)
 

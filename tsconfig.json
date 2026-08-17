@@ -9,6 +9,10 @@
     "esModuleInterop": true,
     "outDir": "dist"
   },
-  "include": ["extensions/**/*.ts", ".pi/agentflow/**/*.ts"],
+  "include": [
+    "extensions/**/*.ts",
+    ".pi/agentflow/agentflow.d.ts",
+    ".pi/agentflow/review-pr.ts"
+  ],
   "exclude": ["extensions/agentflow/examples/**"]
 }

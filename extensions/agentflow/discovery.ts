@@ -10,7 +10,7 @@
 
 import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createJiti } from "jiti";
 
@@ -58,22 +58,6 @@ function isDeclarationFile(path: string): boolean {
 /** True when a path should be transpiled as TypeScript (`.ts`/`.tsx` and c/m variants). */
 function isTypeScriptPath(path: string): boolean {
   return /\.[cm]?tsx?$/.test(path);
-}
-
-/** True when `child` is `root` or located inside it. Both paths are canonical. */
-function isPathInside(root: string, child: string): boolean {
-  const rel = relative(root, child);
-  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
-}
-
-/**
- * Infer the flow root for a canonical flow entry. Project flow entries live
- * at `<root>/.pi/agentflow/<name>.{ts,js}`; the root is the parent of `.pi`.
- */
-function inferImportRoot(entryPath: string): string {
-  let root = dirname(entryPath);
-  root = dirname(root);
-  return dirname(root);
 }
 
 /** Return the realpath for an existing file, retaining the input on lookup failure. */
@@ -274,7 +258,7 @@ function resolveRelativeImport(
   // delegating to jiti here is wrong for a missing `./agentflow.d.ts`, whose
   // only candidate is the declaration bundled next to this module (jiti's
   // base), which would resolve a non-existent local copy to the shipped file
-  // and surface as an "escapes the flow root" escape instead of a missing file.
+  // instead of a missing file.
   if (specifier.endsWith(".d.ts")) {
     const candidate = resolve(dirname(fromPath), specifier);
     resolvedPath = existsSync(candidate) ? canonicalPath(candidate) : null;
@@ -682,7 +666,9 @@ function extractAliasedRequireSpecifiers(
  * `const r = require`. Without this guard, `const cp = (0, require);
  * cp("node:child_process")` would contain no direct/wrapped `require` call
  * and no collected alias, so it would otherwise validate with zero edges and
- * then run with the live loader's unrestricted `require`.
+ * then run with the live loader's unrestricted `require`. Also rejects
+ * `module.require`/`module.createRequire` and direct `eval()` calls, which
+ * can load code the static walk cannot see.
  */
 function assertNoUnknownRequireReferences(
   source: string,
@@ -690,6 +676,35 @@ function assertNoUnknownRequireReferences(
   file: string,
 ): void {
   const { fullMask } = masks;
+
+  // `module.require` and `module.createRequire` are live CommonJS loaders at
+  // runtime but are not scanned as value edges by {@link
+  // extractRequireSpecifiers}. Reject them outright so they cannot escape the
+  // relative-only policy.
+  const moduleRequireRe = /(?<![\w.$])module\s*\.\s*(?:require|createRequire)\b/g;
+  for (const match of fullMask.matchAll(moduleRequireRe)) {
+    const index = match.index ?? 0;
+    const form = match[0].replace(/\s+/g, "");
+    throw importError(
+      file,
+      `${form} cannot be statically verified — use require("./module") directly or assign it with \`const r = require\``,
+      offsetToLineCol(source, index),
+    );
+  }
+
+  // Direct eval can reach CommonJS `require` and execute code that the static
+  // walk cannot scan, such as `eval("require('node:fs')")`. Reject the call
+  // rather than let the live loader be the final authority for dynamic code.
+  const evalCallRe = /(?<![\w.$])eval\s*\(/g;
+  for (const match of fullMask.matchAll(evalCallRe)) {
+    const index = match.index ?? 0;
+    throw importError(
+      file,
+      "eval() is not allowed in flow scripts because dynamic code cannot be statically verified",
+      offsetToLineCol(source, index),
+    );
+  }
+
   const re = /(?<![\w.$])require\b/g;
   for (const match of fullMask.matchAll(re)) {
     const index = match.index ?? 0;
@@ -916,17 +931,15 @@ function transformFlowSource(
  *   calls through local `require` aliases and wrapped `(0, require)(...)`
  *   calls are treated the same, and any other free-`require` reference is
  *   rejected;
+ * - `module.require`, `module.createRequire`, and `eval()` calls are rejected
+ *   because they can load code outside the static walk;
  * - a flow entry using CommonJS `module.exports`/`exports.*` assignment is
  *   rejected (imported helpers may still use it).
  *
- * Relative imports are confined to the flow root (the project for `.pi/
- * agentflow` project scripts, derived from the entry path when no explicit
- * root is supplied).
+ * Relative imports may resolve to any path, including outside the flow
+ * directory (no directory confinement).
  */
-export function buildImportGraph(
-  entryPath: string,
-  options?: { rootDir?: string },
-): FlowImportGraph {
+export function buildImportGraph(entryPath: string): FlowImportGraph {
   const jiti = createJiti(import.meta.url, {
     fsCache: false,
     moduleCache: false,
@@ -938,7 +951,6 @@ export function buildImportGraph(
   const resolveCache = new Map<string, string | null>();
 
   const entry = canonicalPath(entryPath);
-  const root = canonicalPath(options?.rootDir ?? inferImportRoot(entry));
 
   const visit = (path: string): void => {
     if (files.has(path)) return;
@@ -1004,13 +1016,6 @@ export function buildImportGraph(
         throw importError(
           path,
           `cannot resolve import "${specifier}" — no such file${hint}`,
-          loc(),
-        );
-      }
-      if (!isPathInside(root, resolved)) {
-        throw importError(
-          path,
-          `import "${specifier}" escapes the flow root "${root}" — flow imports must stay within the project`,
           loc(),
         );
       }

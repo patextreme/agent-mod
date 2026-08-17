@@ -258,7 +258,7 @@ test("buildImportGraph allows `../` escapes above the flow directory", () => {
   }
 });
 
-test("buildImportGraph rejects imports that escape the inferred project root", () => {
+test("buildImportGraph allows relative imports above the project root", () => {
   const d = makeDirs();
   try {
     writeFileSync(join(d.root, "outside.ts"), "export const secret = 1;\n");
@@ -267,7 +267,8 @@ test("buildImportGraph rejects imports that escape the inferred project root", (
       "root-escape",
       'import { secret } from "../../../outside.ts";\naf.log(secret);\n',
     );
-    assert.throws(() => buildImportGraph(entry), /escapes the flow root/);
+    const graph = buildImportGraph(entry);
+    assert.equal(graph.edges[0].resolved, join(d.root, "outside.ts"));
   } finally {
     d.cleanup();
   }
@@ -401,6 +402,40 @@ test("buildImportGraph rejects a require-derived callable expression", () => {
     assert.throws(
       () => buildImportGraph(entry),
       /require usage cannot be statically verified/,
+    );
+  } finally {
+    d.cleanup();
+  }
+});
+
+test("buildImportGraph rejects module.require as an unverified CJS loader", () => {
+  const d = makeDirs();
+  try {
+    const entry = writeFlow(
+      d.project,
+      "module-require",
+      'const fs = module.require("node:fs");\naf.log(fs ? "loaded" : "no");\n',
+    );
+    assert.throws(
+      () => buildImportGraph(entry),
+      /module\.require cannot be statically verified/,
+    );
+  } finally {
+    d.cleanup();
+  }
+});
+
+test("buildImportGraph rejects eval that can invoke require dynamically", () => {
+  const d = makeDirs();
+  try {
+    const entry = writeFlow(
+      d.project,
+      "eval-require",
+      'eval("require(\'node:fs\')");\naf.log("loaded");\n',
+    );
+    assert.throws(
+      () => buildImportGraph(entry),
+      /eval\(\) is not allowed/,
     );
   } finally {
     d.cleanup();
