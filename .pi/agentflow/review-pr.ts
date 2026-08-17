@@ -70,10 +70,13 @@ async function evaluateVerdict(
     systemPrompt:
       "You are a code-review adjudicator. You will be given the free-text " +
       "output of Claude Code's built-in /code-review command. Determine the " +
-      'verdict from it: "approve" when the review finds no issues or only ' +
-      'benign/style nits; "request-changes" when it lists any real bug, ' +
-      "correctness risk, or required change. Use the submit_result tool to " +
-      "return a JSON object of the shape { verdict, reason? }.",
+      'verdict from it by issue severity: "request-changes" only when the ' +
+      'review lists at least one issue of "medium" severity or higher (i.e. ' +
+      '"medium", "high", or "critical"). Issues below medium ("low", "info", ' +
+      '"nit", or benign style suggestions) can be safely ignored and must not ' +
+      'block approval. Return "approve" when the review has no medium-or-higher ' +
+      "severity issue. Use the submit_result tool to return a JSON object of " +
+      "the shape { verdict, reason? }.",
   });
 
   try {
@@ -372,8 +375,9 @@ fi
         "for permission/tps/agentflow plus prompt templates; no build step, " +
         "`tsc --noEmit` only, biome for format/lint). Read AGENTS.md and the " +
         "relevant files before editing. Make minimal, targeted edits that " +
-        "address each legitimate issue. Do NOT run git add/commit/push — the " +
-        "orchestrator commits your edits. You may run read-only checks such as " +
+        'address only issues of "medium" severity or higher ("medium", "high", or ' +
+        '"critical"); ignore low/info/nit/style-only findings. Do NOT run git ' +
+        'add/commit/push — the orchestrator commits your edits. You may run read-only checks such as ' +
         "`npm run typecheck` or `npm test` to verify.",
     });
 
@@ -381,8 +385,9 @@ fi
       const fixSummary = await fixer.sendMessage(
         `Claude reviewed PR #${PR_NUMBER} (branch \`${branch}\`) and requested changes. ` +
           `Here is the review:\n\n${reviewText}\n\n` +
-          `Fix every legitimate issue in the working tree, then reply with a short ` +
-          `summary of exactly which files you changed and why.`,
+          `Fix every issue of "medium" severity or higher ("medium", "high", or ` +
+          `"critical"). Ignore low/info/nit/style-only findings, then reply with a ` +
+          `short summary of exactly which files you changed and why.`,
       );
       af.log(`Round ${round} fixer: ${fixSummary.slice(0, 400)}`);
     } finally {
