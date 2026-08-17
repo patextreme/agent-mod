@@ -12,6 +12,7 @@ import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { Script } from "node:vm";
 import { createJiti } from "jiti";
 
 /** Result of resolving a flow name to a script file. */
@@ -706,6 +707,23 @@ function isModuleExportsAccess(mask: string, moduleIndex: number): boolean {
 }
 
 /**
+ * True when `mask` declares a top-level variable binding with `name`
+ * (`const/let/var name`). jiti renames such bindings when it transforms
+ * `module` and `require` locals, so the old free-identifier scan must not
+ * reject the author's source for shadowing a CommonJS loader name.
+ */
+function hasTopLevelIdentifierBinding(mask: string, name: string): boolean {
+  const re = new RegExp(
+    `(?<![\\w.$])(?:const|let|var)\\s+${name}\\b`,
+    "g",
+  );
+  for (const match of mask.matchAll(re)) {
+    if (braceDepthBefore(mask, match.index ?? 0) === 0) return true;
+  }
+  return false;
+}
+
+/**
  * Reject any `require` identifier that is not one of the forms the walker can
  * statically resolve: a direct `require(...)` call, a wrapped
  * `(0, require)(...)` call, or the exact local alias declaration
@@ -714,44 +732,85 @@ function isModuleExportsAccess(mask: string, moduleIndex: number): boolean {
  * and no collected alias, so it would otherwise validate with zero edges and
  * then run with the live loader's unrestricted `require`. Also rejects
  * non-`module.exports` `module` references (including `module.require` /
- * `module.createRequire`) and direct `eval()` calls, which can load code the
- * static walk cannot see.
+ * `module.createRequire`), `process.mainModule` / `Function` dynamic-code
+ * gateways, and direct `eval()` calls, which can load code the static walk
+ * cannot see.
  */
 function assertNoUnknownRequireReferences(
   source: string,
   masks: MaskPair,
+  outputMasks: MaskPair,
   file: string,
 ): void {
   const { fullMask } = masks;
+  const outputMask = outputMasks.fullMask;
+
+  // `process.mainModule` stores the spawning CommonJS module and gives access
+  // to its unrestricted `require` (`process.mainModule.require(...)`). The
+  // relative-only import policy must reject the gateway, not just the final
+  // `require` call (which the lookbehind lets hide behind `.require`).
+  const processMainModuleRe = /(?<![\w.$])process\s*\.\s*mainModule\b/g;
+  for (const match of fullMask.matchAll(processMainModuleRe)) {
+    const index = match.index ?? 0;
+    throw importError(
+      file,
+      "`process.mainModule` cannot be statically verified — use a relative import/require for flow dependencies",
+      offsetToLineCol(source, index),
+    );
+  }
+
+  // The `Function` constructor compiles a string body at runtime, so it can
+  // reach code the static walk cannot see just like `eval` can.
+  const functionConstructorRe =
+    /(?<![\w.$])(?:new\s+)?Function\s*\(/g;
+  for (const match of fullMask.matchAll(functionConstructorRe)) {
+    const index = match.index ?? 0;
+    throw importError(
+      file,
+      "the Function constructor is not allowed in flow scripts because dynamic code cannot be statically verified",
+      offsetToLineCol(source, index),
+    );
+  }
+
+  // When the author declared a top-level local `module`/`require`, those names
+  // are no longer the CommonJS loader for that file. jiti's transform renames
+  // the variable forms, but the source still spells them; skip the
+  // free-identifier loader scans rather than rejecting ordinary local names.
+  const hasLocalModule = hasTopLevelIdentifierBinding(fullMask, "module");
+  const hasLocalRequire = hasTopLevelIdentifierBinding(fullMask, "require");
 
   // `module.require` and `module.createRequire` are live CommonJS loaders at
   // runtime but are not scanned as value edges by {@link
   // extractRequireSpecifiers}. Reject them outright so they cannot escape the
   // relative-only policy.
-  const moduleRequireRe = /(?<![\w.$])module\s*\.\s*(?:require|createRequire)\b/g;
-  for (const match of fullMask.matchAll(moduleRequireRe)) {
-    const index = match.index ?? 0;
-    const form = match[0].replace(/\s+/g, "");
-    throw importError(
-      file,
-      `${form} cannot be statically verified — use require("./module") directly or assign it with \`const r = require\``,
-      offsetToLineCol(source, index),
-    );
-  }
+  if (!hasLocalModule) {
+    const moduleRequireRe =
+      /(?<![\w.$])module\s*\.\s*(?:require|createRequire)\b/g;
+    for (const match of fullMask.matchAll(moduleRequireRe)) {
+      const index = match.index ?? 0;
+      const form = match[0].replace(/\s+/g, "");
+      throw importError(
+        file,
+        `${form} cannot be statically verified — use require("./module") directly or assign it with \`const r = require\``,
+        offsetToLineCol(source, index),
+      );
+    }
 
-  // Bracket access (`module["require"]`) and aliasing (`const m = module;
-  // m.require(...)`) hide the same live CommonJS loaders behind syntax the
-  // literal regex above does not see. Allow only `module.exports`; anything
-  // else that names `module` cannot be statically proven safe.
-  const moduleRefRe = /(?<![\w.$])module\b/g;
-  for (const match of fullMask.matchAll(moduleRefRe)) {
-    const index = match.index ?? 0;
-    if (isModuleExportsAccess(fullMask, index)) continue;
-    throw importError(
-      file,
-      "`module` is only allowed as `module.exports` — other module properties (including `module.require`) cannot be statically verified",
-      offsetToLineCol(source, index),
-    );
+    // Bracket access (`module["require"]`) and aliasing (`const m = module;
+    // m.require(...)`) hide the same live CommonJS loaders behind syntax the
+    // literal regex above does not see. Allow only `module.exports`; anything
+    // else that names `module` cannot be statically proven safe.
+    const moduleRefRe = /(?<![\w.$])module\b/g;
+    for (const match of fullMask.matchAll(moduleRefRe)) {
+      const index = match.index ?? 0;
+      if (isModuleExportsAccess(fullMask, index)) continue;
+      if (/^\s*:/.test(fullMask.slice(index + "module".length))) continue;
+      throw importError(
+        file,
+        "`module` is only allowed as `module.exports` — other module properties (including `module.require`) cannot be statically verified",
+        offsetToLineCol(source, index),
+      );
+    }
   }
 
   // Direct eval can reach CommonJS `require` and execute code that the static
@@ -767,28 +826,88 @@ function assertNoUnknownRequireReferences(
     );
   }
 
+  // The free-`require` scan is over the transformed output so locals that
+  // jiti renames (`const require = ...`) disappear before this check. The
+  // source is used only to attach a located diagnostic to the first still-
+  // unverified `require` occurrence.
   const re = /(?<![\w.$])require\b/g;
-  for (const match of fullMask.matchAll(re)) {
+  if (!hasLocalRequire) {
+    for (const match of outputMask.matchAll(re)) {
+      const index = match.index ?? 0;
+      const before = outputMask.slice(0, index);
+      const after = outputMask.slice(index + "require".length);
+      if (/^\s*\(/.test(after)) continue; // direct require(...)
+      if (/^\s*\)\s*\(/.test(after)) continue; // (0, require)(...)
+      if (/^\s*:/.test(after)) continue; // object property key (not a loader)
+      if (isParameterNameAt(outputMask, index, "require")) continue; // local binding
+      const exactAliasBefore =
+        /(?:^|[^\w.$])(?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=\s*$/.test(
+          before,
+        );
+      const exactAliasTerminated =
+        /^\s*(?:;|$)/.test(after) || /^\s*[\r\n]/.test(after);
+      if (exactAliasBefore && exactAliasTerminated) {
+        continue; // exact local alias: const r = require
+      }
+      // Locate the corresponding source occurrence where possible; the output
+      // offset cannot be mapped 1:1 because jiti rewrites the source.
+      const located = locateUnverifiedRequire(source, fullMask);
+      throw importError(
+        file,
+        'require usage cannot be statically verified — use require("./module") directly or assign it with `const r = require`',
+        located ?? { line: 0, col: 0 },
+      );
+    }
+  }
+
+}
+
+/** Return a located source occurrence that needs the require guard, or null. */
+function locateUnverifiedRequire(
+  source: string,
+  sourceMask: string,
+): { line: number; col: number } | null {
+  const re = /(?<![\w.$])require\b/g;
+  for (const match of sourceMask.matchAll(re)) {
     const index = match.index ?? 0;
-    const before = fullMask.slice(0, index);
-    const after = fullMask.slice(index + "require".length);
-    if (/^\s*\(/.test(after)) continue; // direct require(...)
-    if (/^\s*\)\s*\(/.test(after)) continue; // (0, require)(...)
+    const after = sourceMask.slice(index + "require".length);
+    if (/^\s*\(/.test(after)) continue;
+    if (/^\s*\)\s*\(/.test(after)) continue;
+    if (/^\s*:/.test(after)) continue;
+    const before = sourceMask.slice(0, index);
     const exactAliasBefore =
       /(?:^|[^\w.$])(?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=\s*$/.test(
         before,
       );
     const exactAliasTerminated =
       /^\s*(?:;|$)/.test(after) || /^\s*[\r\n]/.test(after);
-    if (exactAliasBefore && exactAliasTerminated) {
-      continue; // exact local alias: const r = require
-    }
-    throw importError(
-      file,
-      'require usage cannot be statically verified — use require("./module") directly or assign it with `const r = require`',
-      offsetToLineCol(source, index),
-    );
+    if (exactAliasBefore && exactAliasTerminated) continue;
+    return offsetToLineCol(source, index);
   }
+  return null;
+}
+
+/**
+ * True when the identifier at `index` is a function/arrow parameter binding.
+ * Only handles the simple generated-form cases (`function f(require)` and
+ * `(require) =>`); TS type annotations on parameters are erased before this
+ * scan runs.
+ */
+function isParameterNameAt(
+  mask: string,
+  index: number,
+  name: string,
+): boolean {
+  const after = mask.slice(index + name.length);
+  if (!/^\s*[,)]/.test(after)) return false;
+  const before = mask.slice(0, index);
+  const open = before.lastIndexOf("(");
+  if (open === -1) return false;
+  if (!/\([^()]*$/.test(before)) return false;
+  const beforeOpen = before.slice(0, open);
+  if (/(?:^|[^\w.$])function\b[^(]*$/.test(beforeOpen)) return true;
+  const close = matchingParenEnd(mask, open);
+  return close !== -1 && /^\s*=>/.test(mask.slice(close + 1));
 }
 
 /** Match static import/export-from declarations, including `type` modifiers. */
@@ -872,6 +991,75 @@ function matchingBraceEnd(mask: string, open: number): number {
     }
   }
   return -1;
+}
+
+/** Return the index of `)` matching the `(` at `open`, or -1. */
+function matchingParenEnd(mask: string, open: number): number {
+  let depth = 0;
+  for (let i = open; i < mask.length; i++) {
+    if (mask[i] === "(") {
+      depth++;
+    } else if (mask[i] === ")") {
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+/** Blank every real-code occurrence of `name` in `chars[start..end)`. */
+function blankIdentifierInRange(
+  chars: string[],
+  start: number,
+  end: number,
+  name: string,
+): void {
+  const segment = chars.slice(start, end).join("");
+  const re = new RegExp(`(?<![\\w.$])${name}\\b`, "g");
+  for (const match of segment.matchAll(re)) {
+    const from = start + (match.index ?? 0);
+    for (let k = from; k < from + name.length && k < chars.length; k++) {
+      if (chars[k] !== "\n" && chars[k] !== "\r") chars[k] = " ";
+    }
+  }
+}
+
+/**
+ * Return a copy of `masks` with `require` identifiers blanked inside the body
+ * of any function whose parameter list declares a local `require`. jiti does
+ * not rename function parameters, so without this the import-edge scanner
+ * mistakes a local `require("x")` call for the CommonJS loader.
+ */
+function maskRequireParameterBodies(masks: MaskPair): MaskPair {
+  const codeChars = masks.codeMask.split("");
+  const fullChars = masks.fullMask.split("");
+  const functionRe = /\bfunction\b/g;
+
+  for (const fnMatch of masks.fullMask.matchAll(functionRe)) {
+    const fnStart = fnMatch.index ?? 0;
+    const open = masks.fullMask.indexOf("(", fnStart + fnMatch[0].length);
+    if (open === -1) continue;
+    const close = matchingParenEnd(masks.fullMask, open);
+    if (close === -1) continue;
+    if (!/\brequire\b/.test(masks.fullMask.slice(open + 1, close))) {
+      continue;
+    }
+
+    blankIdentifierInRange(codeChars, open + 1, close, "require");
+    blankIdentifierInRange(fullChars, open + 1, close, "require");
+
+    let bodyOpen = close + 1;
+    while (bodyOpen < masks.fullMask.length && /\s/.test(masks.fullMask[bodyOpen])) {
+      bodyOpen++;
+    }
+    if (masks.fullMask[bodyOpen] !== "{") continue;
+    const bodyClose = matchingBraceEnd(masks.fullMask, bodyOpen);
+    if (bodyClose === -1) continue;
+    blankIdentifierInRange(codeChars, bodyOpen + 1, bodyClose, "require");
+    blankIdentifierInRange(fullChars, bodyOpen + 1, bodyClose, "require");
+  }
+
+  return { codeMask: codeChars.join(""), fullMask: fullChars.join("") };
 }
 
 /**
@@ -976,6 +1164,80 @@ function transformFlowSource(
 }
 
 /**
+ * Reject top-level `await` in non-entry graph files. The entry is loaded
+ * through jiti's async import path, but static imports from that entry are
+ * lowered to synchronous CommonJS `require(...)` at execution. jiti still
+ * transforms a non-entry file containing top-level `await`, so a transform
+ * check alone would validate a file that crashes later with
+ * "await is only valid in async functions and the top level bodies of
+ * modules".
+ */
+function assertNoTopLevelAwaitInNonEntryGraphFile(
+  output: string,
+  source: string,
+  sourceMasks: MaskPair,
+  file: string,
+): void {
+  try {
+    new Script(output, { filename: file });
+  } catch (err) {
+    if (
+      !(err instanceof SyntaxError) ||
+      !/await is only valid in async functions and the top level bodies of modules/.test(
+        err.message,
+      )
+    ) {
+      return;
+    }
+    const idx = findTopLevelAwait(sourceMasks.fullMask);
+    const loc =
+      idx >= 0 ? offsetToLineCol(source, idx) : { line: 0, col: 0 };
+    throw importError(
+      file,
+      "top-level await is not allowed in imported files — static imports from the entry are loaded synchronously; wrap the await in an async function or load this file as the flow entry",
+      loc,
+    );
+  }
+}
+
+/** Find the first real-code `await` most likely to be top-level. */
+function findTopLevelAwait(sourceMask: string): number {
+  const awaitRe = /(?<![\w.$])await\b/g;
+  let fallback = -1;
+  for (const match of sourceMask.matchAll(awaitRe)) {
+    const index = match.index ?? 0;
+    if (fallback === -1) fallback = index;
+    if (isAwaitAfterArrowExpression(sourceMask, index)) continue;
+    const braceDepth = braceDepthBefore(sourceMask, index);
+    if (braceDepth === 0) return index;
+  }
+  return fallback;
+}
+
+/** True when the `await` at `index` looks like an async arrow's expression body. */
+function isAwaitAfterArrowExpression(mask: string, index: number): boolean {
+  const before = mask.slice(0, index);
+  const arrow = before.lastIndexOf("=>");
+  if (arrow === -1) return false;
+  const between = mask.slice(arrow + 2, index);
+  return /^[\s)]*$/.test(between);
+}
+
+/** Count `{`/`}` pairs preceding `index` in a comments-and-strings-blanked mask. */
+function braceDepthBefore(mask: string, index: number): number {
+  let depth = 0;
+  for (let i = 0; i < index; i++) {
+    const c = mask[i];
+    if (c === "{") {
+      depth++;
+    } else if (c === "}") {
+      depth = Math.max(0, depth - 1);
+    }
+  }
+  return depth;
+}
+
+/**
  * Walk a flow entry's static import graph: transform every reachable file
  * (syntax errors surface with their location), extract its value edges (from
  * the transpiled output) and type edges (from the source), and enforce the
@@ -989,14 +1251,17 @@ function transformFlowSource(
  *   declaration file is rejected);
  * - dynamic `import()` expressions are rejected outright (they cannot be
  *   walked statically);
+ * - top-level `await` in non-entry graph files is rejected (the entry is the
+ *   only file loaded through jiti's async path; imported files are loaded
+ *   synchronously);
  * - `require()` with a non-literal argument is rejected (unverifiable);
  *   calls through local `require` aliases and wrapped `(0, require)(...)`
  *   calls are treated the same, and any other free-`require` reference is
  *   rejected;
  * - any `module` reference except `module.exports` (including `module.require`,
- *   `module.createRequire`, bracket access, and `const m = module` aliases)
- *   and `eval()` calls are rejected because they can load code outside the
- *   static walk;
+ *   `module.createRequire`, bracket access, and `const m = module` aliases),
+ *   `process.mainModule`, `Function(...)` constructor calls, and `eval()` calls
+ *   are rejected because they can load code outside the static walk;
  * - a flow entry using CommonJS `module.exports`/`exports.*` assignment is
  *   rejected (imported helpers may still use it).
  *
@@ -1046,9 +1311,23 @@ export function buildImportGraph(entryPath: string): FlowImportGraph {
       );
     }
     const outputMasks = maskCodePair(output);
+    const loaderOutputMasks = maskRequireParameterBodies(outputMasks);
     assertNoRuntimeDynamicImport(outputMasks, source, sourceMasks, path);
+    if (path !== entry) {
+      assertNoTopLevelAwaitInNonEntryGraphFile(
+        output,
+        source,
+        sourceMasks,
+        path,
+      );
+    }
     if (path === entry) assertNoEntryCommonJsExport(source, sourceMasks, path);
-    assertNoUnknownRequireReferences(source, sourceMasks, path);
+    assertNoUnknownRequireReferences(
+      source,
+      sourceMasks,
+      loaderOutputMasks,
+      path,
+    );
 
     const validateSpecifier = (
       specifier: string,
@@ -1097,7 +1376,7 @@ export function buildImportGraph(entryPath: string): FlowImportGraph {
       visit(resolved);
     };
 
-    const outputSpecifiers = extractRequireSpecifiers(output, outputMasks);
+    const outputSpecifiers = extractRequireSpecifiers(output, loaderOutputMasks);
     const requireAliases = collectRequireAliases(sourceMasks);
     const aliasRequireSpecifiers =
       requireAliases.size > 0
