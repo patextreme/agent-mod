@@ -425,6 +425,40 @@ test("buildImportGraph rejects module.require as an unverified CJS loader", () =
   }
 });
 
+test("buildImportGraph rejects bracket access to module.require", () => {
+  const d = makeDirs();
+  try {
+    const entry = writeFlow(
+      d.project,
+      "module-bracket-require",
+      'const fs = module["require"]("node:fs");\naf.log(fs ? "loaded" : "no");\n',
+    );
+    assert.throws(
+      () => buildImportGraph(entry),
+      /`module` is only allowed as `module\.exports`/,
+    );
+  } finally {
+    d.cleanup();
+  }
+});
+
+test("buildImportGraph rejects aliasing the CommonJS module object", () => {
+  const d = makeDirs();
+  try {
+    const entry = writeFlow(
+      d.project,
+      "module-alias",
+      'const m = module;\naf.log(m.require("node:fs") ? "loaded" : "no");\n',
+    );
+    assert.throws(
+      () => buildImportGraph(entry),
+      /`module` is only allowed as `module\.exports`/,
+    );
+  } finally {
+    d.cleanup();
+  }
+});
+
 test("buildImportGraph rejects eval that can invoke require dynamically", () => {
   const d = makeDirs();
   try {
@@ -867,6 +901,28 @@ test("buildImportGraph rejects a missing import target with a located error", ()
         assert.ok(err instanceof Error);
         assert.match(err.message, /cannot resolve import "\.\/gone\.ts"/);
         assert.match(err.message, /\(1:22\)/);
+        return true;
+      },
+    );
+  } finally {
+    d.cleanup();
+  }
+});
+
+test("buildImportGraph locates a missing static side-effect import", () => {
+  const d = makeDirs();
+  try {
+    const entry = writeFlow(
+      d.project,
+      "missing-side-effect",
+      'import "./missing.ts";\naf.log("ok");\n',
+    );
+    assert.throws(
+      () => buildImportGraph(entry),
+      (err: unknown) => {
+        assert.ok(err instanceof Error);
+        assert.match(err.message, /cannot resolve import "\.\/missing\.ts"/);
+        assert.match(err.message, /\(1:8\)/);
         return true;
       },
     );

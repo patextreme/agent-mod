@@ -1121,3 +1121,31 @@ test("executeFlowScript uses the validated graph snapshot instead of re-reading 
     d.cleanup();
   }
 });
+
+test("executeFlowScript uses the graph snapshot for CommonJS helpers", async () => {
+  const d = makeFlowDir();
+  try {
+    const entry = join(d.dir, "entry.ts");
+    writeFileSync(
+      entry,
+      [
+        'const cjs = require("./legacy.cjs");',
+        'const js = require("./legacy.js");',
+        "af.log(cjs.n, js.n);",
+        "",
+      ].join("\n"),
+    );
+    writeFileSync(join(d.dir, "legacy.cjs"), "module.exports = { n: 1 };\n");
+    writeFileSync(join(d.dir, "legacy.js"), "module.exports = { n: 2 };\n");
+    const graph = buildImportGraph(entry);
+
+    writeFileSync(join(d.dir, "legacy.cjs"), "module.exports = { n: 999 };\n");
+    writeFileSync(join(d.dir, "legacy.js"), "module.exports = { n: 999 };\n");
+
+    const { af, logs } = recordingAf(d.dir);
+    await executeFlowScript(entry, af as never, graph);
+    assert.deepEqual(logs, ["1 2"]);
+  } finally {
+    d.cleanup();
+  }
+});

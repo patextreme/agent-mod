@@ -12,6 +12,8 @@
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 import type {
   AgentSession,
   AgentSessionEvent,
@@ -530,11 +532,76 @@ function restoreAfGlobal(): void {
 }
 
 /**
+ * Overlay the validated graph files on top of `node:fs.readFileSync` for the
+ * duration of `fn`. jiti's transform hook already serves TypeScript/ESM files
+ * from memory, but native CommonJS loads bypass that hook. Pointing their
+ * `readFileSync` calls back at the snapshot ensures a changed `.cjs` or
+ * CommonJS `.js` helper cannot run a post-validation disk edit.
+ */
+async function withFlowSnapshotReads<T>(
+  graph: FlowImportGraph,
+  fn: () => Promise<T> | T,
+): Promise<T> {
+  const nodeFs = createRequire(import.meta.url)("node:fs") as unknown as {
+    readFileSync: (...args: unknown[]) => unknown;
+  };
+  const sources = new Map(graph.files);
+  const originalReadFileSync = nodeFs.readFileSync;
+
+  const safeFileURLToPath = (url: string | URL): string | undefined => {
+    try {
+      return fileURLToPath(url);
+    } catch {
+      return undefined;
+    }
+  };
+
+  const pathKey = (path: unknown): string | undefined => {
+    if (typeof path === "string") {
+      return path.startsWith("file://") ? safeFileURLToPath(path) : path;
+    }
+    if (path instanceof URL) return safeFileURLToPath(path);
+    return undefined;
+  };
+
+  const readSnapshot = (source: string, options: unknown): string | Buffer => {
+    let encoding: string | null | undefined;
+    if (options === undefined) {
+      return Buffer.from(source);
+    }
+    if (typeof options === "string") {
+      encoding = options;
+    } else if (typeof options === "object" && options !== null) {
+      encoding = (options as { encoding?: string | null }).encoding;
+    }
+    if (encoding === null || encoding === undefined || encoding === "buffer") {
+      return Buffer.from(source);
+    }
+    return source;
+  };
+
+  nodeFs.readFileSync = (...args: unknown[]) => {
+    const key = pathKey(args[0]);
+    if (key !== undefined && sources.has(key)) {
+      return readSnapshot(sources.get(key)!, args[1]);
+    }
+    return originalReadFileSync(...args);
+  };
+
+  try {
+    return await fn();
+  } finally {
+    nodeFs.readFileSync = originalReadFileSync;
+  }
+}
+
+/**
  * Create the jiti instance that loads a flow. When the validated import graph
- * is supplied, snapshots of its files are used for transformation instead of
- * re-reading disk, and any file outside that snapshot is rejected. This closes
- * the validation/execution TOCTOU window: the code that was validated is the
- * code that runs.
+ * is supplied, its transformed (TypeScript/ESM) files are served from the
+ * validation snapshots and files outside that snapshot are rejected. CommonJS
+ * helpers (`.cjs` and CommonJS `.js`) are handled by the read overlay in
+ * {@link executeFlowScript}; this transform hook does not intercept native
+ * CommonJS loads.
  */
 function createFlowJiti(
   graph?: FlowImportGraph,
@@ -573,8 +640,9 @@ function createFlowJiti(
  * injected `af` global visible to the entry and to every module it imports.
  *
  * `graph`, when supplied, is the validated snapshot built by
- * `buildImportGraph`; execution then uses those in-memory sources instead of
- * re-reading disk.
+ * `buildImportGraph`; execution then serves transformed files from
+ * `graph.transforms` and overlays `graph.files` reads for native CommonJS
+ * loads.
  */
 export async function executeFlowScript(
   flowPath: string,
@@ -585,7 +653,11 @@ export async function executeFlowScript(
   try {
     if (activeAfScopes === 1) installAfAccessor();
     const jiti = createFlowJiti(graph);
-    await currentAf.run(af, () => jiti.import(flowPath));
+    await currentAf.run(af, () =>
+      graph
+        ? withFlowSnapshotReads(graph, () => jiti.import(flowPath))
+        : jiti.import(flowPath),
+    );
   } finally {
     activeAfScopes -= 1;
     if (activeAfScopes === 0) restoreAfGlobal();

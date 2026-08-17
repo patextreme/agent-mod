@@ -521,7 +521,7 @@ function locateSpecifier(
     // The quote must belong to an actual import-like source form. Walk back
     // to the nearest `import(` / direct or wrapped `require` / `from` token
     // before the quote.
-    const token = /(?:from\s*|require\s*(?:\)\s*)?\(|import\s*\()\s*$/.exec(
+    const token = /(?:from\s*|require\s*(?:\)\s*)?\(|import\s*\(|import\s*)\s*$/.exec(
       before,
     );
     if (!token) continue;
@@ -659,6 +659,12 @@ function extractAliasedRequireSpecifiers(
   return specifiers;
 }
 
+/** True when a `module` occurrence is a safe `module.exports` access. */
+function isModuleExportsAccess(mask: string, moduleIndex: number): boolean {
+  const after = mask.slice(moduleIndex + "module".length);
+  return /^\s*\.\s*exports\b/.test(after);
+}
+
 /**
  * Reject any `require` identifier that is not one of the forms the walker can
  * statically resolve: a direct `require(...)` call, a wrapped
@@ -667,8 +673,9 @@ function extractAliasedRequireSpecifiers(
  * cp("node:child_process")` would contain no direct/wrapped `require` call
  * and no collected alias, so it would otherwise validate with zero edges and
  * then run with the live loader's unrestricted `require`. Also rejects
- * `module.require`/`module.createRequire` and direct `eval()` calls, which
- * can load code the static walk cannot see.
+ * non-`module.exports` `module` references (including `module.require` /
+ * `module.createRequire`) and direct `eval()` calls, which can load code the
+ * static walk cannot see.
  */
 function assertNoUnknownRequireReferences(
   source: string,
@@ -688,6 +695,21 @@ function assertNoUnknownRequireReferences(
     throw importError(
       file,
       `${form} cannot be statically verified — use require("./module") directly or assign it with \`const r = require\``,
+      offsetToLineCol(source, index),
+    );
+  }
+
+  // Bracket access (`module["require"]`) and aliasing (`const m = module;
+  // m.require(...)`) hide the same live CommonJS loaders behind syntax the
+  // literal regex above does not see. Allow only `module.exports`; anything
+  // else that names `module` cannot be statically proven safe.
+  const moduleRefRe = /(?<![\w.$])module\b/g;
+  for (const match of fullMask.matchAll(moduleRefRe)) {
+    const index = match.index ?? 0;
+    if (isModuleExportsAccess(fullMask, index)) continue;
+    throw importError(
+      file,
+      "`module` is only allowed as `module.exports` — other module properties (including `module.require`) cannot be statically verified",
       offsetToLineCol(source, index),
     );
   }
@@ -931,8 +953,10 @@ function transformFlowSource(
  *   calls through local `require` aliases and wrapped `(0, require)(...)`
  *   calls are treated the same, and any other free-`require` reference is
  *   rejected;
- * - `module.require`, `module.createRequire`, and `eval()` calls are rejected
- *   because they can load code outside the static walk;
+ * - any `module` reference except `module.exports` (including `module.require`,
+ *   `module.createRequire`, bracket access, and `const m = module` aliases)
+ *   and `eval()` calls are rejected because they can load code outside the
+ *   static walk;
  * - a flow entry using CommonJS `module.exports`/`exports.*` assignment is
  *   rejected (imported helpers may still use it).
  *
