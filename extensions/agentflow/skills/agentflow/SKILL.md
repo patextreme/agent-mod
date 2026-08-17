@@ -229,4 +229,7 @@ Four runnable examples ship at `../../examples/`: `reviewcode` (sequential,
 reused handles), `fanout` (planner → parallel workers, structured results),
 `fresh-context` (new agent per iteration), `bash` (command-driven
 orchestration). Copy one to `.pi/agentflow/` and run `/af reviewcode` (or
-`/af fanout`).
+`/af fanout`). Each example imports `./agentflow.d.ts`; a self-contained copy
+ships beside them in `examples/` so the import resolves in place (and in
+your editor before copying). After copying, run `/af-init` to generate the
+project's own copy at `.pi/agentflow/agentflow.d.ts`.

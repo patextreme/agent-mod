@@ -10,7 +10,7 @@
 
 import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join, relative } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createJiti } from "jiti";
 
@@ -269,19 +269,30 @@ function resolveRelativeImport(
   if (cache.has(key)) return cache.get(key) ?? null;
 
   let resolvedPath: string | null = null;
-  try {
-    const resolved = jiti.esmResolve(specifier, {
-      parentURL: pathToFileURL(fromPath).href,
-      try: true as const,
-    });
-    if (resolved) {
-      const rawPath = resolved.startsWith("file://")
-        ? fileURLToPath(resolved)
-        : resolved;
-      resolvedPath = canonicalPath(rawPath);
+  // Declaration files are imported for types only and never executed by the
+  // flow loader. Resolve them directly against the importing file's directory:
+  // delegating to jiti here is wrong for a missing `./agentflow.d.ts`, whose
+  // only candidate is the declaration bundled next to this module (jiti's
+  // base), which would resolve a non-existent local copy to the shipped file
+  // and surface as an "escapes the flow root" escape instead of a missing file.
+  if (specifier.endsWith(".d.ts")) {
+    const candidate = resolve(dirname(fromPath), specifier);
+    resolvedPath = existsSync(candidate) ? canonicalPath(candidate) : null;
+  } else {
+    try {
+      const resolved = jiti.esmResolve(specifier, {
+        parentURL: pathToFileURL(fromPath).href,
+        try: true as const,
+      });
+      if (resolved) {
+        const rawPath = resolved.startsWith("file://")
+          ? fileURLToPath(resolved)
+          : resolved;
+        resolvedPath = canonicalPath(rawPath);
+      }
+    } catch {
+      resolvedPath = null;
     }
-  } catch {
-    resolvedPath = null;
   }
   cache.set(key, resolvedPath);
   return resolvedPath;
@@ -987,9 +998,12 @@ export function buildImportGraph(
         resolveCache,
       );
       if (resolved === null) {
+        const hint = specifier.endsWith("agentflow.d.ts")
+          ? ' (run "/af-init" to generate the local declarations)'
+          : "";
         throw importError(
           path,
-          `cannot resolve import "${specifier}" — no such file`,
+          `cannot resolve import "${specifier}" — no such file${hint}`,
           loc(),
         );
       }

@@ -840,6 +840,35 @@ test("buildImportGraph rejects a missing import target with a located error", ()
   }
 });
 
+test("buildImportGraph reports a missing local agentflow.d.ts as unresolved (not an escape)", () => {
+  const d = makeDirs();
+  try {
+    // No local `agentflow.d.ts` is written. jiti would otherwise fall back to
+    // the declaration bundled next to `discovery.ts` and report an escape;
+    // the walker must resolve declaration imports against the importing file's
+    // directory instead.
+    const entry = writeFlow(
+      d.project,
+      "nodecl",
+      'import type { AgentFlow } from "./agentflow.d.ts";\nconst a: AgentFlow = af;\naf.log(a.cwd);\n',
+    );
+    assert.throws(
+      () => buildImportGraph(entry),
+      (err: unknown) => {
+        assert.ok(err instanceof Error);
+        assert.match(
+          err.message,
+          /cannot resolve import "\.\/agentflow\.d\.ts"/,
+        );
+        assert.match(err.message, /\/af-init/);
+        return true;
+      },
+    );
+  } finally {
+    d.cleanup();
+  }
+});
+
 test("buildImportGraph rejects value imports of .d.ts files", () => {
   const d = makeDirs();
   try {

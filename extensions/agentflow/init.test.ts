@@ -20,6 +20,16 @@ test("the checked-in local copy stays in sync with generateLocalDeclarations", (
   );
   assert.equal(checkedIn, generateLocalDeclarations(shippedSource()));
 });
+test("the shipped examples copy stays in sync with generateLocalDeclarations", () => {
+  // The examples import `./agentflow.d.ts`, so a self-contained copy must ship
+  // beside them for the import to resolve in place (before copying to
+  // `.pi/agentflow/` and running `/af-init`).
+  const checkedIn = readFileSync(
+    join(here, "examples", "agentflow.d.ts"),
+    "utf-8",
+  );
+  assert.equal(checkedIn, generateLocalDeclarations(shippedSource()));
+});
 test("generateLocalDeclarations removes the typebox module import", () => {
   const generated = generateLocalDeclarations(shippedSource());
   // No module imports of any kind survive the surgery.

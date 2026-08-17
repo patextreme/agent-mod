@@ -9,14 +9,19 @@
  * executes the script body inside its own async function, so do not wrap the
  * body in an additional async IIFE — doing so would detach the flow from the
  * runtime's completion signal and the run would finish before doing any work.
+ *
+ * Run `/af-init` first so `.pi/agentflow/agentflow.d.ts` exists alongside the
+ * copied script; this example imports its types from that local declaration.
  */
 
-const reviewer = await af.createAgent({
+import type { FlowAgent } from "./agentflow.d.ts";
+
+const reviewer: FlowAgent = await af.createAgent({
   name: "reviewer",
   systemPrompt: "You are a senior code reviewer. Be concise and concrete.",
 });
 
-const styleCoach = await af.createAgent({
+const styleCoach: FlowAgent = await af.createAgent({
   name: "style",
   systemPrompt: "You focus on style, naming, and maintainability.",
 });

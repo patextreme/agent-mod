@@ -202,6 +202,29 @@ test("validateFlowFile reports a missing import target as invalid", async () => 
   }
 });
 
+test("validateFlowFile reports a missing local agentflow.d.ts, hinting at /af-init", async () => {
+  const d = makeDir();
+  try {
+    // The example imports `./agentflow.d.ts`; without a local copy (no
+    // `/af-init`) the walker must say "no such file" + hint rather than
+    // misreporting it as escaping the project (jiti's shipped-declaration
+    // fallback).
+    writeFileSync(
+      join(d.cwd, ".pi", "agentflow", "nodecl.ts"),
+      'import type { AgentFlow } from "./agentflow.d.ts";\nconst a: AgentFlow = af;\naf.log(a.cwd);\n',
+    );
+    const report = await validateFlowFile("nodecl", d.cwd);
+    assert.equal(report.ok, false);
+    assert.match(
+      report.errors[0].message,
+      /cannot resolve import "\.\/agentflow\.d\.ts"/,
+    );
+    assert.match(report.errors[0].message, /\/af-init/);
+  } finally {
+    d.cleanup();
+  }
+});
+
 test("validateFlowFile accepts a .ts flow using CommonJS require of a relative file", async () => {
   const d = makeDir();
   try {
@@ -368,15 +391,31 @@ test("validateFlowFile ignores an unrelated agentflow.d.ts basename collision", 
 
 // ─── af.bash type surface ──────────────────────────────────────────────────
 
-test("the shipped bash example type-checks against the af declarations", async () => {
-  const examplePath = join(here, "examples", "bash.ts");
-  // Resolves (no throw) when every af.bash / af.createAgent / af.result use is
-  // well-typed against the shipped `agentflow.d.ts`.
-  await typeCheckFlowScript(
-    examplePath,
-    readFlowScript(examplePath),
-    DECLARATIONS,
-  );
+test("the bash example, copied into a project flow dir, type-checks against its local declarations import", async () => {
+  const d = makeDir();
+  try {
+    // Emulate the consumer workflow: copy the shipped example to
+    // `.pi/agentflow/bash.ts` beside a `/af-init`-generated local declaration,
+    // then validate. The example's `import type ... from "./agentflow.d.ts"`
+    // resolves to that local copy (typed from it, no duplicate global `af`).
+    const flowDir = join(d.cwd, ".pi", "agentflow");
+    writeFileSync(
+      join(flowDir, "bash.ts"),
+      readFlowScript(join(here, "examples", "bash.ts")),
+    );
+    writeFileSync(
+      join(flowDir, "agentflow.d.ts"),
+      generateLocalDeclarations(readFlowScript(DECLARATIONS)),
+    );
+    const report = await validateFlowFile("bash", d.cwd);
+    assert.equal(
+      report.ok,
+      true,
+      report.errors.map((e) => e.message).join("\n"),
+    );
+  } finally {
+    d.cleanup();
+  }
 });
 
 test("a script using af.bash with opts and reading BashResult type-checks", async () => {
