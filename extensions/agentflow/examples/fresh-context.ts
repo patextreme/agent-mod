@@ -16,22 +16,28 @@
  *
  * Copy this file to `.pi/agentflow/fresh-context.ts` (project) to run it with
  * `/af fresh-context`. Use top-level `await` (no wrapper IIFE).
+ *
+ * Run `/af-init` first so `.pi/agentflow/agentflow.d.ts` exists alongside the
+ * copied script; this example imports its types from that local declaration.
  */
+
+import type { FlowAgent } from "./agentflow.d.ts";
 
 const rounds = 3;
 const verdicts: string[] = [];
 
 for (let round = 0; round < rounds; round++) {
   // Fresh handle every iteration: this agent exists for exactly one turn.
-  const judge = await af.createAgent<{ accepts: boolean; reason: string }>({
-    name: `judge:${round + 1}`,
-    systemPrompt:
-      "You are an independent reviewer. Judge only what is in this turn; ignore any prior context.",
-    resultSchema: af.Type.Object({
-      accepts: af.Type.Boolean(),
-      reason: af.Type.String(),
-    }),
-  });
+  const judge: FlowAgent<{ accepts: boolean; reason: string }> =
+    await af.createAgent<{ accepts: boolean; reason: string }>({
+      name: `judge:${round + 1}`,
+      systemPrompt:
+        "You are an independent reviewer. Judge only what is in this turn; ignore any prior context.",
+      resultSchema: af.Type.Object({
+        accepts: af.Type.Boolean(),
+        reason: af.Type.String(),
+      }),
+    });
 
   af.log(`Round ${round + 1}: asking a fresh judge`);
   const text = await judge.sendMessage(

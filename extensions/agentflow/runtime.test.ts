@@ -9,6 +9,9 @@
  */
 
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 import type {
   AgentSession,
@@ -16,9 +19,10 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
+import { buildImportGraph } from "./discovery.js";
 import { killProcessTree } from "./exec.js";
 import type { FlowAgentRecord } from "./runner.js";
-import { FlowRunner, renderFlowValue } from "./runner.js";
+import { executeFlowScript, FlowRunner, renderFlowValue } from "./runner.js";
 import {
   buildSubmitTool,
   createSubmissionSlot,
@@ -627,6 +631,23 @@ test("markDisposed() retires an agent: freezes the clock and sets status dispose
   assert.equal(updates[0], record);
 });
 
+test("markDisposed() is idempotent (does not re-stamp completedAt)", () => {
+  const runner = mockRunner();
+  const record = fakeRecord(runner, "worker");
+  runner.markDisposed(record.id);
+  const completedAt = record.completedAt;
+  const updates: FlowAgentRecord[] = [];
+  runner.subscribe((event) => {
+    if (event.type === "agent_updated") updates.push(event.record);
+  });
+
+  runner.markDisposed(record.id);
+
+  assert.equal(record.status, "disposed");
+  assert.equal(record.completedAt, completedAt);
+  assert.equal(updates.length, 0);
+});
+
 test("markDisposed() does not override a stopped or errored agent", () => {
   const runner = mockRunner();
   const stopped = fakeRecord(runner, "stopped-one");
@@ -868,4 +889,235 @@ test("cancel() kills in-flight af.bash commands and rejects them", async () => {
     "killProcessTree called once for the in-flight command",
   );
   assert.ok(killed[0] > 0, "killed a real pid");
+});
+
+// ─── Module-based execution (executeFlowScript) ────────────────────────────
+
+/** Minimal `af` recording surface for module-execution tests. */
+function recordingAf(cwd: string): {
+  af: {
+    cwd: string;
+    log: (...parts: unknown[]) => void;
+    result: (value: unknown) => void;
+  };
+  logs: string[];
+  result: { value: unknown; set: boolean };
+} {
+  const logs: string[] = [];
+  const result = { value: undefined as unknown, set: false };
+  return {
+    logs,
+    result,
+    af: {
+      cwd,
+      log: (...parts: unknown[]) => logs.push(parts.join(" ")),
+      result: (value: unknown) => {
+        result.value = value;
+        result.set = true;
+      },
+    },
+  };
+}
+
+/** Build an isolated flow dir for module-execution tests. */
+function makeFlowDir(): { dir: string; cleanup: () => void } {
+  const root = mkdtempSync(join(tmpdir(), "agentflow-exec-"));
+  const dir = join(root, ".pi", "agentflow");
+  mkdirSync(dir, { recursive: true });
+  return { dir, cleanup: () => rmSync(root, { recursive: true, force: true }) };
+}
+
+test("executeFlowScript runs an entry with relative imports and top-level await", async () => {
+  const d = makeFlowDir();
+  try {
+    writeFileSync(
+      join(d.dir, "helper.ts"),
+      [
+        "export async function work(): Promise<string> {",
+        '  return "helper sees af.cwd=" + af.cwd;',
+        "}",
+        "export const MAGIC = 41;",
+        "",
+      ].join("\n"),
+    );
+    writeFileSync(
+      join(d.dir, "entry.ts"),
+      [
+        'import { work, MAGIC } from "./helper.ts";',
+        "const data: { ok: boolean } = await Promise.resolve({ ok: true });",
+        "af.log(await work(), data.ok, MAGIC + 1);",
+        'af.result("done");',
+        "export const done = true;",
+        "",
+      ].join("\n"),
+    );
+    const { af, logs, result } = recordingAf(d.dir);
+    await executeFlowScript(join(d.dir, "entry.ts"), af as never);
+    assert.deepEqual(logs, [`helper sees af.cwd=${d.dir} true 42`]);
+    assert.deepEqual(result, { value: "done", set: true });
+  } finally {
+    d.cleanup();
+  }
+});
+
+test("executeFlowScript exposes `af` to imported helpers and removes it after the run", async () => {
+  const d = makeFlowDir();
+  try {
+    writeFileSync(
+      join(d.dir, "sees-af.ts"),
+      'export const sawAf: boolean = typeof af === "object" && af !== null;\nexport const cwd: string = af.cwd;\n',
+    );
+    writeFileSync(
+      join(d.dir, "entry.ts"),
+      'import { sawAf, cwd } from "./sees-af.ts";\naf.log(sawAf, cwd);\n',
+    );
+    const { af, logs } = recordingAf(d.dir);
+    assert.equal("af" in globalThis, false, "no `af` global before the run");
+    await executeFlowScript(join(d.dir, "entry.ts"), af as never);
+    assert.equal(
+      "af" in globalThis,
+      false,
+      "`af` global removed after the run",
+    );
+    assert.deepEqual(logs, [`true ${d.dir}`]);
+  } finally {
+    d.cleanup();
+  }
+});
+
+test("executeFlowScript runs a plain import-less .js flow", async () => {
+  const d = makeFlowDir();
+  try {
+    writeFileSync(join(d.dir, "plain.js"), 'af.log("plain ok");\n');
+    const { af, logs } = recordingAf(d.dir);
+    await executeFlowScript(join(d.dir, "plain.js"), af as never);
+    assert.deepEqual(logs, ["plain ok"]);
+  } finally {
+    d.cleanup();
+  }
+});
+
+test("executeFlowScript restores a pre-existing `af` global after the run", async () => {
+  const d = makeFlowDir();
+  try {
+    writeFileSync(join(d.dir, "noop.ts"), "af.log(af.cwd);\n");
+    const { af, logs } = recordingAf(d.dir);
+    const globals = globalThis as { af?: unknown };
+    const preExisting = { sentinel: true };
+    globals.af = preExisting;
+    try {
+      await executeFlowScript(join(d.dir, "noop.ts"), af as never);
+    } finally {
+      // The injected `af` is gone, and the pre-existing one is back.
+      assert.equal(globals.af, preExisting);
+      delete globals.af;
+    }
+    assert.deepEqual(logs, [d.dir]);
+  } finally {
+    d.cleanup();
+  }
+});
+
+test("a lingering run settling mid-run cannot delete the newer run's `af` global", async () => {
+  const d = makeFlowDir();
+  try {
+    // A cancelled run deliberately abandons its script (index.ts skips
+    // `await scriptRun`), so it can still be settling when the next flow
+    // starts. The abandoned script's cleanup must not delete the NEW run's
+    // `af` global binding.
+    writeFileSync(
+      join(d.dir, "lingering.ts"),
+      "await new Promise((r) => setTimeout(r, 100));\n",
+    );
+    writeFileSync(
+      join(d.dir, "slow-b.ts"),
+      'await new Promise((r) => setTimeout(r, 350));\naf.log("b-done:" + af.cwd);\n',
+    );
+    const b = recordingAf("B");
+    const runA = executeFlowScript(join(d.dir, "lingering.ts"), {
+      log: () => {},
+      cwd: "A",
+    } as never);
+    await new Promise((r) => setTimeout(r, 30)); // A is now suspended on its timer
+    const runB = executeFlowScript(join(d.dir, "slow-b.ts"), b.af as never);
+    await runA; // A settles while B is still mid-run
+    // The accessor resolves via AsyncLocalStorage, so outside B's async
+    // context the getter intentionally returns undefined. The invariant here is
+    // that the property binding itself (installed for the still-live B run)
+    // survives A's cleanup; B completing without "af is not defined" proves it
+    // still resolves inside B's own context.
+    assert.equal(
+      Object.hasOwn(globalThis as object, "af"),
+      true,
+      "B's `af` global binding survives A's cleanup",
+    );
+    await runB; // must complete without "af is not defined"
+    assert.deepEqual(b.logs, ["b-done:B"]);
+    assert.equal("af" in globalThis, false, "`af` removed after both runs");
+  } finally {
+    d.cleanup();
+  }
+});
+
+test("a lingering run settling mid-run still attributes af calls to its own surface", async () => {
+  const d = makeFlowDir();
+  try {
+    writeFileSync(
+      join(d.dir, "lingering-uses-af.ts"),
+      'await new Promise((r) => setTimeout(r, 100));\naf.log("A-sees:" + af.cwd);\n',
+    );
+    writeFileSync(
+      join(d.dir, "slow-b.ts"),
+      'await new Promise((r) => setTimeout(r, 350));\naf.log("B-sees:" + af.cwd);\n',
+    );
+    const a = recordingAf("A");
+    const b = recordingAf("B");
+
+    const runA = executeFlowScript(
+      join(d.dir, "lingering-uses-af.ts"),
+      a.af as never,
+    );
+    await new Promise((r) => setTimeout(r, 30)); // A is suspended on its timer
+    const runB = executeFlowScript(join(d.dir, "slow-b.ts"), b.af as never);
+
+    await runA; // A resumes and logs while B is still mid-run
+    assert.deepEqual(
+      a.logs,
+      ["A-sees:A"],
+      "A's resumed call is attributed to A",
+    );
+    assert.deepEqual(b.logs, [], "B has not logged yet");
+
+    await runB;
+    assert.deepEqual(b.logs, ["B-sees:B"], "B's own call is attributed to B");
+    assert.equal("af" in globalThis, false, "`af` removed after both runs");
+  } finally {
+    d.cleanup();
+  }
+});
+
+test("executeFlowScript uses the validated graph snapshot instead of re-reading disk", async () => {
+  const d = makeFlowDir();
+  try {
+    const entry = join(d.dir, "entry.ts");
+    writeFileSync(entry, 'import { hi } from "./helper.ts";\naf.log(hi());\n');
+    writeFileSync(
+      join(d.dir, "helper.ts"),
+      'export function hi(): string { return "validated"; }\n',
+    );
+    const graph = buildImportGraph(entry);
+
+    // Simulate a disk change between validation and execution: the run must
+    // use the validated snapshot, not the file that is now on disk.
+    writeFileSync(
+      join(d.dir, "helper.ts"),
+      'export function hi(): string { return "changed-after-validation"; }\n',
+    );
+
+    const { af, logs } = recordingAf(d.dir);
+    await executeFlowScript(entry, af as never, graph);
+    assert.deepEqual(logs, ["validated"]);
+  } finally {
+    d.cleanup();
+  }
 });

@@ -1,5 +1,5 @@
 /**
- * fanout — AgentFlow example: structured results + loop control + fan-out.
+ * fanout — AgentFlow example: structured results + fan-out.
  *
  * Demonstrates the `resultSchema` / `submit_result` / `submittedResult()`
  * surface. A planner agent submits a list of steps; each step is fanned out
@@ -10,9 +10,16 @@
  *
  * Copy this file to `.pi/agentflow/fanout.ts` (project) to run it with
  * `/af fanout`. Use top-level `await` (no wrapper IIFE).
+ *
+ * Run `/af-init` first so `.pi/agentflow/agentflow.d.ts` exists alongside the
+ * copied script; this example imports its types from that local declaration.
  */
 
-const planner = await af.createAgent<{ steps: string[] }>({
+import type { FlowAgent } from "./agentflow.d.ts";
+
+const planner: FlowAgent<{ steps: string[] }> = await af.createAgent<{
+  steps: string[];
+}>({
   name: "planner",
   systemPrompt: "You break tasks into discrete, self-contained steps.",
   resultSchema: af.Type.Object({ steps: af.Type.Array(af.Type.String()) }),
@@ -28,7 +35,9 @@ af.log(`Planner proposed ${steps.length} steps`);
 // Fan out: one worker per step, each submits a structured output.
 const workers = await Promise.all(
   steps.map(async (step) => {
-    const worker = await af.createAgent<{ output: string }>({
+    const worker: FlowAgent<{ output: string }> = await af.createAgent<{
+      output: string;
+    }>({
       name: `worker:${step.slice(0, 12)}`,
       systemPrompt: "You execute one step and submit a concise { output }.",
       resultSchema: af.Type.Object({ output: af.Type.String() }),

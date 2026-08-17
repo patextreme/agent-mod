@@ -16,7 +16,20 @@
  * from it. The only injected orchestration global is `af`.
  */
 
-import { type TSchema, Type } from "typebox";
+/**
+ * Structural stand-in for TypeBox's `TSchema` (this local copy has no module
+ * imports): any schema-shaped object is assignable, so `resultSchema` values
+ * built with `af.Type` type-check without typebox's exact definition.
+ */
+interface TSchema {
+  readonly [key: string]: unknown;
+}
+
+/**
+ * Loose stand-in for TypeBox's `Type` builder namespace: every method
+ * (Object, String, Number, ...) accepts anything and returns a `TSchema`.
+ */
+declare const Type: { [method: string]: (...args: unknown[]) => TSchema };
 
 /** Result of an `af.bash(cmd, opts?)` call: the captured streams and exit code. */
 export interface BashResult {

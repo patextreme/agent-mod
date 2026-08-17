@@ -8,7 +8,12 @@
  *
  * Copy this file to `.pi/agentflow/bash.ts` (project) to run it with
  * `/af bash`. Use top-level `await` (no wrapper IIFE).
+ *
+ * First run `/af-init` so `.pi/agentflow/agentflow.d.ts` exists alongside the
+ * copied script; this example imports its types from that local declaration.
  */
+
+import type { BashResult } from "./agentflow.d.ts";
 
 // 1. Capture the working-tree state. `--porcelain` prints one line per changed
 //    file, so an empty stdout means a clean tree.
@@ -26,17 +31,16 @@ if (status.code !== 0) {
   // 3. Gate a sub-agent step on command output: only review when there are
   //    changes. An optional `timeoutMs` guards a slow command (a timeout
   //    rejects with a `BashTimeoutError` — discriminate by `err.name`).
-  let diff: { stdout: string };
+  let diff: BashResult;
   try {
     diff = await af.bash("git diff", { timeoutMs: 10_000 });
   } catch (err) {
-    const name = (err as { name?: string }).name;
     af.result(
-      name === "BashTimeoutError"
+      af.isBashTimeoutError(err)
         ? "git diff timed out — skipping review."
         : `git diff failed: ${err instanceof Error ? err.message : String(err)}`,
     );
-    diff = { stdout: "" };
+    diff = { stdout: "", stderr: "", code: -1 };
   }
 
   if (diff.stdout) {

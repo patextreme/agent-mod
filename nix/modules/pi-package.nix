@@ -56,6 +56,7 @@
           mkdir -p $out
           cp $src/index.ts $out/index.ts
           cp $src/discovery.ts $out/discovery.ts
+          cp $src/init.ts $out/init.ts
           cp $src/exec.ts $out/exec.ts
           cp $src/submit.ts $out/submit.ts
           cp $src/runner.ts $out/runner.ts
@@ -67,6 +68,11 @@
           # the resources_discover event (skillPaths) when mounted standalone.
           mkdir -p $out/skills/agentflow
           cp $src/skills/agentflow/SKILL.md $out/skills/agentflow/SKILL.md
+          # Ship the runnable examples too — the bundled skill's "Worked
+          # example" section points at ../../examples/ relative to the skill,
+          # which resolves inside this output only if they are copied.
+          mkdir -p $out/examples
+          cp $src/examples/*.ts $out/examples/
           # Bundle the jiti and typebox runtime dependencies so the extension
           # resolves them when mounted standalone — the Nix path has no npm
           # install step, so runtime deps must ship inside the output.
@@ -161,7 +167,7 @@
           cp -r ${rootNodeModules} node_modules
           chmod -R u+w node_modules
 
-          ./node_modules/.bin/tsx --test extensions/agentflow/discovery.test.ts extensions/agentflow/runtime.test.ts extensions/agentflow/validate.test.ts extensions/agentflow/exec.test.ts
+          ./node_modules/.bin/tsx --test extensions/agentflow/discovery.test.ts extensions/agentflow/runtime.test.ts extensions/agentflow/validate.test.ts extensions/agentflow/exec.test.ts extensions/agentflow/init.test.ts
         '';
         installPhase = ''
           touch $out

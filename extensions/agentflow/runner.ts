@@ -10,6 +10,7 @@
  * and is injected via `RunnerServices.spawnSession`.
  */
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import { spawn } from "node:child_process";
 import type {
   AgentSession,
@@ -17,8 +18,11 @@ import type {
   ExtensionContext,
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
+import type { TransformOptions, TransformResult } from "jiti";
+import { createJiti } from "jiti";
 import { Type } from "typebox";
 import type { AgentFlow, FlowAgent, FlowAgentConfig } from "./agentflow.js";
+import { FLOW_JITI_EXTENSIONS, type FlowImportGraph } from "./discovery.js";
 import {
   type BashResult,
   isBashTimeoutError,
@@ -41,6 +45,11 @@ export type AgentStatus =
   | "stopped"
   | "error"
   | "disposed";
+
+/** True for statuses that are final and must never transition again. */
+function isTerminalAgentStatus(status: AgentStatus): boolean {
+  return status === "stopped" || status === "error" || status === "disposed";
+}
 
 /**
  * Render a flow-provided value for display: strings verbatim, everything else
@@ -175,7 +184,8 @@ export class FlowRunner {
     const runner = this;
     return {
       // Expose the TypeBox `Type` namespace so flow scripts can build a
-      // `resultSchema` without importing (scripts cannot import).
+      // `resultSchema` without importing `typebox` (bare module specifiers
+      // are not allowed in flow scripts).
       Type,
       async createAgent<T = unknown>(
         config: FlowAgentConfig,
@@ -339,12 +349,7 @@ export class FlowRunner {
     const update = (activity: string, status?: AgentStatus) => {
       // Terminal states are final: late events after an abort/error/dispose
       // must not flip a stopped, errored, or disposed agent back to running.
-      if (
-        record.status === "stopped" ||
-        record.status === "error" ||
-        record.status === "disposed"
-      )
-        return;
+      if (isTerminalAgentStatus(record.status)) return;
       record.activity = activity;
       if (status) record.status = status;
       this.emit({ type: "agent_updated", record });
@@ -382,12 +387,7 @@ export class FlowRunner {
   markErrored(agentId: string, detail?: string): void {
     const record = this.agents.find((a) => a.id === agentId);
     if (!record) return;
-    if (
-      record.status === "stopped" ||
-      record.status === "disposed" ||
-      record.status === "error"
-    )
-      return;
+    if (isTerminalAgentStatus(record.status)) return;
     record.status = "error";
     record.activity = detail ? `error: ${detail}` : "error";
     record.completedAt = Date.now();
@@ -402,12 +402,7 @@ export class FlowRunner {
     // errored agent back to "stopped" (a disposed agent would then reappear in
     // the fleet roster, which only hides "disposed" — a regression of the
     // hide-disposed fix), and re-stopping an already-stopped agent is a no-op.
-    if (
-      record.status === "disposed" ||
-      record.status === "error" ||
-      record.status === "stopped"
-    )
-      return;
+    if (isTerminalAgentStatus(record.status)) return;
     record.status = "stopped";
     record.activity = "stopped";
     record.completedAt = Date.now();
@@ -422,7 +417,7 @@ export class FlowRunner {
   markDisposed(agentId: string): void {
     const record = this.agents.find((a) => a.id === agentId);
     if (!record) return;
-    if (record.status === "stopped" || record.status === "error") return;
+    if (isTerminalAgentStatus(record.status)) return;
     record.status = "disposed";
     record.activity = "disposed";
     record.completedAt = Date.now();
@@ -449,12 +444,7 @@ export class FlowRunner {
     if (this.cancelled) return;
     this.cancelled = true;
     for (const record of this.agents) {
-      if (
-        record.status === "stopped" ||
-        record.status === "error" ||
-        record.status === "disposed"
-      )
-        continue;
+      if (isTerminalAgentStatus(record.status)) continue;
       void record.handle.stop();
       this.markStopped(record.id);
     }
@@ -506,17 +496,98 @@ export class FlowRunner {
 }
 
 /**
- * Execute a flow script's (already-transpiled, JS) source with the injected
- * `af` global. Wraps the body in an `AsyncFunction` — the only identifier in
- * scope beyond native JS is `af`.
+ * Per-run `af` binding. A single accessor is installed on `globalThis.af` for
+ * the duration of any live flow load; the accessor resolves `af` through
+ * `AsyncLocalStorage`, so each run's async continuations see the surface that
+ * was passed to *their* `executeFlowScript` call — not whichever run happened
+ * to install its global most recently. This fixes the concurrent-run
+ * misattribution that the previous save/restore global could only mask.
+ */
+const currentAf = new AsyncLocalStorage<AgentFlow>();
+let activeAfScopes = 0;
+let previousAfDescriptor: PropertyDescriptor | undefined;
+let hadPreviousAf = false;
+
+function installAfAccessor(): void {
+  const globals = globalThis as { af?: AgentFlow };
+  hadPreviousAf = Object.hasOwn(globals, "af");
+  previousAfDescriptor = Object.getOwnPropertyDescriptor(globals, "af");
+  Object.defineProperty(globals, "af", {
+    configurable: true,
+    get: () => currentAf.getStore(),
+  });
+}
+
+function restoreAfGlobal(): void {
+  const globals = globalThis as { af?: AgentFlow };
+  if (hadPreviousAf && previousAfDescriptor) {
+    Object.defineProperty(globals, "af", previousAfDescriptor);
+  } else {
+    delete globals.af;
+  }
+  hadPreviousAf = false;
+  previousAfDescriptor = undefined;
+}
+
+/**
+ * Create the jiti instance that loads a flow. When the validated import graph
+ * is supplied, snapshots of its files are used for transformation instead of
+ * re-reading disk, and any file outside that snapshot is rejected. This closes
+ * the validation/execution TOCTOU window: the code that was validated is the
+ * code that runs.
+ */
+function createFlowJiti(
+  graph?: FlowImportGraph,
+): ReturnType<typeof createJiti> {
+  const baseOptions = {
+    fsCache: false,
+    moduleCache: false,
+    extensions: FLOW_JITI_EXTENSIONS,
+  } as const;
+  if (!graph) return createJiti(import.meta.url, baseOptions);
+
+  const sources = new Map<string, string>(graph.files);
+  const fallback = createJiti(import.meta.url, baseOptions);
+  const transform = (opts: TransformOptions): TransformResult => {
+    if (opts.filename === undefined) {
+      throw new Error(
+        "AgentFlow: jiti did not provide a filename for a flow module",
+      );
+    }
+    const source = sources.get(opts.filename);
+    if (source === undefined) {
+      throw new Error(
+        `AgentFlow: flow file changed after validation: "${opts.filename}" was not part of the validated import graph`,
+      );
+    }
+    const cached = graph.transforms?.get(opts.filename);
+    if (cached !== undefined) return { code: cached };
+    return { code: fallback.transform({ ...opts, source }) };
+  };
+  return createJiti(import.meta.url, { ...baseOptions, transform });
+}
+
+/**
+ * Execute a flow script by loading its entry as a module through jiti
+ * (TypeScript transpilation, ESM/CJS interop, top-level `await`) with the
+ * injected `af` global visible to the entry and to every module it imports.
+ *
+ * `graph`, when supplied, is the validated snapshot built by
+ * `buildImportGraph`; execution then uses those in-memory sources instead of
+ * re-reading disk.
  */
 export async function executeFlowScript(
-  transpiledSource: string,
+  flowPath: string,
   af: AgentFlow,
+  graph?: FlowImportGraph,
 ): Promise<void> {
-  const fn = new Function(
-    "af",
-    `"use strict"; return (async () => {\n${transpiledSource}\n})();`,
-  ) as (af: AgentFlow) => Promise<unknown>;
-  await fn(af);
+  activeAfScopes += 1;
+  try {
+    if (activeAfScopes === 1) installAfAccessor();
+    const jiti = createFlowJiti(graph);
+    await currentAf.run(af, () => jiti.import(flowPath));
+  } finally {
+    activeAfScopes -= 1;
+    if (activeAfScopes === 0) restoreAfGlobal();
+  }
 }
