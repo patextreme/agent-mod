@@ -1025,23 +1025,196 @@ function blankIdentifierInRange(
 }
 
 /**
+ * Return true when the `require` token in a parameter list is a binding
+ * parameter (`(require)`, `(require, ...)`, or `(require = ...)`) rather than
+ * an occurrence inside another parameter's default expression.
+ */
+function parameterListDeclaresRequire(
+  mask: string,
+  open: number,
+  close: number,
+): boolean {
+  const params = mask.slice(open + 1, close);
+  const re = /(?<![\w.$])require\b/g;
+  for (const match of params.matchAll(re)) {
+    // A binding parameter is preceded by `(` or `,`; `x = require` is a
+    // default-value reference and must not be blanked as a local binding.
+    const before = params.slice(0, match.index ?? 0).replace(/\s+$/, "");
+    if (before.length > 0 && !/[,(]$/.test(before)) continue;
+    const after = params.slice((match.index ?? 0) + "require".length);
+    if (/^\s*(?:[,)=]|$)/.test(after)) return true;
+  }
+  return false;
+}
+
+/** True when the parenthesized list at `open` is an arrow parameter list. */
+function isArrowParameterList(
+  mask: string,
+  open: number,
+  close: number,
+): boolean {
+  return /^\s*=>/.test(mask.slice(close + 1));
+}
+
+const METHOD_MODIFIERS = new Set([
+  "async",
+  "static",
+  "get",
+  "set",
+  "public",
+  "private",
+  "protected",
+  "override",
+  "readonly",
+  "declare",
+]);
+
+/** Keywords whose parenthesized header is a statement, not a method definition. */
+const NON_METHOD_PARAMETER_WORDS = new Set([
+  "if",
+  "for",
+  "while",
+  "switch",
+  "catch",
+  "with",
+  "do",
+  "else",
+  "in",
+  "of",
+]);
+
+/** True when the parenthesized list at `open` is an object/class method's parameter list. */
+function isMethodParameterList(
+  mask: string,
+  open: number,
+  close: number,
+): boolean {
+  const after = mask.slice(close + 1);
+  if (!/^\s*\{/.test(after)) return false;
+
+  const before = mask.slice(0, open).replace(/\s+$/, "");
+  if (!before) return false;
+  // Function declarations/expressions are handled by the `function` scan above.
+  if (/(?:^|[^\w.$])function\b[^(]*$/.test(before)) return false;
+
+  const nameMatch = /([A-Za-z_$][\w$]*)\s*$/.exec(before);
+  if (!nameMatch) return false;
+  const name = nameMatch[1];
+  if (NON_METHOD_PARAMETER_WORDS.has(name)) return false;
+
+  const prefix = before.slice(0, nameMatch.index).replace(/\s+$/, "");
+  const previousWord =
+    /([A-Za-z_$][\w$]*)\s*$/.exec(prefix)?.[1] ?? "";
+  const previousChar = prefix.length > 0 ? prefix[prefix.length - 1] : "";
+  if (
+    previousChar !== "{" &&
+    previousChar !== "}" &&
+    previousChar !== ";" &&
+    previousChar !== "," &&
+    !METHOD_MODIFIERS.has(previousWord)
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
+/** Return the exclusive end offset of a concise arrow expression body. */
+function arrowExpressionBodyEnd(mask: string, start: number): number {
+  let paren = 0;
+  let bracket = 0;
+  let brace = 0;
+  for (let i = start; i < mask.length; i++) {
+    const c = mask[i];
+    if (c === "(") {
+      paren += 1;
+    } else if (c === ")") {
+      if (paren === 0) return i;
+      paren -= 1;
+    } else if (c === "[") {
+      bracket += 1;
+    } else if (c === "]") {
+      if (bracket === 0) return i;
+      bracket -= 1;
+    } else if (c === "{") {
+      brace += 1;
+    } else if (c === "}") {
+      if (brace === 0) return i;
+      brace -= 1;
+    } else if (c === ";" && paren === 0 && bracket === 0 && brace === 0) {
+      return i;
+    } else if (c === "," && paren === 0 && bracket === 0 && brace === 0) {
+      return i;
+    }
+  }
+  return mask.length;
+}
+
+/** Blank a `require` parameter and the body its scope controls. */
+function blankRequireParameterScope(
+  codeChars: string[],
+  fullChars: string[],
+  fullMask: string,
+  open: number,
+  close: number,
+  kind: "arrow" | "method",
+): void {
+  blankIdentifierInRange(codeChars, open + 1, close, "require");
+  blankIdentifierInRange(fullChars, open + 1, close, "require");
+
+  let bodyOpen = close + 1;
+  while (bodyOpen < fullMask.length && /\s/.test(fullMask[bodyOpen])) {
+    bodyOpen++;
+  }
+  if (bodyOpen >= fullMask.length) return;
+
+  if (kind === "arrow") {
+    if (fullMask[bodyOpen] !== "=" || fullMask[bodyOpen + 1] !== ">") return;
+    let bodyStart = bodyOpen + 2;
+    while (bodyStart < fullMask.length && /\s/.test(fullMask[bodyStart])) {
+      bodyStart++;
+    }
+    if (bodyStart >= fullMask.length) return;
+    if (fullMask[bodyStart] === "{") {
+      const bodyClose = matchingBraceEnd(fullMask, bodyStart);
+      if (bodyClose === -1) return;
+      blankIdentifierInRange(codeChars, bodyStart + 1, bodyClose, "require");
+      blankIdentifierInRange(fullChars, bodyStart + 1, bodyClose, "require");
+    } else {
+      const bodyEnd = arrowExpressionBodyEnd(fullMask, bodyStart);
+      blankIdentifierInRange(codeChars, bodyStart, bodyEnd, "require");
+      blankIdentifierInRange(fullChars, bodyStart, bodyEnd, "require");
+    }
+    return;
+  }
+
+  if (fullMask[bodyOpen] !== "{") return;
+  const bodyClose = matchingBraceEnd(fullMask, bodyOpen);
+  if (bodyClose === -1) return;
+  blankIdentifierInRange(codeChars, bodyOpen + 1, bodyClose, "require");
+  blankIdentifierInRange(fullChars, bodyOpen + 1, bodyClose, "require");
+}
+
+/**
  * Return a copy of `masks` with `require` identifiers blanked inside the body
- * of any function whose parameter list declares a local `require`. jiti does
- * not rename function parameters, so without this the import-edge scanner
- * mistakes a local `require("x")` call for the CommonJS loader.
+ * of any function/arrow/method whose parameter list declares a local
+ * `require`. jiti does not rename function parameters, so without this the
+ * import-edge scanner mistakes a local `require("x")` call for the CommonJS
+ * loader.
  */
 function maskRequireParameterBodies(masks: MaskPair): MaskPair {
   const codeChars = masks.codeMask.split("");
   const fullChars = masks.fullMask.split("");
+  const fullMask = masks.fullMask;
   const functionRe = /\bfunction\b/g;
 
-  for (const fnMatch of masks.fullMask.matchAll(functionRe)) {
+  for (const fnMatch of fullMask.matchAll(functionRe)) {
     const fnStart = fnMatch.index ?? 0;
-    const open = masks.fullMask.indexOf("(", fnStart + fnMatch[0].length);
+    const open = fullMask.indexOf("(", fnStart + fnMatch[0].length);
     if (open === -1) continue;
-    const close = matchingParenEnd(masks.fullMask, open);
+    const close = matchingParenEnd(fullMask, open);
     if (close === -1) continue;
-    if (!/\brequire\b/.test(masks.fullMask.slice(open + 1, close))) {
+    if (!/\brequire\b/.test(fullMask.slice(open + 1, close))) {
       continue;
     }
 
@@ -1049,14 +1222,52 @@ function maskRequireParameterBodies(masks: MaskPair): MaskPair {
     blankIdentifierInRange(fullChars, open + 1, close, "require");
 
     let bodyOpen = close + 1;
-    while (bodyOpen < masks.fullMask.length && /\s/.test(masks.fullMask[bodyOpen])) {
+    while (bodyOpen < fullMask.length && /\s/.test(fullMask[bodyOpen])) {
       bodyOpen++;
     }
-    if (masks.fullMask[bodyOpen] !== "{") continue;
-    const bodyClose = matchingBraceEnd(masks.fullMask, bodyOpen);
+    if (fullMask[bodyOpen] !== "{") continue;
+    const bodyClose = matchingBraceEnd(fullMask, bodyOpen);
     if (bodyClose === -1) continue;
     blankIdentifierInRange(codeChars, bodyOpen + 1, bodyClose, "require");
     blankIdentifierInRange(fullChars, bodyOpen + 1, bodyClose, "require");
+  }
+
+  for (
+    let open = fullMask.indexOf("(");
+    open !== -1;
+    open = fullMask.indexOf("(", open + 1)
+  ) {
+    const close = matchingParenEnd(fullMask, open);
+    if (close === -1) continue;
+    if (!isArrowParameterList(fullMask, open, close)) continue;
+    if (!parameterListDeclaresRequire(fullMask, open, close)) continue;
+    blankRequireParameterScope(
+      codeChars,
+      fullChars,
+      fullMask,
+      open,
+      close,
+      "arrow",
+    );
+  }
+
+  for (
+    let open = fullMask.indexOf("(");
+    open !== -1;
+    open = fullMask.indexOf("(", open + 1)
+  ) {
+    const close = matchingParenEnd(fullMask, open);
+    if (close === -1) continue;
+    if (!isMethodParameterList(fullMask, open, close)) continue;
+    if (!parameterListDeclaresRequire(fullMask, open, close)) continue;
+    blankRequireParameterScope(
+      codeChars,
+      fullChars,
+      fullMask,
+      open,
+      close,
+      "method",
+    );
   }
 
   return { codeMask: codeChars.join(""), fullMask: fullChars.join("") };
@@ -1312,22 +1523,6 @@ export function buildImportGraph(entryPath: string): FlowImportGraph {
     }
     const outputMasks = maskCodePair(output);
     const loaderOutputMasks = maskRequireParameterBodies(outputMasks);
-    assertNoRuntimeDynamicImport(outputMasks, source, sourceMasks, path);
-    if (path !== entry) {
-      assertNoTopLevelAwaitInNonEntryGraphFile(
-        output,
-        source,
-        sourceMasks,
-        path,
-      );
-    }
-    if (path === entry) assertNoEntryCommonJsExport(source, sourceMasks, path);
-    assertNoUnknownRequireReferences(
-      source,
-      sourceMasks,
-      loaderOutputMasks,
-      path,
-    );
 
     const validateSpecifier = (
       specifier: string,
@@ -1437,6 +1632,55 @@ export function buildImportGraph(entryPath: string): FlowImportGraph {
   };
 
   visit(entry);
+
+  // A file is runtime-reachable only when every edge on the path from the
+  // entry is a value edge. Files reached solely through `import type` are
+  // erased by jiti and never loaded, so their top-level-await and loader
+  // guards must not be applied to code that never executes.
+  const runtimeFiles = new Set<string>();
+  const pending = [entry];
+  runtimeFiles.add(entry);
+  for (let i = 0; i < pending.length; i++) {
+    const from = pending[i];
+    for (const edge of edges) {
+      if (
+        edge.from === from &&
+        edge.kind === "value" &&
+        !runtimeFiles.has(edge.resolved)
+      ) {
+        runtimeFiles.add(edge.resolved);
+        pending.push(edge.resolved);
+      }
+    }
+  }
+
+  for (const path of pending) {
+    if (isDeclarationFile(path)) continue;
+    const source = files.get(path);
+    const output = transforms.get(path);
+    if (source === undefined || output === undefined) continue;
+    const sourceMasks = maskCodePair(source);
+    const outputMasks = maskCodePair(output);
+    const loaderOutputMasks = maskRequireParameterBodies(outputMasks);
+
+    assertNoRuntimeDynamicImport(outputMasks, source, sourceMasks, path);
+    if (path !== entry) {
+      assertNoTopLevelAwaitInNonEntryGraphFile(
+        output,
+        source,
+        sourceMasks,
+        path,
+      );
+    }
+    if (path === entry) assertNoEntryCommonJsExport(source, sourceMasks, path);
+    assertNoUnknownRequireReferences(
+      source,
+      sourceMasks,
+      loaderOutputMasks,
+      path,
+    );
+  }
+
   return { entry, files, transforms, edges };
 }
 
