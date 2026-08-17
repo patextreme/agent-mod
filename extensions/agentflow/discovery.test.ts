@@ -351,6 +351,101 @@ test("buildImportGraph rejects a non-literal require argument", () => {
   }
 });
 
+test("buildImportGraph rejects a wrapped `(0, require)` bare specifier", () => {
+  // `jiti` leaves `(0, require)(...)` untouched, but it is a live require call
+  // at runtime and must not bypass the relative-only policy.
+  const d = makeDirs();
+  try {
+    const entry = writeFlow(
+      d.project,
+      "wrapped-require-bare",
+      'const cp = (0, require)("node:child_process");\naf.log(cp.execSync("whoami").toString());\n',
+    );
+    assert.throws(() => buildImportGraph(entry), /bare specifier "node:child_process"/);
+  } finally {
+    d.cleanup();
+  }
+});
+
+test("buildImportGraph rejects an unresolved require reference", () => {
+  // `const r = (0, require); r("node:os")` would otherwise contain no direct
+  // require() call and no collected alias: it must be rejected instead of
+  // validating with zero import edges.
+  const d = makeDirs();
+  try {
+    const entry = writeFlow(
+      d.project,
+      "unresolved-require-reference",
+      'const r = (0, require);\naf.log(r("node:os"));\n',
+    );
+    assert.throws(
+      () => buildImportGraph(entry),
+      /require usage cannot be statically verified/,
+    );
+  } finally {
+    d.cleanup();
+  }
+});
+
+test("buildImportGraph rejects a require-derived callable expression", () => {
+  // `require.bind(null)` returns a live require function; the guard must not
+  // mistake it for the exact `const r = require` alias because the `require`
+  // token is followed by `.bind(...)` rather than a statement end.
+  const d = makeDirs();
+  try {
+    const entry = writeFlow(
+      d.project,
+      "require-bind-reference",
+      'const r = require.bind(null);\naf.log(r("node:os"));\n',
+    );
+    assert.throws(
+      () => buildImportGraph(entry),
+      /require usage cannot be statically verified/,
+    );
+  } finally {
+    d.cleanup();
+  }
+});
+
+test("buildImportGraph does not treat a direct require result as a require alias", () => {
+  // The alias collector must skip `require("literal")` when the next token is
+  // `(`; otherwise a later `handler(dynamicExpr)` call is misidentified as an
+  // aliased require call and rejected.
+  const d = makeDirs();
+  try {
+    writeFileSync(
+      join(d.project, "handler.cjs"),
+      "module.exports = function (x) { return x; };\n",
+    );
+    const entry = writeFlow(
+      d.project,
+      "direct-require-not-alias",
+      'const handler = require("./handler.cjs");\naf.log(handler(dynamicExpr));\n',
+    );
+    const graph = buildImportGraph(entry);
+    assert.equal(graph.edges.length, 1);
+    assert.equal(graph.edges[0].specifier, "./handler.cjs");
+  } finally {
+    d.cleanup();
+  }
+});
+
+test("buildImportGraph rejects CommonJS export syntax in the entry", () => {
+  // Imported `.cjs` helpers may still use `module.exports`, but a flow entry
+  // using it is a silent no-op and must fail validation with a clear message.
+  const d = makeDirs();
+  try {
+    const entry = writeFlow(
+      d.project,
+      "cjs-export-entry",
+      'module.exports = async function () {\n  await af.bash("echo hi");\n};\n',
+    );
+    assert.throws(() => buildImportGraph(entry), /CommonJS export syntax/);
+  } finally {
+    d.cleanup();
+  }
+});
+
 test("buildImportGraph rejects a bare specifier passed through an aliased require", () => {
   const d = makeDirs();
   try {
@@ -482,6 +577,32 @@ test("buildImportGraph rejects dynamic import() in a ternary false branch", () =
       (err: unknown) => {
         assert.ok(err instanceof Error);
         assert.match(err.message, /dynamic import\(\) is not allowed/);
+        return true;
+      },
+    );
+  } finally {
+    d.cleanup();
+  }
+});
+
+test("buildImportGraph locates a real dynamic import after an optional type annotation", () => {
+  // `cb?: import("./helper.ts").T` is an optional-parameter type annotation and
+  // is erased; the dynamic-import error must point at the real `import()` on
+  // the following line rather than the harmless type-position import.
+  const d = makeDirs();
+  try {
+    writeFileSync(join(d.project, "helper.ts"), "export type T = string;\n");
+    const entry = writeFlow(
+      d.project,
+      "optional-type-dynamic",
+      'function f(cb?: import("./helper.ts").T) {}\nconst bad = import("./oops.ts");\naf.log(f, bad);\n',
+    );
+    assert.throws(
+      () => buildImportGraph(entry),
+      (err: unknown) => {
+        assert.ok(err instanceof Error);
+        assert.match(err.message, /dynamic import\(\) is not allowed/);
+        assert.match(err.message, /\(2:13\)/);
         return true;
       },
     );

@@ -76,34 +76,84 @@ async function evaluateVerdict(
       "return a JSON object of the shape { verdict, reason? }.",
   });
 
-  await evaluator.sendMessage(
-    `Below is the review text for PR #${PR_NUMBER} (round ${round}). ` +
-      `Determine the verdict and submit it via submit_result.\n\n${reviewText}`,
-  );
-  const submitted = evaluator.submittedResult();
-  evaluator.dispose();
+  try {
+    await evaluator.sendMessage(
+      `Below is the review text for PR #${PR_NUMBER} (round ${round}). ` +
+        `Determine the verdict and submit it via submit_result.\n\n${reviewText}`,
+    );
+    const submitted = evaluator.submittedResult();
 
-  if (submitted?.verdict) {
-    return submitted.verdict;
+    if (submitted?.verdict) {
+      return submitted.verdict;
+    }
+    throw new Error(
+      `Round ${round}: evaluator did not submit a verdict via submit_result`,
+    );
+  } finally {
+    evaluator.dispose();
   }
-  throw new Error(
-    `Round ${round}: evaluator did not submit a verdict via submit_result`,
-  );
+}
+
+/**
+ * Parse one porcelain path token. `git status --porcelain` quotes paths that
+ * contain spaces/non-ASCII and escapes the same characters as C strings, so
+ * stripping only the surrounding quotes is lossy for real filenames.
+ */
+function parsePorcelainPath(raw: string): string {
+  if (!(raw.startsWith('"') && raw.endsWith('"'))) return raw;
+  return raw
+    .slice(1, -1)
+    .replace(/\\([\\"nt])/g, (_match, c: string) => {
+      if (c === "n") return "\n";
+      if (c === "t") return "\t";
+      return c;
+    });
 }
 
 /**
  * Parse `git status --porcelain` output into the set of changed paths.
- * Handles rename entries ("XY old -> new") by taking the new path.
+ * Rename/copy entries ("XY old -> new") only split on the arrow when the
+ * status-code prefix actually denotes a rename/copy; an untracked file whose
+ * name contains " -> " must remain one path.
  */
 function porcelainChangedPaths(out: string): Set<string> {
   const paths = new Set<string>();
   for (const line of out.split("\n")) {
     if (line.length < 4) continue;
+    const status = line.slice(0, 2);
+    const renameOrCopy = status[0] === "R" || status[0] === "C";
     let path = line.slice(3);
-    const arrow = path.indexOf(" -> ");
-    if (arrow !== -1) path = path.slice(arrow + 4);
-    path = path.replace(/^"(.*)"$/, "$1"); // strip porcelain quoting
-    paths.add(path);
+    if (renameOrCopy) {
+      // Find the rename arrow outside of any quoted half of the entry.
+      let quoted = false;
+      let escaped = false;
+      for (let i = 0; i < path.length - 3; i++) {
+        const c = path[i];
+        if (escaped) {
+          escaped = false;
+          continue;
+        }
+        if (c === "\\") {
+          escaped = true;
+          continue;
+        }
+        if (c === '"') {
+          quoted = !quoted;
+          continue;
+        }
+        if (
+          !quoted &&
+          c === " " &&
+          path[i + 1] === "-" &&
+          path[i + 2] === ">" &&
+          path[i + 3] === " "
+        ) {
+          path = path.slice(i + 4);
+          break;
+        }
+      }
+    }
+    paths.add(parsePorcelainPath(path));
   }
   return paths;
 }
@@ -327,14 +377,17 @@ fi
         "`npm run typecheck` or `npm test` to verify.",
     });
 
-    const fixSummary = await fixer.sendMessage(
-      `Claude reviewed PR #${PR_NUMBER} (branch \`${branch}\`) and requested changes. ` +
-        `Here is the review:\n\n${reviewText}\n\n` +
-        `Fix every legitimate issue in the working tree, then reply with a short ` +
-        `summary of exactly which files you changed and why.`,
-    );
-    af.log(`Round ${round} fixer: ${fixSummary.slice(0, 400)}`);
-    fixer.dispose();
+    try {
+      const fixSummary = await fixer.sendMessage(
+        `Claude reviewed PR #${PR_NUMBER} (branch \`${branch}\`) and requested changes. ` +
+          `Here is the review:\n\n${reviewText}\n\n` +
+          `Fix every legitimate issue in the working tree, then reply with a short ` +
+          `summary of exactly which files you changed and why.`,
+      );
+      af.log(`Round ${round} fixer: ${fixSummary.slice(0, 400)}`);
+    } finally {
+      fixer.dispose();
+    }
 
     // The tree was verified clean before the loop, so anything dirty now is the
     // fixer's own work. Commit all of it (tracked + untracked) rather than

@@ -301,8 +301,9 @@ function resolveRelativeImport(
  *
  * This is a heuristic (it does not fully model JS lexing — regex-vs-division
  * uses a prev-token check, nested template interpolations use a brace
- * counter), which is acceptable: it feeds coarse "is this token real code"
- * checks, with the runtime itself as the final authority.
+ * counter). It feeds coarse "is this token real code" checks; the import
+ * extractors below reject any `require`/import form they cannot resolve
+ * statically rather than letting the live loader be the final authority.
  */
 interface MaskPair {
   codeMask: string;
@@ -523,8 +524,11 @@ function locateSpecifier(
     const index = match.index ?? 0;
     const before = codeMask.slice(0, index);
     // The quote must belong to an actual import-like source form. Walk back
-    // to the nearest `import(`/`require(`/`from` token before the quote.
-    const token = /(?:from\s*|require\s*\(|import\s*\()\s*$/.exec(before);
+    // to the nearest `import(` / direct or wrapped `require` / `from` token
+    // before the quote.
+    const token = /(?:from\s*|require\s*(?:\)\s*)?\(|import\s*\()\s*$/.exec(
+      before,
+    );
     if (!token) continue;
     const tokenStart = token.index;
     const word = /[A-Za-z]+/.exec(token[0])?.[0] ?? "import";
@@ -535,12 +539,48 @@ function locateSpecifier(
 }
 
 /**
+ * Read a single quoted-string argument from a masked call. `afterOpenParen`
+ * is the index just past the opening `(` of the call. Returns the literal
+ * argument when the whole argument is one string literal and the call is
+ * closed immediately after it; otherwise returns `null` so callers can treat
+ * the call as unverifiable/dynamic.
+ */
+function readRequireStringArgument(
+  mask: string,
+  afterOpenParen: number,
+): string | null {
+  let i = afterOpenParen;
+  while (i < mask.length && /\s/.test(mask[i])) i++;
+  const quote = mask[i];
+  if (quote !== '"' && quote !== "'") return null;
+  let j = i + 1;
+  let specifier = "";
+  while (j < mask.length && mask[j] !== quote) {
+    if (mask[j] === "\\") {
+      specifier += mask.slice(j, Math.min(j + 2, mask.length));
+      j += 2;
+      continue;
+    }
+    specifier += mask[j];
+    j++;
+  }
+  // The closing quote must be followed by the call's closing `)` (after
+  // whitespace). Anything else — `require("./x" + suffix)` — is a dynamic
+  // argument that cannot be statically resolved.
+  let after = j + 1;
+  while (after < mask.length && /\s/.test(mask[after])) after++;
+  return mask[after] === ")" ? specifier : null;
+}
+
+/**
  * Extract the runtime (value) edges from jiti's transpiled output. ESM
  * imports and `export ... from` become plain `require("specifier")` calls;
  * type-only constructs are erased by the transform, so what remains is
  * exactly the set the loader will follow at runtime.
  *
- * A `require(` is counted only when it is real code: the call must appear in
+ * Both direct `require(...)` calls and wrapped-`require` calls such as
+ * `(0, require)("...")` are counted; both forms reach the live loader at
+ * runtime. A call is counted only when it is real code: it must appear in
  * BOTH the comment-only mask (where its quoted argument is readable) and the
  * full mask (where strings are blanked, so mentions inside string/template
  * text or comments are dropped). A call whose argument is not a string
@@ -552,34 +592,19 @@ function extractRequireSpecifiers(
 ): (string | null)[] {
   const { codeMask, fullMask } = masks;
   const specifiers: (string | null)[] = [];
-  for (const match of codeMask.matchAll(/(?<![\w.$])require\s*\(/g)) {
-    const index = match.index ?? 0;
-    // Real code only: the full mask must still spell `require` here.
-    if (fullMask.slice(index, index + 7) !== "require") continue;
-    let i = index + match[0].length;
-    while (i < codeMask.length && /\s/.test(codeMask[i])) i++;
-    const quote = codeMask[i];
-    if (quote !== '"' && quote !== "'") {
-      specifiers.push(null);
-      continue;
+  const forms = [
+    /(?<![\w.$])require\s*\(/g,
+    /(?<![\w.$])require\s*\)\s*\(/g,
+  ];
+  for (const form of forms) {
+    for (const match of codeMask.matchAll(form)) {
+      const index = match.index ?? 0;
+      // Real code only: the full mask must still spell `require` here.
+      if (fullMask.slice(index, index + 7) !== "require") continue;
+      specifiers.push(
+        readRequireStringArgument(codeMask, index + match[0].length),
+      );
     }
-    let j = i + 1;
-    let specifier = "";
-    while (j < codeMask.length && codeMask[j] !== quote) {
-      if (codeMask[j] === "\\") {
-        specifier += codeMask.slice(j, Math.min(j + 2, codeMask.length));
-        j += 2;
-        continue;
-      }
-      specifier += codeMask[j];
-      j++;
-    }
-    // The closing quote must be followed by the call's closing `)` (after
-    // whitespace). Anything else — `require("./x" + suffix)` — is a dynamic
-    // argument that cannot be statically resolved.
-    let after = j + 1;
-    while (after < codeMask.length && /\s/.test(codeMask[after])) after++;
-    specifiers.push(codeMask[after] === ")" ? specifier : null);
   }
   return specifiers;
 }
@@ -593,7 +618,7 @@ function collectRequireAliases(masks: MaskPair): Set<string> {
   const { codeMask, fullMask } = masks;
   const aliases = new Set<string>();
   const aliasDecl =
-    /(?<![\w.$])(const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?<![\w.$])require(?!\w|\$|\.)/g;
+    /(?<![\w.$])(const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?<![\w.$])require(?![\w$(.])/g;
   for (const match of codeMask.matchAll(aliasDecl)) {
     const start = match.index ?? 0;
     const keyword = match[1];
@@ -631,38 +656,56 @@ function extractAliasedRequireSpecifiers(
     for (const match of codeMask.matchAll(callRe)) {
       const index = match.index ?? 0;
       if (fullMask.slice(index, index + alias.length) !== alias) continue;
-      let i = index + match[0].length;
-      while (i < codeMask.length && /\s/.test(codeMask[i])) i++;
-      const quote = codeMask[i];
-      if (quote !== '"' && quote !== "'") {
-        specifiers.push(null);
-        continue;
-      }
-      let j = i + 1;
-      let specifier = "";
-      while (j < codeMask.length && codeMask[j] !== quote) {
-        if (codeMask[j] === "\\") {
-          specifier += codeMask.slice(j, Math.min(j + 2, codeMask.length));
-          j += 2;
-          continue;
-        }
-        specifier += codeMask[j];
-        j++;
-      }
-      let after = j + 1;
-      while (after < codeMask.length && /\s/.test(codeMask[after])) after++;
-      specifiers.push(codeMask[after] === ")" ? specifier : null);
+      specifiers.push(
+        readRequireStringArgument(codeMask, index + match[0].length),
+      );
     }
   }
   return specifiers;
 }
 
-/** Match static import declarations, including `import type` and inline `{ type X }`. */
-const IMPORT_DECL_RE =
-  /\bimport\s*(type\s+)?([^;'"]*?)\s*from\s*(['"])([^'"]+)\3/g;
-/** Match static export-from declarations, including `export type` and inline `{ type X }`. */
-const EXPORT_DECL_RE =
-  /\bexport\s*(type\s+)?([^;'"]*?)\s*from\s*(['"])([^'"]+)\3/g;
+/**
+ * Reject any `require` identifier that is not one of the forms the walker can
+ * statically resolve: a direct `require(...)` call, a wrapped
+ * `(0, require)(...)` call, or the exact local alias declaration
+ * `const r = require`. Without this guard, `const cp = (0, require);
+ * cp("node:child_process")` would contain no direct/wrapped `require` call
+ * and no collected alias, so it would otherwise validate with zero edges and
+ * then run with the live loader's unrestricted `require`.
+ */
+function assertNoUnknownRequireReferences(
+  source: string,
+  masks: MaskPair,
+  file: string,
+): void {
+  const { fullMask } = masks;
+  const re = /(?<![\w.$])require\b/g;
+  for (const match of fullMask.matchAll(re)) {
+    const index = match.index ?? 0;
+    const before = fullMask.slice(0, index);
+    const after = fullMask.slice(index + "require".length);
+    if (/^\s*\(/.test(after)) continue; // direct require(...)
+    if (/^\s*\)\s*\(/.test(after)) continue; // (0, require)(...)
+    const exactAliasBefore =
+      /(?:^|[^\w.$])(?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=\s*$/.test(
+        before,
+      );
+    const exactAliasTerminated =
+      /^\s*(?:;|$)/.test(after) || /^\s*[\r\n]/.test(after);
+    if (exactAliasBefore && exactAliasTerminated) {
+      continue; // exact local alias: const r = require
+    }
+    throw importError(
+      file,
+      'require usage cannot be statically verified — use require("./module") directly or assign it with `const r = require`',
+      offsetToLineCol(source, index),
+    );
+  }
+}
+
+/** Match static import/export-from declarations, including `type` modifiers. */
+const IMPORT_OR_EXPORT_DECL_RE =
+  /\b(import|export)\s*(type\s+)?([^;'"]*?)\s*from\s*(['"])([^'"]+)\4/g;
 
 /** True when an import/export clause contains an inline `type` modifier. */
 function hasInlineTypeModifier(clause: string): boolean {
@@ -670,68 +713,42 @@ function hasInlineTypeModifier(clause: string): boolean {
 }
 
 /**
- * Extract type-only import/export specifiers from a file's source masks. These
- * are erased by jiti's transform, so they never appear as runtime `require`
- * edges; without this pass an inline `import { type X } from "bare-module"`
- * would otherwise bypass the relative-only import policy entirely.
+ * Extract specifiers from static import/export-from declarations in one pass.
  *
- * Type declarations are read from the code mask (where quoted specifiers are
+ * Type-only declarations (explicit `import type` / `export type`, or inline
+ * `{ type X }`) are erased by jiti's transform, so they never appear as
+ * runtime `require` edges; without this pass an inline
+ * `import { type X } from "bare-module"` would otherwise bypass the
+ * relative-only import policy entirely. Unmarked declarations are returned
+ * separately because jiti may still erase them when every imported binding is
+ * used only in a type position.
+ *
+ * Declarations are read from the code mask (where quoted specifiers are
  * readable) and cross-checked against the full mask, so lookalike import text
  * inside strings/comments is ignored the same way `extractRequireSpecifiers`
  * ignores it.
  */
-function collectTypeSpecifiers(masks: MaskPair): Set<string> {
+function collectSourceImportSpecifiers(masks: MaskPair): {
+  typeSpecifiers: Set<string>;
+  unmarkedSpecifiers: Set<string>;
+} {
   const { codeMask, fullMask } = masks;
-  const specifiers = new Set<string>();
-  const realCode = (start: number, word: "import" | "export"): boolean =>
-    fullMask.slice(start, start + word.length) === word;
+  const typeSpecifiers = new Set<string>();
+  const unmarkedSpecifiers = new Set<string>();
 
-  for (const match of codeMask.matchAll(IMPORT_DECL_RE)) {
+  for (const match of codeMask.matchAll(IMPORT_OR_EXPORT_DECL_RE)) {
     const start = match.index ?? 0;
-    if (!realCode(start, "import")) continue;
-    if (match[1] !== undefined || hasInlineTypeModifier(match[2])) {
-      specifiers.add(match[4]);
+    const keyword = match[1];
+    // Real code only: the full mask must still spell `import`/`export` here.
+    if (fullMask.slice(start, start + keyword.length) !== keyword) continue;
+    const explicitType = match[2] !== undefined;
+    if (explicitType || hasInlineTypeModifier(match[3])) {
+      typeSpecifiers.add(match[5]);
+    } else {
+      unmarkedSpecifiers.add(match[5]);
     }
   }
-  for (const match of codeMask.matchAll(EXPORT_DECL_RE)) {
-    const start = match.index ?? 0;
-    if (!realCode(start, "export")) continue;
-    if (match[1] !== undefined || hasInlineTypeModifier(match[2])) {
-      specifiers.add(match[4]);
-    }
-  }
-  return specifiers;
-}
-
-/**
- * Extract import/export-from specifiers written without an explicit `type`
- * marker (neither `import type`, `export type`, nor inline `{ type X }`).
- * These are the declarations jiti may silently erase when every imported
- * binding is used only in a type position — the class of import that used to
- * bypass the policy entirely. Callers subtract runtime and explicit-type
- * specifiers before validating this set.
- */
-function collectUnmarkedSourceSpecifiers(masks: MaskPair): Set<string> {
-  const { codeMask, fullMask } = masks;
-  const specifiers = new Set<string>();
-  const realCode = (start: number, word: "import" | "export"): boolean =>
-    fullMask.slice(start, start + word.length) === word;
-
-  for (const match of codeMask.matchAll(IMPORT_DECL_RE)) {
-    const start = match.index ?? 0;
-    if (!realCode(start, "import")) continue;
-    if (match[1] === undefined && !hasInlineTypeModifier(match[2])) {
-      specifiers.add(match[4]);
-    }
-  }
-  for (const match of codeMask.matchAll(EXPORT_DECL_RE)) {
-    const start = match.index ?? 0;
-    if (!realCode(start, "export")) continue;
-    if (match[1] === undefined && !hasInlineTypeModifier(match[2])) {
-      specifiers.add(match[4]);
-    }
-  }
-  return specifiers;
+  return { typeSpecifiers, unmarkedSpecifiers };
 }
 
 /**
@@ -767,6 +784,35 @@ function matchingBraceEnd(mask: string, open: number): number {
     }
   }
   return -1;
+}
+
+/**
+ * Reject CommonJS export syntax in a flow entry. Imported `.cjs`/`.js` helpers
+ * legitimately use `module.exports`/`exports.*`, but in the entry those
+ * assignments are never read by AgentFlow: the script would otherwise validate
+ * clean and silently complete as a no-op.
+ */
+function assertNoEntryCommonJsExport(
+  source: string,
+  masks: MaskPair,
+  path: string,
+): void {
+  const re = /(?<![\w.$])module\s*\.\s*exports\b|(?<![\w.$])exports\s*\./g;
+  for (const match of masks.fullMask.matchAll(re)) {
+    const index = match.index ?? 0;
+    throw new FlowLocatedError(
+      `AgentFlow: flow entry "${path}" uses CommonJS export syntax (${match[0].trim()}) — use ESM \`export\`, or \`af.result\` for the flow outcome`,
+      [
+        {
+          file: path,
+          line: offsetToLineCol(source, index).line,
+          col: offsetToLineCol(source, index).col,
+          message:
+            "flow entry cannot use CommonJS export syntax (module.exports / exports.*)",
+        },
+      ],
+    );
+  }
 }
 
 /**
@@ -856,7 +902,11 @@ function transformFlowSource(
  * - dynamic `import()` expressions are rejected outright (they cannot be
  *   walked statically);
  * - `require()` with a non-literal argument is rejected (unverifiable);
- *   calls through local `require` aliases are treated the same.
+ *   calls through local `require` aliases and wrapped `(0, require)(...)`
+ *   calls are treated the same, and any other free-`require` reference is
+ *   rejected;
+ * - a flow entry using CommonJS `module.exports`/`exports.*` assignment is
+ *   rejected (imported helpers may still use it).
  *
  * Relative imports are confined to the flow root (the project for `.pi/
  * agentflow` project scripts, derived from the entry path when no explicit
@@ -910,6 +960,8 @@ export function buildImportGraph(
     }
     const outputMasks = maskCodePair(output);
     assertNoRuntimeDynamicImport(outputMasks, source, sourceMasks, path);
+    if (path === entry) assertNoEntryCommonJsExport(source, sourceMasks, path);
+    assertNoUnknownRequireReferences(source, sourceMasks, path);
 
     const validateSpecifier = (
       specifier: string,
@@ -981,7 +1033,8 @@ export function buildImportGraph(
     // also handles inline `{ type X }` imports/exports, which would otherwise
     // be invisible to both the runtime-edge pass and the old `import type`
     // regex.
-    const typeSpecifiers = collectTypeSpecifiers(sourceMasks);
+    const { typeSpecifiers, unmarkedSpecifiers } =
+      collectSourceImportSpecifiers(sourceMasks);
     for (const specifier of typeSpecifiers) {
       validateSpecifier(specifier, "type", "allow");
     }
@@ -995,7 +1048,6 @@ export function buildImportGraph(
         (s): s is string => s !== null,
       ),
     );
-    const unmarkedSpecifiers = collectUnmarkedSourceSpecifiers(sourceMasks);
     for (const specifier of unmarkedSpecifiers) {
       if (runtimeSpecifiers.has(specifier) || typeSpecifiers.has(specifier)) {
         continue;
@@ -1055,9 +1107,11 @@ function isTypePositionImport(before: string): boolean {
     return true;
   }
   if (/:\s*$/.test(before)) {
-    // A colon can start a type annotation (`const n: import(...)`) or separate
-    // a ternary's false branch (`cond ? a : import(...)`). Only the latter
-    // reaches runtime.
+    // An optional property/parameter marker (`cb?: import(...)`) is a type
+    // annotation, not a ternary. A colon can also start a type annotation
+    // (`const n: import(...)`) or separate a ternary's false branch
+    // (`cond ? a : import(...)`); only the ternary reaches runtime.
+    if (/\?:\s*$/.test(before)) return true;
     return !/\?[^:?]*:\s*$/.test(before);
   }
   return false;
