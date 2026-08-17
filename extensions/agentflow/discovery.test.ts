@@ -361,7 +361,10 @@ test("buildImportGraph rejects a wrapped `(0, require)` bare specifier", () => {
       "wrapped-require-bare",
       'const cp = (0, require)("node:child_process");\naf.log(cp.execSync("whoami").toString());\n',
     );
-    assert.throws(() => buildImportGraph(entry), /bare specifier "node:child_process"/);
+    assert.throws(
+      () => buildImportGraph(entry),
+      /bare specifier "node:child_process"/,
+    );
   } finally {
     d.cleanup();
   }

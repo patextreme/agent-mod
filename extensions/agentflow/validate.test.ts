@@ -73,6 +73,28 @@ test("validateFlowFile reports a type error as invalid with a located error", as
   }
 });
 
+test("validateFlowFile rejects a flow that violates the af declarations", async () => {
+  const d = makeDir();
+  try {
+    // Parses fine and follows the import policy, but violates the
+    // FlowAgentConfig contract in agentflow.d.ts (`name` must be a string).
+    // Guards the type-check against the declarations actually running —
+    // when the TypeScript compiler fails to load, this degrades to
+    // syntax-only validation and such a flow wrongly reports ok.
+    writeFileSync(
+      join(d.cwd, ".pi", "agentflow", "afbad.ts"),
+      "const agent = await af.createAgent({ name: 42 });\naf.result(agent.name);\n",
+    );
+    const report = await validateFlowFile("afbad", d.cwd);
+    assert.equal(report.ok, false);
+    assert.ok(report.errors.length > 0);
+    assert.match(report.errors[0].message, /not assignable to type 'string'/);
+    assert.ok(report.errors[0].line > 0, "expected a located line");
+  } finally {
+    d.cleanup();
+  }
+});
+
 test("validateFlowFile reports not-found for an unresolvable name", async () => {
   const d = makeDir();
   try {
