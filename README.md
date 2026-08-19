@@ -28,7 +28,7 @@ This registers all extensions and prompts declared in [`package.json`](./package
 
 | Extension | Description |
 |-----------|-------------|
-| [Permission](./extensions/permission/index.ts) | Intercepts `bash` tool calls and applies regex-based permission rules; plays a bell on prompts and when the agent finishes |
+| [Permission](./extensions/permission/index.ts) | Intercepts `bash` tool calls and applies regex-based permission rules; plays a bell on prompts and when the agent finishes; opt-in session-scoped `/permission-yolo` full bypass |
 | [TPS](./extensions/tps/index.ts) | Tracks tokens-per-second, TTFT, stalls, and cost per LLM turn; persists telemetry to session for rehydration |
 | [AgentFlow](./extensions/agentflow/index.ts) | Runs `/af <name>` flow scripts (`.pi/agentflow/`) that orchestrate isolated sub-agent sessions via an injected `af` API, under a blocking full-screen Orchestrator |
 
@@ -67,6 +67,11 @@ There is no explicit `git commit` rule; commits fall through to the unmatched-co
 - `/permission-reset` — clear all "Always allow" choices
 
 The always-allow state resets on each new session.
+
+**YOLO mode:**
+- `/permission-yolo` — toggle session-scoped YOLO mode. Bare invocation toggles; `on`/`off` set it explicitly. While on, **every** `bash` command is allowed without consulting rules or prompting — including `ask`/`deny` rules and the no-match prompt.
+- A persistent yellow `⚠️ YOLO MODE ON` warning shows in the status bar while enabled.
+- YOLO mode is a deliberate, explicit opt-in: the typed command itself is the confirmation (no dialog). It resets to off on each new session, and `/permission-reset` also disables it.
 
 A bell (`extensions/permission/sounds/message.oga`, played via `pw-play`) rings on each permission prompt and when the agent finishes a run (suppressed if you aborted it), so you don't have to watch the screen.
 
