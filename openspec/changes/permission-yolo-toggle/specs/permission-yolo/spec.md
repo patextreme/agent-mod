@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Provides a session-scoped YOLO mode for the permission extension that bypasses all permission checks while enabled, with explicit confirmation to enable, a persistent visible warning, and automatic reset so the state never outlives a session unnoticed.
+Provides a session-scoped YOLO mode for the permission extension that bypasses all permission checks while enabled, with a persistent visible warning and automatic reset so the state never outlives a session unnoticed.
 
 ## ADDED Requirements
 
@@ -11,38 +11,23 @@ The system SHALL provide a `/permission-yolo` command. Invoked with no argument,
 
 #### Scenario: Bare invocation toggles
 - **WHEN** YOLO mode is off and `/permission-yolo` is invoked with no argument
-- **THEN** the enable flow (including confirmation) runs
+- **THEN** YOLO mode turns on
 
 #### Scenario: Explicit on
 - **WHEN** `/permission-yolo on` is invoked while mode is off
-- **THEN** the enable flow (including confirmation) runs
+- **THEN** YOLO mode turns on
 
 #### Scenario: Explicit off
 - **WHEN** `/permission-yolo off` is invoked while mode is on
-- **THEN** YOLO mode turns off immediately without confirmation
+- **THEN** YOLO mode turns off immediately
 
 #### Scenario: Idempotent explicit set is a no-op
 - **WHEN** `/permission-yolo on` is invoked while mode is already on, or `off` while already off
-- **THEN** no confirmation is shown and the mode is unchanged
+- **THEN** the mode is unchanged
 
 #### Scenario: Invalid argument rejected
 - **WHEN** `/permission-yolo foo` is invoked
 - **THEN** an error naming the usage is reported and YOLO mode is unchanged
-
-### Requirement: Confirmation to enable
-The system SHALL require an interactive confirmation before enabling YOLO mode. If the user declines the confirmation, YOLO mode SHALL remain off. If no UI is available, the enable attempt SHALL be refused with an error and YOLO mode SHALL remain off.
-
-#### Scenario: User confirms
-- **WHEN** the confirmation is shown and the user accepts
-- **THEN** YOLO mode turns on
-
-#### Scenario: User declines
-- **WHEN** the confirmation is shown and the user declines
-- **THEN** YOLO mode stays off
-
-#### Scenario: No UI refuses enable
-- **WHEN** an enable is attempted in a context without a UI
-- **THEN** the attempt is refused with an error and YOLO mode stays off
 
 ### Requirement: Full bypass while enabled
 While YOLO mode is on, the system SHALL allow every bash command without consulting permission rules or prompting, regardless of whether the command would otherwise match an `allow`, `ask`, or `deny` rule, match no rule, or run in a sandbox. Deny rules SHALL also be bypassed.

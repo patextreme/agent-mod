@@ -30,7 +30,8 @@ function playBell(): void {
 // YOLO mode: while enabled, every bash command is allowed without
 // consulting permission rules or prompting (bypasses allow/ask/deny and
 // the no-match prompt). Session-scoped: reset on session_start and by
-// /permission-reset, and enabling requires an explicit confirmation.
+// /permission-reset. Enabling is immediate — /permission-yolo is itself
+// an explicit, deliberate user action.
 let yoloEnabled = false;
 
 const YOLO_STATUS_KEY = "permission-yolo";
@@ -45,23 +46,10 @@ function setYoloStatus(ctx: ExtensionContext): void {
   );
 }
 
-// Enable YOLO mode. Refused without a UI (nothing to confirm against);
-// otherwise gated on an explicit confirmation dialog.
-async function enableYolo(ctx: ExtensionContext): Promise<void> {
-  if (!ctx.hasUI) {
-    ctx.ui.notify(
-      "Cannot enable YOLO mode: no UI available for confirmation.",
-      "error",
-    );
-    return;
-  }
-
-  const ok = await ctx.ui.confirm(
-    "⚠️ Enable YOLO mode?",
-    "ALL permission checks will be bypassed — every command runs without asking.",
-  );
-  if (!ok) return;
-
+// Enable YOLO mode. No confirmation dialog: the user just typed the
+// /permission-yolo command deliberately, so the command itself is the
+// opt-in and the status-bar warning is the feedback.
+function enableYolo(ctx: ExtensionContext): void {
   yoloEnabled = true;
   setYoloStatus(ctx);
 }
@@ -200,7 +188,7 @@ export default function permissionExtension(pi: ExtensionAPI): void {
       if (target === yoloEnabled) return;
 
       if (target) {
-        await enableYolo(ctx);
+        enableYolo(ctx);
       } else {
         disableYolo(ctx);
       }

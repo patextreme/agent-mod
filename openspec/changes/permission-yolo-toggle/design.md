@@ -4,12 +4,12 @@
 
 The permission extension (`extensions/permission/index.ts`) gates bash commands in a single `tool_call` handler: rules from `rules.ts` produce allow/deny/ask outcomes, unmatched commands prompt unless `PI_SANDBOX=true`, and "always allow" answers accumulate in a module-level `Set` that resets on `session_start`. The extension already registers two commands and plays a bell before prompts. See proposal.md for motivation.
 
-Constraints from the confirmed plan: full bypass (including deny rules), confirm-to-enable with no-UI refusal, status-bar-only feedback, reset on session start and via `/permission-reset`, no changes to `rules.ts` or its tests.
+Constraints from the confirmed plan: full bypass (including deny rules), immediate enable with no confirmation (the explicit command is the opt-in), status-bar-only feedback, reset on session start and via `/permission-reset`, no changes to `rules.ts` or its tests.
 
 ## Goals / Non-Goals
 
 **Goals:**
-- YOLO state that is obvious at a glance (footer warning) and impossible to enable accidentally (confirm dialog) or persist silently (session reset)
+- YOLO state that is obvious at a glance (footer warning), enabled only by an explicit typed command, and impossible to persist silently (session reset)
 - Minimal diff: one file, one boolean, one early return, one command
 
 **Non-Goals:**
@@ -29,13 +29,15 @@ A small `setYoloStatus(ctx)` helper writes `ctx.ui.setStatus("permission-yolo", 
 
 *Alternative:* set/clear inside event handlers only — rejected: transitions happen in command handlers, so that's where the write belongs; re-setting on every transition is idempotent and cheap.
 
-### D3: Enable flow — confirm first, then flip
-`enableYolo(ctx)`: if `!ctx.hasUI`, error notify and stay off. Otherwise `ctx.ui.confirm("⚠️ Enable YOLO mode? ALL permission checks will be bypassed — every command runs without asking.")` (exact wording from design Q15). On decline, nothing happens. On accept, flip the flag and write the status. No bell — the user just typed the command, unlike mid-run ask prompts (design Q10).
+### D3: Enable flow — immediate flip
+`enableYolo(ctx)` sets the flag and writes the status. No confirmation dialog, no bell — the user just typed the `/permission-yolo` command deliberately, so the command itself is the explicit opt-in and the status-bar warning is the feedback (extends design Q10's no-bell logic to dialogs).
 
-*Alternative:* flip first, confirm after — rejected: a dialog should gate the state change, not decorate it.
+*Revision:* originally confirm-first-then-flip (dialog gates the state change). Removed per user feedback — the prompt was redundant on top of an explicit, deliberate command invocation.
+
+*Alternative:* flip first, confirm after — rejected even pre-revision: a dialog should gate the state change, not decorate it. With no dialog at all, the typed command is the gate.
 
 ### D4: Idempotent explicit set
-The command resolves the target state first (`on`/`off`/toggle). If target equals current state, it's a no-op (design Q14); otherwise enable (via D3 flow) or disable (flip + status clear, no confirmation).
+The command resolves the target state first (`on`/`off`/toggle). If target equals current state, it's a no-op (design Q14); otherwise enable (via D3 flow) or disable (flip + status clear).
 
 ### D5: Disable paths share one function
 `disableYolo(ctx)` flips the flag and clears the status. Used by `/permission-yolo off`, bare toggle, and `/permission-reset`. It is safe to call when already off (idempotent clear), which keeps `session_start` and reset handlers trivial.
@@ -45,8 +47,8 @@ The command and state transitions are UI-bound (`ctx.ui.*`), and the bypass is a
 
 ## Risks / Trade-offs
 
-- [Full bypass includes deny rules → nothing stops a destructive command while on] → Confirm dialog to enable + persistent yellow warning + session-scoped lifetime; users opt in per session with their eyes open.
-- [Status bar is ambient; user may stop noticing it] → Accepted: yellow warning token plus ⚠️ glyph is the strongest always-visible signal pi offers; the confirm dialog is the attention gate.
+- [Full bypass includes deny rules → nothing stops a destructive command while on] → Enabling requires the explicit typed `/permission-yolo` command + persistent yellow warning + session-scoped lifetime; users opt in per session with their eyes open.
+- [Status bar is ambient; user may stop noticing it] → Accepted: yellow warning token plus ⚠️ glyph is the strongest always-visible signal pi offers; the explicit typed command is the opt-in gate.
 - [Footer status slot could collide with other extensions] → Namespaced key `"permission-yolo"`; pi merges per-key status entries.
 - [`tool_call` early return also bypasses future non-bash gates added above the bash check] → The early return sits at the top of the bash-specific path, guarded by `event.toolName !== "bash"` as today, so non-bash tools are untouched.
 
