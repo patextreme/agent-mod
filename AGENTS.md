@@ -28,7 +28,7 @@ nix flake check
 
 ## Repo Layout
 
-- `extensions/permission/index.ts` — Permission extension (imports from `./rules.js`). Registers the `/permission-list-always-allow` and `/permission-reset` commands
+- `extensions/permission/index.ts` — Permission extension (imports from `./rules.js`). Registers the `/permission-list-always-allow`, `/permission-reset`, and `/permission-yolo` commands
 - `extensions/permission/rules.ts` — Permission rules and `findMatchingRule` logic (dependency-free, testable)
 - `extensions/permission/rules.test.ts` — Permission rules test suite (65 tests)
 - `extensions/tps/index.ts` — TPS (tokens-per-second) tracking extension (single-file, no `package.json`)
@@ -43,6 +43,6 @@ nix flake check
 - **No build step** — `tsc --noEmit` only type-checks, no output
 - **Extensions** export a default function `(pi: ExtensionAPI) => void`
 - **Prompts** use `---` YAML frontmatter with a `description` field; `$ARGUMENTS` placeholder for user input
-- **Permission extension**: rules processed in **forward order**; first match wins. Actions: `allow`, `ask`, `deny`. Registers commands `permission-list-always-allow` and `permission-reset`. Resets always-allowed state on `session_start`.
+- **Permission extension**: rules processed in **forward order**; first match wins. Actions: `allow`, `ask`, `deny`. Registers commands `permission-list-always-allow`, `permission-reset`, and `permission-yolo`. Resets always-allowed state on `session_start`. `/permission-yolo` (bare toggle / `on` / `off`) enables a session-scoped mode that bypasses all permission checks — including `deny` rules and prompts — with a persistent status-bar warning; it is an explicit typed opt-in (no dialog) and resets on `session_start` and via `permission-reset`.
 - **Permission extension**: when `PI_SANDBOX=true`, unmatched commands are allowed instead of prompting
 `.pi/settings.json` is gitignored and controls what pi loads locally.

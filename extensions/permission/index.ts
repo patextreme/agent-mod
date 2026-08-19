@@ -2,7 +2,10 @@ import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionAPI,
+  ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import { findMatchingRule, PERMISSION_RULES } from "./rules.js";
 
 // Play the vendored bell sound via pw-play. Best-effort: any failure
@@ -24,12 +27,49 @@ function playBell(): void {
   }
 }
 
+// YOLO mode: while enabled, every bash command is allowed without
+// consulting permission rules or prompting (bypasses allow/ask/deny and
+// the no-match prompt). Session-scoped: reset on session_start and by
+// /permission-reset. Enabling is immediate — /permission-yolo is itself
+// an explicit, deliberate user action.
+let yoloEnabled = false;
+
+const YOLO_STATUS_KEY = "permission-yolo";
+const YOLO_STATUS_TEXT = "⚠️ YOLO MODE ON";
+
+// Write (or clear) the persistent footer warning. Called from every state
+// transition so the footer never lies. Idempotent.
+function setYoloStatus(ctx: ExtensionContext): void {
+  ctx.ui.setStatus(
+    YOLO_STATUS_KEY,
+    yoloEnabled ? ctx.ui.theme.fg("warning", YOLO_STATUS_TEXT) : undefined,
+  );
+}
+
+// Enable YOLO mode. No confirmation dialog: the user just typed the
+// /permission-yolo command deliberately, so the command itself is the
+// opt-in and the status-bar warning is the feedback.
+function enableYolo(ctx: ExtensionContext): void {
+  yoloEnabled = true;
+  setYoloStatus(ctx);
+}
+
+// Disable YOLO mode and clear the warning. Safe to call when already off.
+function disableYolo(ctx: ExtensionContext): void {
+  yoloEnabled = false;
+  setYoloStatus(ctx);
+}
+
 export default function permissionExtension(pi: ExtensionAPI): void {
   const isSandbox = process.env.PI_SANDBOX === "true";
   const alwaysAllowed: Set<number> = new Set();
 
   pi.on("tool_call", async (event, ctx) => {
     if (event.toolName !== "bash") return undefined;
+
+    // YOLO mode: allow every bash command before any rule evaluation,
+    // sandbox check, or prompting (design D1).
+    if (yoloEnabled) return undefined;
 
     const command = (event.input.command as string) || "";
     const rule = findMatchingRule(command);
@@ -129,18 +169,47 @@ export default function permissionExtension(pi: ExtensionAPI): void {
     },
   });
 
+  // Toggle YOLO mode (bypass ALL permission checks for this session)
+  pi.registerCommand("permission-yolo", {
+    description:
+      "Toggle YOLO mode: bypass ALL permission checks (session-scoped)",
+    handler: async (args, ctx) => {
+      const arg = args.trim();
+      if (arg !== "" && arg !== "on" && arg !== "off") {
+        ctx.ui.notify("Usage: /permission-yolo [on|off]", "error");
+        return;
+      }
+
+      // Resolve the target state: bare toggles, on/off set explicitly.
+      const target = arg === "" ? !yoloEnabled : arg === "on";
+
+      // Idempotent explicit set is a no-op (design D4). No notify on any
+      // successful transition — the status bar is the feedback.
+      if (target === yoloEnabled) return;
+
+      if (target) {
+        enableYolo(ctx);
+      } else {
+        disableYolo(ctx);
+      }
+    },
+  });
+
   // Reset all always-allowed permissions
   pi.registerCommand("permission-reset", {
     description: "Reset all always-allowed permissions",
     handler: async (_args, ctx) => {
       alwaysAllowed.clear();
+      disableYolo(ctx);
       ctx.ui.notify("All always-allowed permissions have been reset.", "info");
     },
   });
 
-  // Reset always-allow permissions when a new session starts
-  pi.on("session_start", async () => {
+  // Reset always-allow permissions when a new session starts, and make
+  // sure YOLO mode never survives into a new session unnoticed.
+  pi.on("session_start", async (_event, ctx) => {
     alwaysAllowed.clear();
+    disableYolo(ctx);
   });
 
   // Ring the bell when the agent loop ends naturally, so the user knows
