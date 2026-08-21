@@ -1,7 +1,6 @@
 ---
 name: openspec-review
 description: Review an OpenSpec change for semantic soundness before implementation. Fills the gap between openspec validate (structural) and the openspec-verify-change skill (post-implementation).
-allowed-tools: Bash(openspec:*)
 license: MIT
 compatibility: Requires openspec CLI.
 ---

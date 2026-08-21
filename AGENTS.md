@@ -36,7 +36,7 @@ nix flake check
 - `skills/` — Pi skills (`<name>/SKILL.md` with YAML frontmatter), packaged via the `pi` field and the `pi-skills` flake output
 - `nix/` — Flake devshell and package build config
 
-`package.json` `"pi"` field declares `extensions` and `prompts` directories. `tsconfig.json` includes `extensions/**/*.ts`.
+`package.json` `"pi"` field declares `extensions`, `prompts`, and `skills` directories. `tsconfig.json` includes `extensions/**/*.ts`.
 
 ## Key Conventions
 

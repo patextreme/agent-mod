@@ -20,7 +20,7 @@ Install it once and every Pi session in the project gets permission prompts and 
 pi install git:github.com/patextreme/agent-mod
 ```
 
-This registers all extensions and prompts declared in [`package.json`](./package.json).
+This registers all extensions, prompts, and skills declared in [`package.json`](./package.json).
 
 ## Contents
 
