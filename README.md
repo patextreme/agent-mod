@@ -20,7 +20,7 @@ Install it once and every Pi session in the project gets permission prompts and 
 pi install git:github.com/patextreme/agent-mod
 ```
 
-This registers all extensions and prompts declared in [`package.json`](./package.json).
+This registers all extensions, prompts, and skills declared in [`package.json`](./package.json).
 
 ## Contents
 
@@ -41,8 +41,13 @@ This registers all extensions and prompts declared in [`package.json`](./package
 | [`commit-generate-message`](./prompts/commit-generate-message.md) | Generate a commit message from staged changes |
 | [`commit-generate-message-conventional`](./prompts/commit-generate-message-conventional.md) | Generate a conventional commit message |
 | [`init`](./prompts/init.md) | Create or update `AGENTS.md` for a repository |
-| [`openspec-review`](./prompts/openspec-review.md) | Review an OpenSpec change for semantic soundness before implementation |
 | [`review`](./prompts/review.md) | Review code changes and provide actionable feedback |
+
+### Skills
+
+| Skill | Description |
+|-------|-------------|
+| [`openspec-review`](./skills/openspec-review/SKILL.md) | Review an OpenSpec change for semantic soundness before implementation |
 
 ## Permission Extension
 
