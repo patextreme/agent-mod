@@ -93,6 +93,16 @@
         '';
       };
 
+      pi-skills = pkgs.stdenv.mkDerivation {
+        name = "pi-skills";
+        src = ./../../skills;
+        phases = [ "installPhase" ];
+        installPhase = ''
+          mkdir -p $out
+          cp -r $src/. $out/
+        '';
+      };
+
       biome-check = pkgs.stdenv.mkDerivation {
         name = "biome-check";
         src = ./../..;
@@ -176,11 +186,11 @@
     in
     {
       packages = {
-        inherit pi-permission pi-tps pi-crof pi-agentflow pi-prompts;
+        inherit pi-permission pi-tps pi-crof pi-agentflow pi-prompts pi-skills;
       };
 
       checks = {
-        inherit pi-permission pi-tps pi-crof pi-agentflow pi-prompts;
+        inherit pi-permission pi-tps pi-crof pi-agentflow pi-prompts pi-skills;
         inherit biome-check tsc-check permission-test crof-test agentflow-test;
       };
     };

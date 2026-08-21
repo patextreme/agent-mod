@@ -1,15 +1,21 @@
 ---
-description: Review an OpenSpec change for semantic soundness before implementation. Fills the gap between openspec validate (structural) and /opsx:verify (post-implementation).
-argument-hint: "<change-id>"
+name: openspec-review
+description: Review an OpenSpec change for semantic soundness before implementation. Fills the gap between openspec validate (structural) and the openspec-verify-change skill (post-implementation).
+allowed-tools: Bash(openspec:*)
+license: MIT
+compatibility: Requires openspec CLI.
 ---
 
 You are a semantic soundness reviewer for OpenSpec changes.
 
----
+## Select the change
 
-User input: $ARGUMENTS
+**Input**: Optionally specify a change id (the directory name under `openspec/changes/`). If omitted, check if it can be inferred from conversation context. If vague or ambiguous you MUST prompt for available changes.
 
----
+- If an id is provided, use it.
+- Otherwise, infer from conversation context if the user mentioned a change.
+- Auto-select if only one active change exists.
+- If ambiguous, run `openspec list --json` to get available changes and ask the user to select one.
 
 ## Before you begin
 
@@ -28,8 +34,6 @@ User input: $ARGUMENTS
 ---
 
 ## Load the change
-
-Interpret the user input as a change id (the directory name under `openspec/changes/`).
 
 1. **Resolve artifact paths.** Run:
    ```
@@ -114,7 +118,7 @@ A **blocker** is anything that will halt or derail implementation, or make the c
 |---|---------|----------------|
 | **B1** | **Delta Integrity failure** — a MODIFIED/REMOVED/RENAMED header has no match in the current spec; an ADDED header already exists in the current spec; or a MODIFIED requirement omits full content. | Archive will refuse it, or silently lose requirements. The implementer builds unarchivable or lossy work. |
 | **B2** | **Orphan requirement** — a spec requirement that no task in `tasks.md` addresses. | It will not get implemented. |
-| **B3** | **Untestable scenario** — a `#### Scenario:` with no concrete, repeatable verification (no command, test, or inspection can check it). | The implementer cannot know when it's done; `/opsx:verify` cannot check it. |
+| **B3** | **Untestable scenario** — a `#### Scenario:` with no concrete, repeatable verification (no command, test, or inspection can check it). | The implementer cannot know when it's done; verification cannot check it. |
 | **B4** | **Cross-artifact contradiction** — proposal/spec/design/tasks disagree on a load-bearing point. | There is no single source of truth to build against. |
 | **B5** | **Capability mismatch** — the proposal's "Capabilities" list does not match the change's `specs/` folders, or a "Modified Capability" does not exist in `openspec/specs/`. | The implementer does not know what they are touching. |
 | **B6** | **No entry point** — a task says what to build but not where (no file path, module, or integration point). | Implementation cannot start. |
