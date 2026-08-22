@@ -297,8 +297,17 @@ export default function tpsExtension(pi: ExtensionAPI) {
 
   // ── Turn timing ─────────────────────────────────────────────────────────
 
-  // Track when a turn starts (request sent to LLM)
-  pi.on("turn_start", (_event) => {
+  // Track when a turn starts (request sent to LLM).
+  // Guard on hasUI: TPS is display-only, so in non-TUI/headless modes
+  // (--mode json, -p print) we skip all timing work entirely. Clearing
+  // currentTiming here means the per-token message_* handlers below bail
+  // on their `!currentTiming` check, making the extension a true no-op
+  // instead of doing wasted performance.now() work on every token.
+  pi.on("turn_start", (_event, ctx) => {
+    if (!ctx.hasUI) {
+      currentTiming = null;
+      return;
+    }
     currentTiming = {
       turnStartMs: performance.now(),
       lastUpdateMs: performance.now(),
