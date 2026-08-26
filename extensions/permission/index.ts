@@ -8,10 +8,18 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { findMatchingRule, PERMISSION_RULES } from "./rules.js";
 
+// Set when the user asked for silence via env var: any non-empty
+// PI_NO_BELL value suppresses every bell this extension plays (both
+// permission prompts and the agent_end "your turn" bell). Read once at
+// module init, like the PI_SANDBOX check below — never per call.
+const NO_BELL = (process.env.PI_NO_BELL ?? "") !== "";
+
 // Play the vendored bell sound via pw-play. Best-effort: any failure
 // (missing binary, audio daemon down, etc.) is swallowed so audio can
 // never block or break the permission prompt.
 function playBell(): void {
+  if (NO_BELL) return;
+
   try {
     const here = dirname(fileURLToPath(import.meta.url));
     const soundPath = join(here, "sounds", "message.oga");
