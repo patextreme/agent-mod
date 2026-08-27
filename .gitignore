@@ -1,6 +1,6 @@
 node_modules/
 dist/
-result*
+result
 
 # Extension local dependencies
 extensions/chain/node_modules/
