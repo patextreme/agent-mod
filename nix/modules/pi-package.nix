@@ -6,7 +6,9 @@
       rootNodeModules = pkgs.buildNpmPackage {
         name = "pi-root-node-modules";
         src = ./../..;
-        npmDepsHash = "sha256-GoDtNviQVAG9uRLSWMOLjtWZvt3e1FmFf/+eZI/4BMk=";
+        # Update via: set to pkgs.lib.fakeHash, run `nix build .#checks.x86_64-linux.pi-root-node-modules`
+        # (or any check), copy the `got:` hash back.
+        npmDepsHash = "sha256-GpOSSMje+Pt6ckSgB/0o5I9+xj20nNEmbH1jrtDiG7M=";
         makeCacheWritable = true;
         dontNpmBuild = true;
         installPhase = ''
