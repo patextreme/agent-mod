@@ -35,6 +35,6 @@
     "lint": "biome lint .",
     "check": "biome check .",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test extensions/permission/rules.test.ts extensions/crof/parse.test.ts extensions/agentflow/discovery.test.ts extensions/agentflow/runtime.test.ts extensions/agentflow/validate.test.ts extensions/agentflow/exec.test.ts extensions/agentflow/init.test.ts"
+    "test": "tsx --test extensions/permission/rules.test.ts extensions/crof/parse.test.ts extensions/ollama-usage/parse.test.ts extensions/agentflow/discovery.test.ts extensions/agentflow/runtime.test.ts extensions/agentflow/validate.test.ts extensions/agentflow/exec.test.ts extensions/agentflow/init.test.ts"
   }
 }
