@@ -24,6 +24,8 @@ nix flake check
 
 (This verifies Nix package builds, the flake checks mirror the JS checks, and catches stale `npmDepsHash` values after dependency changes.)
 
+**`npm install` produces a lockfile nix cannot parse** when `@earendil-works/pi-coding-agent` is upgraded: its published `npm-shrinkwrap.json` omits `integrity` for its own `@earendil-works/*` deps, so npm writes lockfile entries without integrity and nix's npm-deps fetcher panics. After upgrading it, backfill the missing `integrity` hashes in `package-lock.json` manually (fetch each `@earendil-works/*` package's hash from the npm registry), then refresh `npmDepsHash` in `nix/modules/pi-package.nix` (set it to `pkgs.lib.fakeHash`, build any check, copy the `got:` hash back).
+
 **Biome is NOT in `node_modules`** — the `format`/`lint`/`check` scripts require biome in PATH. Use `nix develop` (provides nodejs, typescript, biome, git) or have biome installed globally.
 
 ## Repo Layout
