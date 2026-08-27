@@ -85,6 +85,17 @@
         '';
       };
 
+      pi-ollama-usage = pkgs.stdenv.mkDerivation {
+        name = "pi-ollama-usage";
+        src = ./../../extensions/ollama-usage;
+        phases = [ "installPhase" ];
+        installPhase = ''
+          mkdir -p $out
+          cp $src/index.ts $out/index.ts
+          cp $src/parse.ts $out/parse.ts
+        '';
+      };
+
       pi-prompts = pkgs.stdenv.mkDerivation {
         name = "pi-prompts";
         src = ./../../prompts;
@@ -102,6 +113,23 @@
         installPhase = ''
           mkdir -p $out
           cp -r $src/. $out/
+        '';
+      };
+
+      ollama-usage-test = pkgs.stdenv.mkDerivation {
+        name = "ollama-usage-test";
+        src = ./../..;
+        nativeBuildInputs = [ pkgs.nodejs ];
+        phases = [ "unpackPhase" "buildPhase" "installPhase" ];
+        buildPhase = ''
+          # Provide root node_modules for tsx and typescript
+          cp -r ${rootNodeModules} node_modules
+          chmod -R u+w node_modules
+
+          ./node_modules/.bin/tsx --test extensions/ollama-usage/parse.test.ts
+        '';
+        installPhase = ''
+          touch $out
         '';
       };
 
@@ -188,12 +216,12 @@
     in
     {
       packages = {
-        inherit pi-permission pi-tps pi-crof pi-agentflow pi-prompts pi-skills;
+        inherit pi-permission pi-tps pi-crof pi-agentflow pi-ollama-usage pi-prompts pi-skills;
       };
 
       checks = {
-        inherit pi-permission pi-tps pi-crof pi-agentflow pi-prompts pi-skills;
-        inherit biome-check tsc-check permission-test crof-test agentflow-test;
+        inherit pi-permission pi-tps pi-crof pi-agentflow pi-ollama-usage pi-prompts pi-skills;
+        inherit biome-check tsc-check permission-test crof-test agentflow-test ollama-usage-test;
       };
     };
 }
