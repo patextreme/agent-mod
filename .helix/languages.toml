@@ -1,0 +1,40 @@
+# Project-local Helix config for ptah Luau scripts.
+#
+# Points luau-lsp at the ptah type definitions (.ptah/ptah.d.luau,
+# written by `ptah init`) so `ptah.*` globals, the sandboxed stdlib,
+# and `--!strict` scripts get completion, hover, and type checking in
+# the editor. Mirrors what ptah ships in its own repo
+# (.helix/languages.toml), plus an explicit `luau` language entry.
+#
+# Notes:
+# - The server registered for the `luau` language is named `luau`
+#   (Helix default: command `luau-lsp`, arg `lsp`) — keep that arg
+#   when overriding. `--definitions` is relative to the LSP root,
+#   which resolves to this repo root (helix finds the workspace via
+#   .git/.helix), so it works for any .luau file in this project.
+# - The platform is an LSP *setting* (not a CLI flag of the `lsp`
+#   subcommand): luau-lsp queries it via workspace/configuration, and
+#   Helix answers from the `config` table below — "standard" platform,
+#   not Roblox, so no sourcemap or game globals leak into ptah
+#   scripts.
+# - Grammar + highlight queries for luau already ship with the default
+#   Helix runtime (grammars/luau.so), so no [[grammar]] entry is
+#   needed here.
+
+[language-server.luau]
+command = "luau-lsp"
+args = [
+  "lsp",
+  "--definitions=.ptah/ptah.d.luau",
+]
+
+[language-server.luau.config.luau-lsp.platform]
+type = "standard"
+
+[[language]]
+name = "luau"
+scope = "source.luau"
+injection-regex = "luau"
+file-types = ["luau"]
+comment-tokens = "--"
+language-servers = ["luau"]
