@@ -5,10 +5,9 @@ Extensions and prompt templates for the [Pi coding agent](https://github.com/bad
 Pi is a terminal coding agent. This package augments it with:
 
 - **Guardrails** — a permission extension that intercepts shell commands and asks before running anything destructive (`git push`, `git rebase`, unknown `gh` calls, …), while auto-allowing safe read-only commands.
-- **Observability** — a TPS extension that reports tokens/sec, time-to-first-token, stalls, and cost after every LLM turn.
-- **Orchestration** — an AgentFlow extension that runs imperative TypeScript/JavaScript flow scripts which spawn and drive isolated sub-agents under a live full-screen orchestrator, and deliver a result back to the main session.
+- **Usage visibility** — an ollama-usage extension that shows Ollama Cloud session and weekly usage in the status bar.
 
-Install it once and every Pi session in the project gets permission prompts and per-turn performance telemetry automatically.
+Install it once and every Pi session in the project gets permission prompts and Ollama Cloud usage in its status bar automatically.
 
 ## Requirements
 
@@ -29,6 +28,7 @@ This registers all extensions, prompts, and skills declared in [`package.json`](
 | Extension | Description |
 |-----------|-------------|
 | [Permission](./extensions/permission/index.ts) | Intercepts `bash` tool calls and applies regex-based permission rules; plays a bell on prompts and when the agent finishes; opt-in session-scoped `/permission-yolo` full bypass |
+| [Ollama Usage](./extensions/ollama-usage/index.ts) | Shows Ollama Cloud session/weekly usage in the status bar; refreshes on ollama-cloud model selection and via `/ollama-usage-refresh` |
 
 ### Prompt Templates
 
@@ -79,6 +79,16 @@ The always-allow state resets on each new session.
 
 A bell (`extensions/permission/sounds/message.oga`, played via `pw-play`) rings on each permission prompt and when the agent finishes a run (suppressed if you aborted it), so you don't have to watch the screen.
 
+## Ollama Usage Extension
+
+Shows Ollama Cloud session and weekly usage in the pi status bar as `ollama: 2.6% / 0.8%` (session / weekly).
+
+- Polls ollama.com's undocumented `GET /api/usage` endpoint (the one backing the ollama.com dashboard). It may change or disappear without notice.
+- Refreshes whenever an ollama-cloud model is selected — `/model`, Ctrl+P cycling, and session restore — and via `/ollama-usage-refresh`.
+- Switching to a non-ollama-cloud model clears the slot.
+- Reuses pi's resolved ollama-cloud provider key, so no separate configuration is needed beyond the existing ollama-cloud entry in `models.json`.
+- Failure paths are non-throwing: a failed fetch renders the dim placeholder `ollama: ? / ?`, and a missing provider key silently clears the slot.
+
 ## Development
 
 ```bash
@@ -87,7 +97,7 @@ npm run format         # biome format --write .
 npm run lint           # biome lint .
 npm run check          # biome check . (lint + format check combined)
 npm run typecheck      # tsc --noEmit
-npm test               # tsx --test (permission and agentflow suites)
+npm test               # tsx --test (permission and ollama-usage suites)
 nix flake check        # nix build checks (biome, tsc, tests, package builds)
 ```
 
