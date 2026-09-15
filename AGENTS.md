@@ -33,7 +33,6 @@ nix flake check
 - `extensions/permission/index.ts` — Permission extension (imports from `./rules.js`). Registers the `/permission-list-always-allow`, `/permission-reset`, and `/permission-yolo` commands
 - `extensions/permission/rules.ts` — Permission rules and `findMatchingRule` logic (dependency-free, testable)
 - `extensions/permission/rules.test.ts` — Permission rules test suite (65 tests)
-- `extensions/tps/index.ts` — TPS (tokens-per-second) tracking extension (single-file, no `package.json`)
 - `prompts/` — Pi prompt templates (Markdown + YAML frontmatter). Naming convention: `category-name.md`
 - `skills/` — Pi skills (`<name>/SKILL.md` with YAML frontmatter), packaged via the `pi` field and the `pi-skills` flake output
 - `nix/` — Flake devshell and package build config

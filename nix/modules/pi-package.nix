@@ -28,16 +28,6 @@
         '';
       };
 
-      pi-tps = pkgs.stdenv.mkDerivation {
-        name = "pi-tps";
-        src = ./../../extensions/tps;
-        phases = [ "installPhase" ];
-        installPhase = ''
-          mkdir -p $out
-          cp $src/index.ts $out/index.ts
-        '';
-      };
-
       pi-agentflow = pkgs.stdenv.mkDerivation {
         name = "pi-agentflow";
         src = ./../../extensions/agentflow;
@@ -188,11 +178,11 @@
     in
     {
       packages = {
-        inherit pi-permission pi-tps pi-agentflow pi-ollama-usage pi-prompts pi-skills;
+        inherit pi-permission pi-agentflow pi-ollama-usage pi-prompts pi-skills;
       };
 
       checks = {
-        inherit pi-permission pi-tps pi-agentflow pi-ollama-usage pi-prompts pi-skills;
+        inherit pi-permission pi-agentflow pi-ollama-usage pi-prompts pi-skills;
         inherit biome-check tsc-check permission-test agentflow-test ollama-usage-test;
       };
     };
