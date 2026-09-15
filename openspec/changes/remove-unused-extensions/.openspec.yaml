@@ -1,0 +1,5 @@
+schema: spec-driven
+created: 2026-09-15
+# This change removes the last requirement from four capabilities, so archiving
+# it deletes their main specs rather than aborting on a spec it cannot write.
+retire_capabilities: true
