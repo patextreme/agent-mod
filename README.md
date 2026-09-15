@@ -127,7 +127,7 @@ npm run format         # biome format --write .
 npm run lint           # biome lint .
 npm run check          # biome check . (lint + format check combined)
 npm run typecheck      # tsc --noEmit
-npm test               # tsx --test (permission, crof, and agentflow suites)
+npm test               # tsx --test (permission and agentflow suites)
 nix flake check        # nix build checks (biome, tsc, tests, package builds)
 ```
 
