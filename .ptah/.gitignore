@@ -1,0 +1,4 @@
+# Hand-rolled pending patextreme/ptah#26 (`ptah init` will scaffold this).
+# `.ptah/` is tracked; these paths are not source.
+luau_packages/
+.pesde/

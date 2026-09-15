@@ -1,0 +1,36 @@
+# ptah agent registry (project layer).
+#
+# Discovery: ptah looks for .ptah/config.toml in the directory it runs
+# in and every parent directory, and also reads the user layer
+# ($XDG_CONFIG_HOME/ptah/config.toml or ~/.config/ptah/config.toml).
+# When both layers define the same agent name the project entry wins,
+# wholesale; agents defined in only one layer pass through.
+#
+# Fields per agent:
+#   command  required — the executable to spawn
+#   args     optional — argv after the command (default: none)
+#   env      optional — extra environment for the child; `${VAR}`
+#            interpolates from ptah's environment at resolve time
+#            (unset becomes empty) and values merge over the inherited
+#            environment.
+#
+# Example — uncomment and edit:
+#
+# [agents.claude]
+# command = "npx"
+# args = ["-y", "@agentclientprotocol/claude-agent-acp@latest"]
+#
+# [agents.claude.env]
+# ANTHROPIC_API_KEY = "${ANTHROPIC_API_KEY}"
+#
+# ------------------------------------------------------------------
+# Interaction ([ask] section, optional, first global section): the
+# provider ptah.ask pauses the run to ask a human. `stdin` renders
+# prompts on stdout and reads answers from stdin; `none` prohibits
+# asking outright. Selection precedence: --ask flag > PTAH_ASK env >
+# project [ask] > user [ask] > auto-detect (stdin only when both
+# stdin and stdout are terminals). With both layers defining [ask],
+# the project section wins wholesale.
+#
+# [ask]
+# provider = "stdin"
