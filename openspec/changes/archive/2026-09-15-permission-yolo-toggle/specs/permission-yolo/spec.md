@@ -60,7 +60,7 @@ While YOLO mode is on, the system SHALL display a persistent `⚠️ YOLO MODE O
 - **THEN** the warning no longer appears in the status bar
 
 ### Requirement: YOLO mode lifecycle
-YOLO mode SHALL reset to off at session start. The `/permission-reset` command SHALL also disable YOLO mode alongside clearing always-allowed permissions.
+YOLO mode SHALL reset to off at session start. The `/permission-reset` command SHALL also disable YOLO mode alongside clearing always-allowed permissions. These resets apply to the session toggle only: a `--yolo` flag pin (see the YOLO mode pin requirement) is a process-scoped opt-in that survives both, by design.
 
 #### Scenario: New session starts clean
 - **WHEN** a session starts after YOLO mode was enabled in a previous session
@@ -69,3 +69,30 @@ YOLO mode SHALL reset to off at session start. The `/permission-reset` command S
 #### Scenario: Reset disables YOLO
 - **WHEN** `/permission-reset` runs while YOLO mode is on
 - **THEN** YOLO mode turns off, the warning is cleared, and always-allowed permissions are cleared
+
+### Requirement: YOLO mode pin via --yolo flag
+The system SHALL provide a `--yolo` boolean CLI flag that pins YOLO mode on for the entire process run, including headless runs (e.g. `-p`, `--mode json`) where there is no UI to prompt. The pin SHALL be a process-scoped opt-in: it SHALL NOT be cleared at session start or by `/permission-reset`, and the session-scoped `/permission-yolo` command SHALL NOT be able to turn it off. While the pin is active, `/permission-yolo off` and bare `/permission-yolo` SHALL report that YOLO mode is pinned on by `--yolo` for the run, leaving the mode unchanged; `/permission-yolo on` SHALL be an idempotent no-op.
+
+#### Scenario: Flag pins mode on for the run
+- **WHEN** pi is started with `--yolo`
+- **THEN** YOLO mode is active for the entire run and the status-bar warning is shown where a UI exists
+
+#### Scenario: Pin works headless
+- **WHEN** pi runs headless (e.g. `-p`, `--mode json`) with `--yolo`
+- **THEN** every bash command is allowed without prompting or blocking on a missing UI
+
+#### Scenario: Pin survives session start
+- **WHEN** a new session starts while the pin is active
+- **THEN** YOLO mode stays active and the status-bar warning is re-asserted
+
+#### Scenario: Pin survives reset
+- **WHEN** `/permission-reset` runs while the pin is active
+- **THEN** always-allowed permissions are cleared but YOLO mode stays active
+
+#### Scenario: Session command cannot undo the pin
+- **WHEN** `/permission-yolo off` or bare `/permission-yolo` is invoked while the pin is active
+- **THEN** a warning states that YOLO mode is pinned on by `--yolo` for this run and the mode is unchanged
+
+#### Scenario: Explicit on while pinned is a no-op
+- **WHEN** `/permission-yolo on` is invoked while the pin is active
+- **THEN** the mode is unchanged

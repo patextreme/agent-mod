@@ -45,12 +45,18 @@ The command resolves the target state first (`on`/`off`/toggle). If target equal
 ### D6: No new tests
 The command and state transitions are UI-bound (`ctx.ui.*`), and the bypass is a one-line early return — no matching logic worth unit-testing (design Q7). The existing 65-rule suite must keep passing.
 
+### D7: `--yolo` flag pin — lazy read, process-scoped, cannot be undone (folded in post-implementation)
+`pi.registerFlag("yolo", …)` registers a boolean `--yolo` flag. Its value is read lazily via `pi.getFlag("yolo")` inside `yoloPinned()`/`yoloActive()` because flags are applied *after* extension factories run — capturing the value at init would always read `false`. YOLO is active when the session toggle is on OR the pin is set. The pin is a process-scoped opt-in: `session_start` and `/permission-reset` clear only the session toggle (so `disableYolo` re-asserts the warning when pinned), and `/permission-yolo` resolves its target against the *active* state, so `off`/bare-toggle while pinned reports "pinned on by --yolo" instead of silently failing, while `on` while pinned is an idempotent no-op (D4 logic composes). The pin also covers headless runs (`-p`, `--mode json`): the typed flag is the explicit opt-in, and `ctx.ui` is a no-op stub there.
+
+*Alternative:* apply the flag by setting the session toggle at startup — rejected: the toggle resets on `session_start` and is UI-bound; the flag must survive both resets and work without a UI.
+
 ## Risks / Trade-offs
 
 - [Full bypass includes deny rules → nothing stops a destructive command while on] → Enabling requires the explicit typed `/permission-yolo` command + persistent yellow warning + session-scoped lifetime; users opt in per session with their eyes open.
 - [Status bar is ambient; user may stop noticing it] → Accepted: yellow warning token plus ⚠️ glyph is the strongest always-visible signal pi offers; the explicit typed command is the opt-in gate.
 - [Footer status slot could collide with other extensions] → Namespaced key `"permission-yolo"`; pi merges per-key status entries.
 - [`tool_call` early return also bypasses future non-bash gates added above the bash check] → The early return sits at the top of the bash-specific path, guarded by `event.toolName !== "bash"` as today, so non-bash tools are untouched.
+- [`--yolo` pin bypasses everything for the entire run, headless included] → Accepted: the flag is an explicit, typed, process-level opt-in surfaced in `--help`; the status bar warns for the whole run where a UI exists.
 
 ## Migration Plan
 

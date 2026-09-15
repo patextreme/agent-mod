@@ -12,13 +12,14 @@ The permission extension prompts on every unmatched command, which is safe but s
 - While YOLO mode is on, the `tool_call` handler returns early and allows every bash command: `allow`, `ask`, and `deny` rules and the no-match prompt are all bypassed.
 - While YOLO mode is on, a persistent yellow warning `⚠️ YOLO MODE ON` is shown in the status bar (via `ctx.ui.setStatus` with the theme `warning` token); it is cleared when the mode turns off.
 - YOLO mode resets to off on `session_start`, and `/permission-reset` also disables it.
+- Add a `--yolo` CLI boolean flag (via `pi.registerFlag`) that pins YOLO mode on for the entire process run — including headless runs (`-p`, `--mode json`) where there is no UI to prompt. The pin survives `session_start` and `/permission-reset` and cannot be turned off mid-session; `/permission-yolo off` or bare `/permission-yolo` while pinned reports that the mode is pinned instead of disabling it. (Implemented post-hoc in a separate commit; folded into this change so the archived spec matches the code.)
 - No changes to `rules.ts`, its tests, or existing command behavior.
 
 ## Capabilities
 
 ### New Capabilities
 
-- `permission-yolo`: Session-scoped YOLO mode for the permission extension — command surface (toggle/on/off with argument validation), full bypass of all permission checks while enabled, persistent status-bar warning, and lifecycle (session reset, reset-command integration).
+- `permission-yolo`: YOLO mode for the permission extension — command surface (toggle/on/off with argument validation), full bypass of all permission checks while enabled, persistent status-bar warning, lifecycle (session reset, reset-command integration), and a process-scoped `--yolo` flag pin (headless-capable, survives resets, cannot be undone mid-session).
 
 ### Modified Capabilities
 
@@ -26,7 +27,7 @@ The permission extension prompts on every unmatched command, which is safe but s
 
 ## Impact
 
-- **Code**: `extensions/permission/index.ts` only — new module-level YOLO state, early return in the `tool_call` handler, one new `registerCommand`, edits to the `session_start` handler and `permission-reset` command handler.
-- **Dependencies**: None. Uses existing pi extension APIs (`ctx.ui.notify`, `ctx.ui.setStatus`, `ctx.ui.theme`).
+- **Code**: `extensions/permission/index.ts` only — new module-level YOLO state, early return in the `tool_call` handler, one new `registerCommand`, a `registerFlag` pin with lazy `getFlag` reads, edits to the `session_start` handler and `permission-reset` command handler.
+- **Dependencies**: None. Uses existing pi extension APIs (`ctx.ui.notify`, `ctx.ui.setStatus`, `ctx.ui.theme`, `pi.registerFlag`, `pi.getFlag`).
 - **Tests**: No new unit tests (command logic is UI-bound; per design decision Q7 it stays in `index.ts`). Existing `rules.test.ts` unaffected.
 - **Quality gates**: `format → lint → typecheck → test`.

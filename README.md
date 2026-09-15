@@ -69,7 +69,7 @@ There is no explicit `git commit` rule; commits fall through to the unmatched-co
 
 **Commands:**
 - `/permission-list-always-allow` — show all patterns the user chose "Always allow" for
-- `/permission-reset` — clear all "Always allow" choices
+- `/permission-reset` — clear all "Always allow" choices and disable YOLO mode
 
 The always-allow state resets on each new session.
 
@@ -77,6 +77,7 @@ The always-allow state resets on each new session.
 - `/permission-yolo` — toggle session-scoped YOLO mode. Bare invocation toggles; `on`/`off` set it explicitly. While on, **every** `bash` command is allowed without consulting rules or prompting — including `ask`/`deny` rules and the no-match prompt.
 - A persistent yellow `⚠️ YOLO MODE ON` warning shows in the status bar while enabled.
 - YOLO mode is a deliberate, explicit opt-in: the typed command itself is the confirmation (no dialog). It resets to off on each new session, and `/permission-reset` also disables it.
+- `--yolo` — CLI flag pinning YOLO mode on for the entire process run, including headless runs (`-p`, `--mode json`). The pin survives `session_start` and `/permission-reset` and cannot be turned off mid-session; `/permission-yolo off` while pinned reports that the mode is pinned instead of disabling it.
 
 A bell (`extensions/permission/sounds/message.oga`, played via `pw-play`) rings on each permission prompt and when the agent finishes a run (suppressed if you aborted it), so you don't have to watch the screen.
 

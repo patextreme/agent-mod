@@ -15,3 +15,9 @@
 
 - [x] 3.1 Run quality gates: `npm run format`, `npm run lint`, `npm run typecheck`, `npm test` — existing 65 tests must pass unchanged
 - [x] 3.2 Manual smoke test in pi TUI: toggle on (no confirm prompt), verify `⚠️ YOLO MODE ON` in warning color, run a command that would prompt (e.g. `git push --dry-run`) and confirm it runs unasked, toggle off, verify warning gone and prompt behavior restored; verify invalid arg errors
+
+## 4. `--yolo` flag pin (folded in post-implementation)
+
+- [x] 4.1 Register the `--yolo` boolean flag via `pi.registerFlag`; read it lazily via `pi.getFlag` in `yoloActive()` so post-factory flag application is honored
+- [x] 4.2 Resolve `/permission-yolo`'s target against the active state: `off`/bare toggle while pinned notifies "YOLO mode is pinned on by --yolo for this run."; `on` while pinned is an idempotent no-op
+- [x] 4.3 Verify the pin survives `session_start` and `/permission-reset` (warning re-asserted, always-allow still cleared) and works in headless runs (`-p`, `--mode json`)
