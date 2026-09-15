@@ -8,7 +8,7 @@
         src = ./../..;
         # Update via: set to pkgs.lib.fakeHash, run `nix build .#checks.x86_64-linux.pi-root-node-modules`
         # (or any check), copy the `got:` hash back.
-        npmDepsHash = "sha256-GpOSSMje+Pt6ckSgB/0o5I9+xj20nNEmbH1jrtDiG7M=";
+        npmDepsHash = "sha256-DbLLcBa5F3nXt72b4F+9jxqvKBjF/gSCPXgPEdJnX94=";
         makeCacheWritable = true;
         dontNpmBuild = true;
         installPhase = ''
@@ -25,63 +25,6 @@
           cp $src/index.ts $out/index.ts
           cp $src/rules.ts $out/rules.ts
           cp $src/sounds/message.oga $out/sounds/message.oga
-        '';
-      };
-
-      pi-tps = pkgs.stdenv.mkDerivation {
-        name = "pi-tps";
-        src = ./../../extensions/tps;
-        phases = [ "installPhase" ];
-        installPhase = ''
-          mkdir -p $out
-          cp $src/index.ts $out/index.ts
-        '';
-      };
-
-      pi-crof = pkgs.stdenv.mkDerivation {
-        name = "pi-crof";
-        src = ./../../extensions/crof;
-        phases = [ "installPhase" ];
-        installPhase = ''
-          mkdir -p $out
-          cp $src/index.ts $out/index.ts
-          cp $src/parse.ts $out/parse.ts
-        '';
-      };
-
-      pi-agentflow = pkgs.stdenv.mkDerivation {
-        name = "pi-agentflow";
-        src = ./../../extensions/agentflow;
-        nodeModules = rootNodeModules;
-        phases = [ "installPhase" ];
-        installPhase = ''
-          mkdir -p $out
-          cp $src/index.ts $out/index.ts
-          cp $src/discovery.ts $out/discovery.ts
-          cp $src/init.ts $out/init.ts
-          cp $src/exec.ts $out/exec.ts
-          cp $src/submit.ts $out/submit.ts
-          cp $src/runner.ts $out/runner.ts
-          cp $src/runtime.ts $out/runtime.ts
-          cp $src/validate.ts $out/validate.ts
-          cp $src/orchestrator.ts $out/orchestrator.ts
-          cp $src/agentflow.d.ts $out/agentflow.d.ts
-          # Bundle the authoring skill so the extension can contribute it via
-          # the resources_discover event (skillPaths) when mounted standalone.
-          mkdir -p $out/skills/agentflow
-          cp $src/skills/agentflow/SKILL.md $out/skills/agentflow/SKILL.md
-          # Ship the runnable examples too — the bundled skill's "Worked
-          # example" section points at ../../examples/ relative to the skill,
-          # which resolves inside this output only if they are copied.
-          mkdir -p $out/examples
-          cp $src/examples/*.ts $out/examples/
-          # Bundle the jiti and typebox runtime dependencies so the extension
-          # resolves them when mounted standalone — the Nix path has no npm
-          # install step, so runtime deps must ship inside the output.
-          # (runner.ts / submit.ts import { Type } from "typebox" at runtime.)
-          mkdir -p $out/node_modules
-          cp -r $nodeModules/jiti $out/node_modules/jiti
-          cp -r $nodeModules/typebox $out/node_modules/typebox
         '';
       };
 
@@ -179,49 +122,15 @@
           touch $out
         '';
       };
-
-      crof-test = pkgs.stdenv.mkDerivation {
-        name = "crof-test";
-        src = ./../..;
-        nativeBuildInputs = [ pkgs.nodejs ];
-        phases = [ "unpackPhase" "buildPhase" "installPhase" ];
-        buildPhase = ''
-          # Provide root node_modules for tsx and typescript
-          cp -r ${rootNodeModules} node_modules
-          chmod -R u+w node_modules
-
-          ./node_modules/.bin/tsx --test extensions/crof/parse.test.ts
-        '';
-        installPhase = ''
-          touch $out
-        '';
-      };
-
-      agentflow-test = pkgs.stdenv.mkDerivation {
-        name = "agentflow-test";
-        src = ./../..;
-        nativeBuildInputs = [ pkgs.nodejs ];
-        phases = [ "unpackPhase" "buildPhase" "installPhase" ];
-        buildPhase = ''
-          # Provide root node_modules for tsx, typescript, and jiti
-          cp -r ${rootNodeModules} node_modules
-          chmod -R u+w node_modules
-
-          ./node_modules/.bin/tsx --test extensions/agentflow/discovery.test.ts extensions/agentflow/runtime.test.ts extensions/agentflow/validate.test.ts extensions/agentflow/exec.test.ts extensions/agentflow/init.test.ts
-        '';
-        installPhase = ''
-          touch $out
-        '';
-      };
     in
     {
       packages = {
-        inherit pi-permission pi-tps pi-crof pi-agentflow pi-ollama-usage pi-prompts pi-skills;
+        inherit pi-permission pi-ollama-usage pi-prompts pi-skills;
       };
 
       checks = {
-        inherit pi-permission pi-tps pi-crof pi-agentflow pi-ollama-usage pi-prompts pi-skills;
-        inherit biome-check tsc-check permission-test crof-test agentflow-test ollama-usage-test;
+        inherit pi-permission pi-ollama-usage pi-prompts pi-skills;
+        inherit biome-check tsc-check permission-test ollama-usage-test;
       };
     };
 }

@@ -5,10 +5,9 @@ Extensions and prompt templates for the [Pi coding agent](https://github.com/bad
 Pi is a terminal coding agent. This package augments it with:
 
 - **Guardrails** — a permission extension that intercepts shell commands and asks before running anything destructive (`git push`, `git rebase`, unknown `gh` calls, …), while auto-allowing safe read-only commands.
-- **Observability** — a TPS extension that reports tokens/sec, time-to-first-token, stalls, and cost after every LLM turn.
-- **Orchestration** — an AgentFlow extension that runs imperative TypeScript/JavaScript flow scripts which spawn and drive isolated sub-agents under a live full-screen orchestrator, and deliver a result back to the main session.
+- **Usage visibility** — an ollama-usage extension that shows Ollama Cloud session and weekly usage in the status bar.
 
-Install it once and every Pi session in the project gets permission prompts and per-turn performance telemetry automatically.
+Install it once and every Pi session in the project gets permission prompts and Ollama Cloud usage in its status bar automatically.
 
 ## Requirements
 
@@ -29,8 +28,7 @@ This registers all extensions, prompts, and skills declared in [`package.json`](
 | Extension | Description |
 |-----------|-------------|
 | [Permission](./extensions/permission/index.ts) | Intercepts `bash` tool calls and applies regex-based permission rules; plays a bell on prompts and when the agent finishes; opt-in session-scoped `/permission-yolo` full bypass |
-| [TPS](./extensions/tps/index.ts) | Tracks tokens-per-second, TTFT, stalls, and cost per LLM turn; persists telemetry to session for rehydration |
-| [AgentFlow](./extensions/agentflow/index.ts) | Runs `/af <name>` flow scripts (`.pi/agentflow/`) that orchestrate isolated sub-agent sessions via an injected `af` API, under a blocking full-screen Orchestrator |
+| [Ollama Usage](./extensions/ollama-usage/index.ts) | Shows Ollama Cloud session/weekly usage in the status bar; refreshes on ollama-cloud model selection and via `/ollama-usage-refresh` |
 
 ### Prompt Templates
 
@@ -69,7 +67,7 @@ There is no explicit `git commit` rule; commits fall through to the unmatched-co
 
 **Commands:**
 - `/permission-list-always-allow` — show all patterns the user chose "Always allow" for
-- `/permission-reset` — clear all "Always allow" choices
+- `/permission-reset` — clear all "Always allow" choices and disable YOLO mode
 
 The always-allow state resets on each new session.
 
@@ -77,46 +75,19 @@ The always-allow state resets on each new session.
 - `/permission-yolo` — toggle session-scoped YOLO mode. Bare invocation toggles; `on`/`off` set it explicitly. While on, **every** `bash` command is allowed without consulting rules or prompting — including `ask`/`deny` rules and the no-match prompt.
 - A persistent yellow `⚠️ YOLO MODE ON` warning shows in the status bar while enabled.
 - YOLO mode is a deliberate, explicit opt-in: the typed command itself is the confirmation (no dialog). It resets to off on each new session, and `/permission-reset` also disables it.
+- `--yolo` — CLI flag pinning YOLO mode on for the entire process run, including headless runs (`-p`, `--mode json`). The pin survives `session_start` and `/permission-reset` and cannot be turned off mid-session; `/permission-yolo off` while pinned reports that the mode is pinned instead of disabling it.
 
 A bell (`extensions/permission/sounds/message.oga`, played via `pw-play`) rings on each permission prompt and when the agent finishes a run (suppressed if you aborted it), so you don't have to watch the screen.
 
-## TPS Extension
+## Ollama Usage Extension
 
-Captures structured telemetry at every LLM turn: tokens, timing, TPS, and cost.
+Shows Ollama Cloud session and weekly usage in the pi status bar as `ollama: 2.6% / 0.8%` (session / weekly).
 
-**Tracks:**
-- Tokens per second (real-time via token-by-token updates)
-- Time to first token (TTFT)
-- Total wall-clock time and actual generation time
-- Inference stall detection (gaps > 500ms between token updates, e.g. GPU queuing pauses)
-- Model, provider, and per-message token usage including cache hits and cost
-
-**Displays:** a compact notification bar entry after each turn, e.g.:
-
-> `TPS 42.3 tok/s · TTFT 1.2s · 8.4s · out 356 · in 1,280`
-
-Telemetry is persisted to the session JSONL so the last notification can be restored on resume.
-
-## AgentFlow Extension
-
-Runs repeatable, multi-step workflows as imperative scripts that drive *isolated sub-agent sessions* and return a result to the main session.
-
-**Invocation:** `/af <flow-name>` (or `/af:<flow-name>` for any flow already on
-disk at session start) — resolves `.pi/agentflow/<name>.ts` (project, trusted)
-then `~/.pi/agentflow/<name>.ts` (global), with `.js` fallbacks. Per-flow
-`/af:<name>` shortcuts are registered for every discoverable flow on session
-start, mirroring pi-taskflow; `/af <name>` remains the fallback for flows
-created mid-session.
-
-**Scripting surface:** a single injected `af` global — `af.createAgent(config)`, `sendMessage(text, opts?)` on the returned handle, `af.log(...)`, `af.result(value)`, and `af.cwd`. Scripts have no other imports or globals.
-
-**UX:** in TUI mode the run appears as a blocking full-screen Orchestrator (live agent overview, streamed `af.log`, tap-in to view a running agent's conversation, steer, and stop). In non-TUI modes the flow runs without the UI and still delivers its result.
-
-**Safety:** project scripts only run when the project is trusted; `.ts`/`.js` sources are syntax-validated before execution and `.ts` is type-checked against the shipped `agentflow.d.ts` declarations.
-
-**Validate while authoring:** the always-on `agentflow_validate` tool (for the LLM) and `/af-validate <name>` command (for a human) run the same resolve → syntax → type-check as `/af` and report located errors, letting you check a draft flow before it is ever executed.
-
-See the [`agentflow` skill](./extensions/agentflow/skills/agentflow/SKILL.md) and the [`reviewcode` example](./extensions/agentflow/examples/reviewcode.ts).
+- Polls ollama.com's undocumented `GET /api/usage` endpoint (the one backing the ollama.com dashboard). It may change or disappear without notice.
+- Refreshes whenever an ollama-cloud model is selected — `/model`, Ctrl+P cycling, and session restore — and via `/ollama-usage-refresh`.
+- Switching to a non-ollama-cloud model clears the slot.
+- Reuses pi's resolved ollama-cloud provider key, so no separate configuration is needed beyond the existing ollama-cloud entry in `models.json`.
+- Failure paths are non-throwing: a failed fetch renders the dim placeholder `ollama: ? / ?`, and a missing provider key silently clears the slot.
 
 ## Development
 
@@ -126,7 +97,7 @@ npm run format         # biome format --write .
 npm run lint           # biome lint .
 npm run check          # biome check . (lint + format check combined)
 npm run typecheck      # tsc --noEmit
-npm test               # tsx --test (permission, crof, and agentflow suites)
+npm test               # tsx --test (permission and ollama-usage suites)
 nix flake check        # nix build checks (biome, tsc, tests, package builds)
 ```
 

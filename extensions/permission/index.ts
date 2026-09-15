@@ -233,7 +233,7 @@ export default function permissionExtension(pi: ExtensionAPI): void {
 
   // Reset all always-allowed permissions
   pi.registerCommand("permission-reset", {
-    description: "Reset all always-allowed permissions",
+    description: "Reset all always-allowed permissions and disable YOLO mode",
     handler: async (_args, ctx) => {
       alwaysAllowed.clear();
       disableYolo(ctx);

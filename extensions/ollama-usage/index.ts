@@ -18,7 +18,7 @@
  * non-throwing and stateless. A failed fetch renders the dim placeholder
  * (`ollama: ? / ?`); a missing provider key silently clears the slot. Nothing
  * is cached and automatic refreshes never notify — only the explicit
- * `/ollama-usage-refresh` command reports failures, mirroring the crof
+ * `/ollama-usage-refresh` command reports failures, mirroring the permission
  * extension.
  */
 
