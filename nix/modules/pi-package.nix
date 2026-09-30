@@ -122,6 +122,20 @@
           touch $out
         '';
       };
+
+      docs-version-check = pkgs.stdenv.mkDerivation {
+        name = "docs-version-check";
+        src = ./../..;
+        nativeBuildInputs = [ pkgs.nodejs ];
+        phases = [ "unpackPhase" "buildPhase" "installPhase" ];
+        buildPhase = ''
+          # Dependency-free: runs under plain node, no rootNodeModules needed
+          node --test scripts/docs-version.test.mjs
+        '';
+        installPhase = ''
+          touch $out
+        '';
+      };
     in
     {
       packages = {
@@ -130,7 +144,7 @@
 
       checks = {
         inherit pi-permission pi-ollama-usage pi-prompts pi-skills;
-        inherit biome-check tsc-check permission-test ollama-usage-test;
+        inherit biome-check tsc-check permission-test ollama-usage-test docs-version-check;
       };
     };
 }

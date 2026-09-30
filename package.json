@@ -28,6 +28,6 @@
     "lint": "biome lint .",
     "check": "biome check .",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test extensions/permission/rules.test.ts extensions/ollama-usage/parse.test.ts"
+    "test": "tsx --test extensions/permission/rules.test.ts extensions/ollama-usage/parse.test.ts scripts/docs-version.test.mjs"
   }
 }

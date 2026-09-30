@@ -11,7 +11,7 @@ Install it once and every Pi session in the project gets permission prompts and 
 
 ## Requirements
 
-- Pi `^0.79.6` (declared as a peer dependency in [`package.json`](./package.json)).
+- Pi `^0.99.1` (declared as a peer dependency in [`package.json`](./package.json)).
 
 ## Installation
 
