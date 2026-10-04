@@ -131,6 +131,11 @@ async function respond(params, client) {
     );
     // The only write performed by this process, always to an existing allowlisted file.
     await writeFile(artifact, `${before}<!-- fixture-repair-${cycle} -->\n`);
+    if (
+      config.mode === "updater-failure" &&
+      updates >= (config.updaterFailureAfter ?? 0)
+    )
+      throw new acp.RequestError(-32000, "fixture updater failure after write");
     response = `Applied repair ${cycle}. ACP_SESSION_ID=${params.sessionId}`;
   } else {
     throw new Error(`Unexpected fixture prompt: ${prompt}`);

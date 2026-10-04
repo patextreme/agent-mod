@@ -33,7 +33,13 @@ interface Config {
   artifact: string;
   artifacts: string[];
   dirtySentinel: string;
-  mode?: "agent-failure" | "inconclusive" | "operational-failure";
+  mode?:
+    | "agent-failure"
+    | "updater-failure"
+    | "inconclusive"
+    | "operational-failure"
+    | "structural-invalid";
+  updaterFailureAfter?: number;
   repairsNeeded?: number;
   escalation?: boolean;
   mixedResolutions?: boolean;
@@ -81,12 +87,24 @@ function openspecReply(
     const result = json(
       {
         items: [
-          { id: config.changeId, type: "change", valid: true, issues: [] },
+          {
+            id: config.changeId,
+            type: "change",
+            valid: config.mode !== "structural-invalid",
+            issues:
+              config.mode === "structural-invalid"
+                ? [{ level: "ERROR", message: "Persistent structural error" }]
+                : [],
+          },
         ],
       },
-      config.mode === "operational-failure" ? 2 : 0,
+      config.mode === "operational-failure"
+        ? 2
+        : config.mode === "structural-invalid"
+          ? 1
+          : 0,
     );
-    if (result.exitCode)
+    if (config.mode === "operational-failure")
       result.stderr = "fixture operational validation failure";
     return result;
   }
@@ -777,6 +795,23 @@ const scenarios: {
     updates: 10,
   },
   {
+    name: "structural errors exhaust ten updates with final validation",
+    config: { mode: "structural-invalid" },
+    outcome: "limit_reached",
+    updates: 10,
+  },
+  {
+    name: "partial updater failure preserves prior and current edits",
+    config: {
+      mode: "updater-failure",
+      updaterFailureAfter: 1,
+      repairsNeeded: 2,
+    },
+    outcome: "failed",
+    updates: 2,
+    summary: /update:.*fixture updater failure after write/,
+  },
+  {
     name: "missing TTY steering",
     config: { escalation: true },
     outcome: "needs_human",
@@ -841,8 +876,52 @@ for (const scenario of scenarios) {
       assert.match(result.emitted.summary, scenario.summary);
     assert.equal(visits(result.state, "update").length, scenario.updates);
     if (scenario.outcome === "limit_reached") {
-      assert.equal(visits(result.state, "review").length, 11);
+      const structural = scenario.config.mode === "structural-invalid";
+      assert.equal(visits(result.state, "validate").length, 11);
+      assert.equal(visits(result.state, "review").length, structural ? 0 : 11);
       assert.equal(visits(result.state, "assess").length, 10);
+      if (structural) {
+        assert.equal(visits(result.state, "classify").length, 0);
+        assert.deepEqual(result.emitted.remaining, [
+          { level: "ERROR", message: "Persistent structural error" },
+        ]);
+        assert.deepEqual(
+          result.state.steps
+            .filter((step) => ["validate", "update"].includes(step.nodeId))
+            .map((step) => step.nodeId),
+          [
+            ...Array.from({ length: 10 }, () => ["validate", "update"]).flat(),
+            "validate",
+          ],
+        );
+      }
+    }
+    if (scenario.config.mode === "updater-failure") {
+      const updates = visits(result.state, "update");
+      assert.deepEqual(
+        updates.map((step) => step.outcome),
+        ["ok", "failed"],
+      );
+      assert.equal(visits(result.state, "validate").length, 2);
+      assert.equal(visits(result.state, "review").length, 2);
+      assert.equal(visits(result.state, "authorize").length, 2);
+      const failed = updates[1];
+      assert.ok(failed.session);
+      const events = await readFile(
+        join(
+          result.runDir,
+          "sessions",
+          failed.session.bundleId,
+          "events.ndjson",
+        ),
+        "utf8",
+      );
+      assert.match(events, /fixture updater failure after write/);
+      assert.ok(
+        result.stderr.includes(
+          `${changeId}: failed, 2/10 updates — ${result.emitted.summary}`,
+        ),
+      );
     }
     if (scenario.config.assessmentFailure) {
       const missing = scenario.config.assessmentFailure === "missing-artifacts";
