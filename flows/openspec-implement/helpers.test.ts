@@ -182,6 +182,23 @@ test("report parser accepts usable evidence and scope-based no-gate justificatio
   assert.equal(completionSupported(current, noGates, 0), true);
 });
 
+test("report parser accepts startup prose and fenced JSON without weakening validation", () => {
+  const banner =
+    "pi v1.0.0\n---\n## Context\n- AGENTS.md\n---\nNew version available: v1.0.2\n";
+  for (const wrap of [
+    (json: string) => `${banner}${json}`,
+    (json: string) => `\`\`\`json\n${json}\n\`\`\``,
+  ]) {
+    assert.deepEqual(parseReport(wrap(JSON.stringify(report)), 0), report);
+    assert.throws(() =>
+      parseReport(wrap(JSON.stringify({ ...report, summary: " " })), 0),
+    );
+    assert.throws(() =>
+      parseReport(wrap(JSON.stringify(report).slice(0, -10)), 0),
+    );
+  }
+});
+
 test("malformed reports cannot produce steering or evidence", () => {
   for (const value of [
     null,

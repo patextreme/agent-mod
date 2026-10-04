@@ -1,5 +1,6 @@
 import { lstat, realpath } from "node:fs/promises";
 import { dirname, isAbsolute, resolve } from "node:path";
+import { parseJsonObject } from "acpx/flows";
 import { type Command, command } from "../shared/command.js";
 import { object, text } from "../shared/data.js";
 import {
@@ -143,7 +144,7 @@ function gates(value: unknown): Gate[] {
   });
 }
 export function parseReport(raw: string): Report {
-  const data = object(JSON.parse(raw));
+  const data = object(parseJsonObject(raw, { mode: "compat" }));
   if (typeof data.conclusive !== "boolean" || !Array.isArray(data.findings))
     throw new Error("Unusable verification report");
   const dims = object(data.dimensions);

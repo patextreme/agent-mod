@@ -1,5 +1,6 @@
 import { lstat, realpath } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
+import { parseJsonObject } from "acpx/flows";
 import { type Command, command } from "../shared/command.js";
 import { object, text } from "../shared/data.js";
 import {
@@ -106,7 +107,7 @@ const strings = (value: unknown): string[] => {
   return value.map(text);
 };
 export function parseReport(raw: string, attempt: number): Report {
-  const data = object(JSON.parse(raw));
+  const data = object(parseJsonObject(raw, { mode: "compat" }));
   if (!Array.isArray(data.blockers) || !Array.isArray(data.gates))
     throw new Error("Invalid report arrays");
   const ids = new Set<string>();

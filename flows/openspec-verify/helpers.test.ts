@@ -173,6 +173,23 @@ test("preflight rejects symlinked roots, changes and artifact paths", async (t) 
     /Store-backed/,
   );
 });
+test("report parser accepts startup prose and fenced JSON without weakening validation", () => {
+  const report = clearReport();
+  const banner =
+    "pi v1.0.0\n---\n## Context\n- AGENTS.md\n---\nNew version available: v1.0.2\n";
+  for (const wrap of [
+    (json: string) => `${banner}${json}`,
+    (json: string) => `\`\`\`json\n${json}\n\`\`\``,
+  ]) {
+    assert.deepEqual(parseReport(wrap(JSON.stringify(report))), report);
+    assert.throws(() =>
+      parseReport(wrap(JSON.stringify({ ...report, conclusive: "yes" }))),
+    );
+    assert.throws(() =>
+      parseReport(wrap(JSON.stringify(report).slice(0, -10))),
+    );
+  }
+});
 test("report preserves prose and validates all severities, references and dimensions", () => {
   const report = clearReport();
   report.findings = (["CRITICAL", "WARNING", "SUGGESTION"] as const).map(
