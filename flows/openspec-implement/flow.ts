@@ -161,12 +161,14 @@ export function createImplementFlow(deps: Dependencies = {}) {
     }),
     apply: acp({
       ...fresh,
+      timeoutMs: 90 * 60 * 1000,
       prompt: (context) =>
         applyPrompt(target(context), requiredSnapshot(context), 0, null, []),
       parse: (raw) => parseReport(raw, 0),
     }),
     repair: acp({
       ...fresh,
+      timeoutMs: 90 * 60 * 1000,
       // The active dispatch is not in steps until it returns (or fails).
       prompt: (context) =>
         applyPrompt(

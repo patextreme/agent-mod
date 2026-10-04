@@ -8,6 +8,13 @@ import { SteeringError } from "../shared/steering.js";
 import { createImplementFlow, type ImplementResult } from "./flow.js";
 import type { Report } from "./helpers.js";
 
+test("implementation and repair allow 90 minutes for project gates", () => {
+  const flow = createImplementFlow();
+  for (const id of ["apply", "repair"]) {
+    assert.equal(flow.nodes[id].timeoutMs, 90 * 60 * 1000, id);
+  }
+});
+
 interface Options {
   repairs?: number;
   escalation?: boolean;

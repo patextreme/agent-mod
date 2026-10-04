@@ -136,6 +136,7 @@ export function createVerifyFlow(deps: Dependencies = {}) {
     refresh: compute({ run: (c) => snapshot(target(c), run, c.signal) }),
     verify: acp({
       ...fresh,
+      timeoutMs: 90 * 60 * 1000,
       prompt: (c) => verifyPrompt(target(c), current(c), steering(c)),
       parse: (raw) => parseReport(raw),
     }),
@@ -221,6 +222,7 @@ export function createVerifyFlow(deps: Dependencies = {}) {
     }),
     repair: acp({
       ...fresh,
+      timeoutMs: 90 * 60 * 1000,
       prompt: (c) =>
         repairPrompt(
           target(c),

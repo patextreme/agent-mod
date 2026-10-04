@@ -360,6 +360,12 @@ test("guarded phase failures and timeouts produce diagnostics without retries", 
   assert.equal(timed.judges, 0);
   assert.equal(timed.repairs, 0);
 });
+test("verification and repair allow 90 minutes for project checks", () => {
+  const flow = createVerifyFlow();
+  for (const id of ["verify", "repair"]) {
+    assert.equal(flow.nodes[id].timeoutMs, 90 * 60 * 1000, id);
+  }
+});
 test("all executable phases guard cancellation and failure before output routing; sessions are fresh", () => {
   const flow = createVerifyFlow();
   for (const id of [
