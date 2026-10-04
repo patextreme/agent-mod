@@ -30,9 +30,27 @@
 - [ ] 4.5 Handle orderly cancellation in each active phase, including graph-routing bypass; verify fixtures emit cancelled once without false stage completion and preserve edits, while documenting forced-termination limits.
 - [ ] 4.6 Document the exact acpx invocation, no-prompt lifecycle, archive naming, partial-state recovery, collision policy, exclusive-operation expectation, and no automatic Git management; verify documentation-contract tests and examples agree with terminal results and restart behavior.
 
-## 5. Cross-stage integration and quality gates
+## 5. Stage-scoped pipeline composition
 
-- [ ] 5.1 Add end-to-end model-free fixtures for complete multi-capability finalization, no-delta archival, mismatch/inconclusive blocking, partial sync failure, archive failure after accepted sync, explicit rerun convergence, and already-archived rejection; verify recursive `npm test` discovers and passes them.
-- [ ] 5.2 Verify existing implement/verify/groom and ordinary skill-contract tests still pass unchanged, and compare CONTEXT.md terminology against the new flow docs to confirm finalization remains separate from verification.
-- [ ] 5.3 Run format → lint → typecheck → test and record results; run `nix flake check` additionally if implementation changes package manifests or Nix configuration, verifying no unrelated working-tree edits are overwritten.
-- [ ] 5.4 Exercise the documented command on a disposable local fixture with configured unattended permissions, including one blocked-sync case; verify accepted sync precedes archival, failure leaves inspectable partial state, and the real proposal change remains active.
+- [ ] 5.1 Add `flows/openspec-all/` input/result contracts and canonical workspace preflight; verify tests reject unsupported input/targets before writes and retain the same change/workspace across all four stages.
+- [ ] 5.2 Implement a stage-scoping adapter over existing factory-created native graphs, namespacing nodes/edges and projecting every callback's outputs, results, step history, and node identifiers; verify model-free adapter tests cover callback evaluation, backward edges, failure summaries, and unchanged abort signals, timeouts, ACP profile, cwd, and isolated-session settings.
+- [ ] 5.3 Verify constituent budget isolation with repeated repair/revision fixtures and standalone/composed parity tests; demonstrate that implementation repairs never consume verification's budget and that existing acceptance and edit-authorization policies remain unchanged.
+- [ ] 5.4 Capture constituent terminal results through factory emit seams and adapt unsuccessful terminal routing into parent reporting; verify malformed/missing/contradictory results, unexpected throws, and every unsuccessful outcome block later stages without being converted into success.
+- [ ] 5.5 Compose the single native graph in groom → implement → verify → finalize order with success-only stage gates; verify real-runner model-free fixtures observe exact stage order, one invocation, fresh stage sessions, and finalization's independent sync check without duplicate implementation verification.
+- [ ] 5.6 Document pipeline invocation and composition boundaries in README and add the AGENTS.md layout entry; verify documentation-contract tests distinguish pipeline verification from standalone finalization's caller-asserted readiness and retain all standalone entrypoints.
+
+## 6. Transparent escalation and aggregate results
+
+- [ ] 6.1 Preserve terminal steering and stage-labelled stderr progress while capturing only constituent terminal emitters; verify stage fixtures retain issues, recommendations, scoped questions, complete-answer rules, TTY requirements, and seven-day steering deadlines without extra transition confirmations.
+- [ ] 6.2 Add interactive and noninteractive escalation coverage using disposable fixtures; verify complete answers reach the originating stage, incomplete answers cannot authorize edits, and unavailable steering yields needs_human with all later stages unstarted.
+- [ ] 6.3 Emit one aggregate flow-owned result with ordered stage statuses, retained child results, overall outcome, failed/active stage, and known archive state; verify success exits zero only after all stages succeed and limit_reached/needs_human/cancelled/failed exit nonzero without duplicate constituent terminal output.
+- [ ] 6.4 Observe parent-run cancellation throughout active constituent nodes, including interruption that bypasses graph routing; verify model-free interruption tests cover commands, agents, steering, and finalization without later-stage dispatch, fabricated child results, or duplicate aggregate emission.
+- [ ] 6.5 Document transparent escalation, aggregate output versus acpx's CLI envelope, preserved edits, full-pipeline restart from groom, standalone later-stage recovery, and no automatic Git management; verify examples and documentation-contract tests match those behaviors.
+
+## 7. Cross-stage integration and quality gates
+
+- [ ] 7.1 Add end-to-end model-free fixtures for complete multi-capability finalization, no-delta archival, mismatch/inconclusive blocking, partial sync failure, archive failure after accepted sync, explicit rerun convergence, and already-archived rejection; verify recursive `npm test` discovers and passes them.
+- [ ] 7.2 Add full-pipeline fixtures for all-stage success, unsuccessful outcomes at each stage, transparent escalation, independent budgets, sync-check rejection after verification acceptance, dirty-tree preservation, restart from groom, and archived-target rejection; verify real acpx runner tests exercise scoped callbacks rather than only mocked orchestration.
+- [ ] 7.3 Verify existing implement/verify/groom and ordinary skill-contract tests still pass unchanged, and compare CONTEXT.md terminology against both new flows' docs to confirm finalization remains separate from implementation verification.
+- [ ] 7.4 Run format → lint → typecheck → test and record results; run `nix flake check` additionally if implementation changes package manifests or Nix configuration, verifying no unrelated working-tree edits are overwritten.
+- [ ] 7.5 Exercise both documented entrypoints on disposable local fixtures with configured permissions, including standalone blocked sync and a pipeline escalation/failure; verify stage order, visible steering, archive-after-accepted-sync, inspectable partial state, and that the real proposal change remains active.
