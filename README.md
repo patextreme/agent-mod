@@ -45,6 +45,7 @@ This registers all extensions, prompts, and skills declared in [`package.json`](
 
 | Skill | Description |
 |-------|-------------|
+| [`acpx-flow`](./skills/acpx-flow/SKILL.md) | Create, modify, and debug acpx flows using the official capability documentation |
 | [`openspec-review`](./skills/openspec-review/SKILL.md) | Review an OpenSpec change for semantic soundness before implementation |
 
 ## Permission Extension
