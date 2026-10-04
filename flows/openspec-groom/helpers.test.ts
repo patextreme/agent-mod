@@ -196,6 +196,39 @@ test("strict validation separates repairable errors from operational and malform
     /Operational/,
   );
 });
+test("assessment recovers native fenced and prose-wrapped JSON without bypassing validation", async (t) => {
+  const f = await fixture(t);
+  const raw = assessed(f.target);
+  const expected = parseAssessment(raw, f.target);
+  for (const wrapped of [
+    `\`\`\`json\n${raw}\n\`\`\``,
+    `pi v1.0.0\nAssessment follows:\n${raw}\nDone.`,
+    `Here is the assessment:\n\`\`\`json\n${raw}\n\`\`\`\nDone.`,
+  ]) {
+    assert.deepEqual(parseAssessment(wrapped, f.target), expected);
+  }
+  assert.throws(() =>
+    parseAssessment("pi v1.0.0\nReview only; no JSON.", f.target),
+  );
+  assert.throws(() =>
+    parseAssessment('Assessment: {"conclusive":true}', f.target),
+  );
+  const invalid = assessed(f.target, false, {
+    resolutions: [
+      {
+        id: "unsafe",
+        issue: "issue",
+        recommendation: "fix",
+        escalation: false,
+        paths: [f.cwd],
+      },
+    ],
+  });
+  assert.throws(
+    () => parseAssessment(`Assessment: ${invalid}`, f.target),
+    /allowlist/,
+  );
+});
 test("assessment validates scope, escalation identities, missing artifacts and inconclusive output", async (t) => {
   const f = await fixture(t);
   assert.equal(
