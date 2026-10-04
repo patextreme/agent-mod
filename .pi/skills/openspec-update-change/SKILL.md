@@ -16,20 +16,6 @@ Revise a change's existing planning artifacts and keep them coherent. Never edit
 
 **Input**: Optionally specify a change name. If omitted, check if it can be inferred from conversation context. If vague or ambiguous you MUST prompt for available changes.
 
-**Current-cycle grooming authorization**
-
-An invocation from the `openspec-groom` flow may supply an explicit `OPENSpec GROOMING AUTHORIZATION (current cycle only)` section containing JSON with `changeId`, assessed `resolutions`, `steering`, and `existingArtifactAllowlist`. This is a narrow exception to step 5's per-artifact confirmations, not general permission to reconcile or rewrite the plan autonomously.
-
-Before using the exception, verify:
-- The authorized `changeId` matches the selected active local change and the scope returned by `openspec status`.
-- Every allowlisted path is an existing concrete planning artifact in that change's `existingOutputPaths`. Every resolution names only paths in that allowlist and has a unique nonblank ID, issue, recommendation, and boolean `escalation` field.
-- The resolutions address only the current cycle's assessed structural or Critical repairs. Do not independently target Major findings, unrelated inconsistencies, or earlier-cycle findings.
-- Every escalated resolution has explicit nonblank steering keyed by its ID. Architectural, design, product, high-stakes, or materially conflicting decisions require steering; do not treat a missing answer or an autonomous label as permission to make such a decision.
-
-With valid authorization, read and reconcile the existing artifacts, then apply all authorized resolutions and supplied steering as one coordinated update without additional per-artifact confirmation. Restrict writes to the supplied existing-artifact allowlist; preserve existing dirty edits. If steering is incomplete, scope is invalid, or repair requires a missing artifact, stop without applying any cycle fixes and explain the limitation. Do not create artifacts, implementation changes, unrelated files, reports, commits, stashes, or rollback. New consequential decisions discovered while updating require fresh assessment/steering, not invented consent.
-
-Without valid explicit authorization, retain every ordinary confirmation. Ordinary invocations continue to show each proposed revision and wait for confirmation before writing. Authorization expires with this invocation: never reuse earlier-cycle steering or transcripts. It does not override tool permissions, deny rules, or permission prompts, and does not enable YOLO.
-
 **Steps**
 
 1. **Select the change**
@@ -75,8 +61,7 @@ Without valid explicit authorization, retain every ordinary confirmation. Ordina
    - If the change is already coherent, say so and make no edits.
 
 5. **Confirm and apply, one artifact at a time**
-   - For ordinary invocations, show each proposed revision and why. Write only after the user confirms.
-   - With valid current-cycle grooming authorization as defined above, apply only the authorized cycle's revisions together without additional artifact confirmation; all other guardrails remain in force.
+   - Show each proposed revision and why. Write only after the user confirms.
    - If the user rejects a revision, do not write it - leave that artifact unchanged.
    - When a substantial rewrite is needed, get that artifact's rules and template first:
      ```bash
@@ -100,6 +85,6 @@ After each invocation, show:
 - Use the artifact ids and paths reported by `openspec status`; never branch on hardcoded artifact names.
 - Edit only the concrete files in `existingOutputPaths`; never write to a glob `resolvedOutputPath`.
 - Do not advance the build frontier: no new artifacts, no new files under glob artifacts - that is `/opsx-continue`'s job.
-- Confirm every edit with the user before writing, except the assessed revisions covered by valid current-cycle grooming authorization above.
+- Confirm every edit with the user before writing.
 - If the request changes the change's *intent* rather than refining it, recommend starting fresh with `/opsx-new` (the "Update vs. Start Fresh" heuristic).
 - `/opsx-continue` and `/opsx-new` may not be installed (core profile). When suggesting one that is unavailable, point to the CLI instead: `openspec status --change "<name>" --json` shows the next artifact and `openspec instructions <artifact-id> --change "<name>" --json` explains how to create it.

@@ -69,13 +69,17 @@ Implement the human step with a compute/function action using `node:readline/pro
 
 Alternative: checkpoint. Rejected because current CLI resume support is absent. Alternative: apply autonomous fixes before steering. Rejected because human decisions may invalidate them.
 
-### 5. Explicit, narrow update-skill authorization
+### 5. Dedicated flow-owned updater prompt
 
-Revise `.pi/skills/openspec-update-change/SKILL.md` to document a grooming authorization section supplied by this flow. The normal per-artifact confirmation policy remains unchanged unless explicit current-cycle authorization is present. Authorized updates receive the change ID, assessed resolutions, any complete steering, and resolved edit scope; they do not receive previous-cycle transcripts.
+Keep `.pi/skills/openspec-update-change/SKILL.md` unchanged: it is an OpenSpec-generated skill, not an extension point for grooming. Do not invoke it for autonomous repairs or wrap it with instructions that override its confirmations. Instead, compose a standalone updater prompt owned by the flow in `flows/groom.ts` and send it directly to a fresh Pi ACP session, without a `/skill:openspec-update-change` prefix or dependence on update-skill discovery.
 
-The exemption covers structural and Critical repairs only. It neither creates missing artifacts nor overrides tool permissions. Pass the authorized invocation to a fresh Pi session using the actual skill-expansion mechanism supported by Pi ACP. Verify that the project skill is discoverable from the flow invocation context; do not rely on a same-named skill silently shadowing it.
+The prompt receives only the change ID, current-cycle assessed resolutions, complete steering where required, and the resolved existing-artifact allowlist. It instructs the updater to read and reconcile existing artifacts using schema-resolved OpenSpec status and, for substantial rewrites, artifact instructions. Apply all approved cycle fixes together without additional artifact confirmations. This authorization covers structural and Critical repairs only; it does not independently target Major findings or unrelated inconsistencies.
 
-Alternative: contradictory prompt instructions against the unmodified skill. Rejected because behavior would be unreliable. Alternative: globally relax confirmation. Rejected because ordinary invocations must retain human control.
+Validate the authorized target and paths against the selected change's existing planning scope, preserve dirty edits, and reject incomplete steering or required missing artifacts before applying any cycle fixes. Newly discovered consequential decisions require fresh assessment/steering rather than invented consent. Do not create files, edit implementation code or unrelated content, automate Git, write reports, reuse previous-cycle transcripts, or override tool permissions. Keep ordinary built-in skill invocations and their confirmations unchanged.
+
+Tests must verify the direct updater prompt and current-cycle payload, absence of built-in update-skill invocation, complete-steering gating, scope constraints, and unchanged ordinary skill behavior. Native skill-expansion checks remain relevant to the reviewer only.
+
+Alternative: modify the generated update skill or globally relax confirmation. Rejected because upstream-generated skills must remain untouched and ordinary invocations must retain human control. Alternative: contradictory wrapper instructions against the unmodified skill. Rejected because behavior would be unreliable.
 
 ### 6. Outcomes, persistence, and permission separation
 
@@ -93,7 +97,7 @@ Document invocation:
 acpx flow run ./flows/openspec-groom.flow.ts --input-json '{"changeId":"example-change"}'
 ```
 
-Document Pi adapter setup, skill discovery, permissions, terminal limitations, seven-day wait, and the distinction between successful grooming and implementation readiness.
+Document Pi adapter setup, review-skill discovery, the dedicated direct updater prompt, permissions, terminal limitations, seven-day wait, and the distinction between successful grooming and implementation readiness. No update-skill pinning or generated-skill modifications are required.
 
 ## Risks / Trade-offs
 
@@ -107,8 +111,8 @@ Document Pi adapter setup, skill discovery, permissions, terminal limitations, s
 
 ## Migration Plan
 
-1. Add dependency/check integration and flow helpers, then graph and scoped skill policy.
-2. Add deterministic and adapter-level tests plus README invocation guidance.
+1. Add dependency/check integration and flow helpers, then graph and scoped flow-owned updater prompt. Restore any grooming modifications to the built-in update skill.
+2. Migrate update dispatch, fixtures, prompt/skill-expansion tests, and README guidance away from the built-in update skill; retain review-skill discovery tests.
 3. Run format, lint, typecheck, tests, and Nix flake checks before delivery.
 4. Users opt in by explicitly running the new flow; ordinary update invocations remain unchanged.
-5. Rollback removes the flow and scoped exemption and restores dependency/check changes. It does not reverse artifacts edited by earlier grooming runs.
+5. Rollback removes the flow and its updater prompt and restores dependency/check changes. Built-in skills remain unchanged. It does not reverse artifacts edited by earlier grooming runs.

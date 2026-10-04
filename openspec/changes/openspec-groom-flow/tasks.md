@@ -21,9 +21,9 @@
 ## 4. Steering and scoped updates
 
 - [x] 4.1 Implement terminal steering for every escalated issue with recommendations, nonblank per-issue answers, seven-day timeout, cancellation signal, and readline cleanup; add fake-terminal tests for complete/incomplete answers, EOF, cancellation, timeout, and missing TTY.
-- [x] 4.2 Revise `.pi/skills/openspec-update-change/SKILL.md` with explicit current-cycle grooming authorization that preserves ordinary confirmations; verify the policy covers structural and Critical repairs but not missing-artifact creation, unrelated edits, or tool permission overrides.
-- [x] 4.3 Invoke the updated skill in a fresh Pi session with assessed fixes, complete steering, and resolved scope, applying the cycle in one coordinated update; add tests proving no updater dispatch before escalation is complete and no prior-cycle steering leaks.
-- [x] 4.4 Document skill discovery, adapter prerequisites, separate tool permissions, seven-day steering, and lack of resume support; verify the project update skill is discoverable through the documented invocation.
+- [ ] 4.2 Implement a standalone flow-owned updater prompt in `flows/groom.ts`, leaving the OpenSpec-generated `openspec-update-change` skill unchanged; verify current-cycle authorization covers only assessed structural/Critical repairs, complete steering, and existing planning scope, with no missing-artifact creation, unrelated edits, or tool permission overrides.
+- [ ] 4.3 Send the direct updater prompt to a fresh Pi session without invoking or wrapping the built-in update skill; migrate fixtures and prompt/skill-expansion tests, retaining complete-steering gating and no prior-cycle leaks, and test rejection of invalid scope/authorization plus unchanged ordinary skill confirmations.
+- [ ] 4.4 Update README prerequisites and discovery guidance for the review skill and direct updater prompt, removing project update-skill pinning and exemption claims; retain adapter setup, separate tool permissions, seven-day steering, and lack of resume support.
 
 ## 5. Flow graph, budget, and outcomes
 
@@ -34,5 +34,5 @@
 
 ## 6. Integration verification
 
-- [x] 6.1 Run a fake-agent end-to-end grooming scenario including review, escalation, update, and fresh-cycle convergence; verify transcripts persist through acpx and the final result matches the actual exit code.
-- [x] 6.2 Run repository quality gates in order (`npm run format`, `npm run lint`, `npm run typecheck`, `npm test`) and `nix flake check`; verify all pass after dependency/hash and test-wiring changes.
+- [ ] 6.1 Rerun fake-agent end-to-end grooming with the direct updater prompt, including review, mixed escalation, update, and fresh-cycle convergence; verify transcripts persist through acpx, failure cases preserve edits, and final results match actual exit codes.
+- [ ] 6.2 Rerun repository quality gates in order (`npm run format`, `npm run lint`, `npm run typecheck`, `npm test`) and `nix flake check` after migrating the updater prompt, tests, and documentation.

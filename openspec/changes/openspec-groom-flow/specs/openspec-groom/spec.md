@@ -70,15 +70,19 @@ When steering is needed, the flow SHALL require an interactive terminal and allo
 - **THEN** the flow terminates with the applicable non-success outcome and preserves prior cycles' edits
 
 ### Requirement: Scoped update authorization
-The update skill SHALL permit explicitly flow-authorized revisions of existing planning artifacts without per-artifact confirmation, limited to assessed structural or Critical resolutions and supplied human steering. Ordinary invocations MUST continue requiring confirmation for every artifact revision. Authorization MUST NOT grant tool permissions or permit unrelated edits.
+The flow SHALL use a dedicated flow-owned updater prompt to authorize revisions of existing planning artifacts without per-artifact confirmation, limited to assessed structural or Critical resolutions and supplied human steering. It MUST NOT invoke or modify the built-in `openspec-update-change` skill for autonomous repairs, nor override its confirmation policy through wrapper instructions. Ordinary invocations of that skill MUST remain unchanged and require confirmation for every artifact revision. Authorization MUST NOT grant tool permissions, create missing artifacts, or permit unrelated edits.
 
 #### Scenario: Authorized grooming update
 - **WHEN** the flow supplies explicit authorization and the assessed resolutions with any required steering
-- **THEN** the update skill applies those planning revisions without additional artifact confirmation
+- **THEN** a fresh Pi session receives the flow-owned updater prompt and applies only those planning revisions without additional artifact confirmation or invoking the built-in update skill
 
 #### Scenario: Ordinary update invocation
-- **WHEN** the update skill is invoked without explicit grooming authorization
-- **THEN** it shows each proposed artifact revision and waits for human confirmation before writing
+- **WHEN** the built-in `openspec-update-change` skill is invoked ordinarily
+- **THEN** its unchanged policy shows each proposed artifact revision and waits for human confirmation before writing
+
+#### Scenario: Invalid cycle authorization
+- **WHEN** the authorized change or paths do not match the selected change's existing planning artifacts, steering is incomplete, or a required artifact is missing
+- **THEN** the updater stops without applying any cycle fixes and explains the limitation
 
 ### Requirement: Fresh Pi phases
 The flow SHALL use Pi with a fresh agent session for every phase in every cycle, including review, decisions, assessment, and updates. Reviewers SHALL receive only the change ID as run-specific input. Other phases SHALL receive only current-cycle inputs needed for their task, including current findings and steering, and MUST NOT receive previous-cycle transcripts.
