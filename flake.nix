@@ -16,6 +16,7 @@
         devshell.flakeModule
         ./nix/modules/devshells.nix
         ./nix/modules/pi-package.nix
+        ./nix/packages/pi-acp
       ];
     };
 }

@@ -1,0 +1,344 @@
+diff --git a/src/acp/agent.ts b/src/acp/agent.ts
+index 38fdbe9..41b6b8e 100644
+--- a/src/acp/agent.ts
++++ b/src/acp/agent.ts
+@@ -386,14 +386,15 @@ export class PiAcpAgent implements ACPAgent {
+       preludeText = preludeText ? preludeText.trimEnd() + '\n' + mcp.warnings.join('\n') : mcp.warnings.join('\n')
+     }
+ 
+-    if (preludeText)
+-      session.setStartupInfo(preludeText)
+-
+-      // Policy: within a single ACP connection (one client window), keep only one live pi subprocess.
+-      // This avoids leaking subprocesses when clients start new sessions but don't explicitly close old ones.
+-      // It does NOT affect other client windows because they run in separate agent processes.
+-      //
+-      // (Tests sometimes stub out `this.sessions`, so guard the call.)
++    // Startup information is metadata, not model output. Keep banners, update
++    // notices and MCP warnings out of agent_message_chunk: clients may already
++    // be collecting the first prompt's response when deferred updates arrive.
++
++    // Policy: within a single ACP connection (one client window), keep only one live pi subprocess.
++    // This avoids leaking subprocesses when clients start new sessions but don't explicitly close old ones.
++    // It does NOT affect other client windows because they run in separate agent processes.
++    //
++    // (Tests sometimes stub out `this.sessions`, so guard the call.)
+     ;(this.sessions as any).closeAllExcept?.(session.sessionId)
+ 
+     const response = {
+@@ -408,10 +409,6 @@ export class PiAcpAgent implements ACPAgent {
+       }
+     }
+ 
+-    // Try to send it immediately after session/new returns; if the client ignores it,
+-    // it will still be emitted as the first chunk of the first prompt.
+-    if (preludeText) setTimeout(() => session.sendStartupInfoIfPending(), 0)
+-
+     // Advertise slash commands (ACP: available_commands_update)
+     // Important: some clients (e.g. Zed) will ignore notifications for an unknown sessionId.
+     // So we must send this *after* the session/new response has been delivered.
+diff --git a/src/acp/pi-settings.ts b/src/acp/pi-settings.ts
+index e0b6cf4..29624b7 100644
+--- a/src/acp/pi-settings.ts
++++ b/src/acp/pi-settings.ts
+@@ -59,7 +59,7 @@ export function getEnableSkillCommands(cwd: string): boolean {
+ 
+ /**
+  * Mirror pi's quietStartup setting: if true, pi suppresses the verbose startup prelude.
+- * We use it to decide whether to synthesize + emit our own "startup info" message.
++ * We use it to decide whether to include verbose startup information in session/new metadata.
+  */
+ export function getQuietStartup(cwd: string): boolean {
+   const merged = getMergedSettings(cwd)
+diff --git a/src/acp/session.ts b/src/acp/session.ts
+index c5b3a6e..28f8ff8 100644
+--- a/src/acp/session.ts
++++ b/src/acp/session.ts
+@@ -285,9 +285,6 @@ export class PiAcpSession {
+   readonly cwd: string
+   readonly mcpServers: McpServer[]
+ 
+-  private startupInfo: string | null = null
+-  private startupInfoSent = false
+-
+   readonly proc: PiRpcProcess
+   private readonly conn: AgentSideConnection
+   private readonly fileCommands: FileSlashCommand[]
+@@ -339,26 +336,6 @@ export class PiAcpSession {
+     this.proc.onEvent(ev => this.handlePiEvent(ev))
+   }
+ 
+-  setStartupInfo(text: string) {
+-    this.startupInfo = text
+-    this.startupInfoSent = false
+-  }
+-
+-  /**
+-   * Best-effort attempt to send startup info outside of a prompt turn.
+-   * Some clients (e.g. Zed) may only render agent messages once the UI is ready;
+-   * callers can invoke this shortly after session/new returns.
+-   */
+-  sendStartupInfoIfPending(): void {
+-    if (this.startupInfoSent || !this.startupInfo) return
+-    this.startupInfoSent = true
+-
+-    this.emit({
+-      sessionUpdate: 'agent_message_chunk',
+-      content: { type: 'text', text: this.startupInfo }
+-    })
+-  }
+-
+   async prompt(message: string, images: unknown[] = []): Promise<StopReason> {
+     // pi RPC mode disables slash command expansion, so we do it here.
+     const expandedMessage = expandSlashCommand(message, this.fileCommands)
+diff --git a/test/component/session-events.test.ts b/test/component/session-events.test.ts
+index c30373c..ef5c724 100644
+--- a/test/component/session-events.test.ts
++++ b/test/component/session-events.test.ts
+@@ -672,7 +672,7 @@ test('PiAcpSession: prompt stays open through retry runs until agent_settled', a
+   assert.equal(reason, 'end_turn')
+ })
+ 
+-test('PiAcpSession: does not re-emit startup info on first prompt after it was already sent', async () => {
++test('PiAcpSession: first prompt emits only model text', async () => {
+   const conn = new FakeAgentSideConnection()
+   const proc = new FakePiRpcProcess()
+ 
+@@ -685,32 +685,23 @@ test('PiAcpSession: does not re-emit startup info on first prompt after it was a
+     fileCommands: []
+   })
+ 
+-  const notice = 'New version available: v0.74.0 (installed v0.73.1).'
+-
+-  session.setStartupInfo(notice)
+-  session.sendStartupInfoIfPending()
+-  await new Promise(r => setTimeout(r, 0))
+-
+   const p = session.prompt('hello')
+   await new Promise(r => setTimeout(r, 0))
+ 
+   assert.equal(proc.prompts.length, 1)
+   assert.equal(proc.prompts[0]!.message, 'hello')
+-  const startupUpdates = conn.updates.filter(
+-    entry =>
+-      entry.update.sessionUpdate === 'agent_message_chunk' &&
+-      (entry.update as any).content?.type === 'text' &&
+-      (entry.update as any).content?.text === notice
+-  )
+-  assert.equal(startupUpdates.length, 1)
++  assert.equal(conn.updates.some(entry => entry.update.sessionUpdate === 'agent_message_chunk'), false)
+ 
+   proc.emit({ type: 'agent_start' })
++  proc.emit({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: '{"ok":true}' } })
+   proc.emit({ type: 'turn_end' })
+   proc.emit({ type: 'agent_end' })
+   proc.emit({ type: 'agent_settled' })
+ 
+   const reason = await p
+   assert.equal(reason, 'end_turn')
++  const chunks = conn.updates.filter(entry => entry.update.sessionUpdate === 'agent_message_chunk')
++  assert.deepEqual(chunks.map(entry => (entry.update as any).content.text), ['{"ok":true}'])
+ })
+ 
+ test('PiAcpSession: cancel flips stopReason to cancelled', async () => {
+diff --git a/test/component/startup-metadata-only.test.ts b/test/component/startup-metadata-only.test.ts
+new file mode 100644
+index 0000000..8069ceb
+--- /dev/null
++++ b/test/component/startup-metadata-only.test.ts
+@@ -0,0 +1,124 @@
++import test from 'node:test'
++import { spawn } from 'node:child_process'
++import { once } from 'node:events'
++import { Readable, Writable } from 'node:stream'
++import { ClientSideConnection, ndJsonStream } from '@agentclientprotocol/sdk'
++import assert from 'node:assert/strict'
++import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
++import { tmpdir } from 'node:os'
++import { delimiter, join } from 'node:path'
++import { fileURLToPath } from 'node:url'
++import { PiAcpAgent } from '../../src/acp/agent.js'
++import { resetMcpConfigSupportCacheForTests } from '../../src/acp/mcp-config.js'
++import { FakeAgentSideConnection, asAgentConn } from '../helpers/fakes.js'
++
++const FAKE_PI = fileURLToPath(new URL('../helpers/fake-pi.mjs', import.meta.url))
++const MODEL_TEXT = '{"ok":true,"answer":42}'
++
++const transports = process.env.PI_ACP_TEST_DIST ? ['source', 'dist'] : ['source']
++for (const transport of transports) {
++  for (const quietStartup of [false, true]) {
++    test(
++      `immediate JSON prompt receives only model text; startup metadata survives (${transport}, quietStartup=${quietStartup})`,
++      { timeout: 10_000 },
++      async () => {
++        const prev = { ...process.env }
++        const dir = mkdtempSync(join(tmpdir(), 'pi-acp-startup-'))
++        const cwd = join(dir, 'project')
++        const bin = join(dir, 'bin')
++        const agentDir = join(dir, 'agent')
++        for (const path of [cwd, bin, agentDir]) mkdirSync(path)
++        writeFileSync(join(cwd, 'AGENTS.md'), '# Startup regression context\n')
++        writeFileSync(join(agentDir, 'settings.json'), JSON.stringify({ quietStartup }))
++        // buildUpdateNotice/buildStartupInfo probe PATH, not PI_ACP_PI_COMMAND.
++        // Both probes are local and deterministic; no registry or real Pi needed.
++        for (const name of ['pi', 'npm']) symlinkSync(FAKE_PI, join(bin, name))
++        Object.assign(process.env, {
++          PATH: bin + delimiter + (prev.PATH ?? ''),
++          HOME: dir,
++          PI_CODING_AGENT_DIR: agentDir,
++          PI_ACP_PI_COMMAND: FAKE_PI,
++          FAKE_PI_INSTALLED_VERSION: '0.99.1',
++          FAKE_PI_LATEST_VERSION: '0.100.0',
++          FAKE_PI_HELP_HAS_MCP_CONFIG: '0',
++          FAKE_PI_HELP_HAS_NATIVE_MCP: '0',
++          FAKE_PI_MODEL_TEXT: MODEL_TEXT
++        })
++        resetMcpConfigSupportCacheForTests()
++        const conn = new FakeAgentSideConnection()
++        const child =
++          transport === 'dist' ? spawn(process.execPath, [process.env.PI_ACP_TEST_DIST!], { stdio: 'pipe' }) : null
++        let stderr = ''
++        child?.stderr.on('data', data => {
++          stderr += String(data)
++        })
++        const agent = child
++          ? new ClientSideConnection(
++              () => ({
++                sessionUpdate: msg => conn.sessionUpdate(msg),
++                requestPermission: params => conn.requestPermission(params)
++              }),
++              ndJsonStream(
++                Writable.toWeb(child.stdin) as WritableStream<Uint8Array>,
++                Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>
++              )
++            )
++          : new PiAcpAgent(asAgentConn(conn), {} as any)
++        try {
++          await agent.initialize({ protocolVersion: 1, clientCapabilities: {} })
++          const response = await agent.newSession({
++            cwd,
++            mcpServers: [
++              { name: 'ptah', command: '/unused/ptah', args: [], env: [] },
++              { type: 'http', name: 'remote', url: 'https://example.invalid/mcp', headers: [] }
++            ]
++          })
++          const metadata = response._meta as { piAcp?: { startupInfo?: string | null } } | undefined
++          const startupInfo = metadata?.piAcp?.startupInfo
++          assert.equal(typeof startupInfo, 'string')
++          assert.match(startupInfo as string, /New version available: v0\.100\.0/)
++          assert.match(startupInfo as string, /dropped 1 MCP server\(s\) \(ptah\)/)
++          assert.match(startupInfo as string, /dropped 1 non-stdio MCP server\(s\) \(remote\)/)
++          if (quietStartup) assert.doesNotMatch(startupInfo as string, /## Context/)
++          else {
++            assert.match(startupInfo as string, /pi v0\.99\.1/)
++            assert.match(startupInfo as string, /## Context/)
++            assert.ok((startupInfo as string).includes(join(cwd, 'AGENTS.md')))
++          }
++          assert.equal(
++            conn.updates.some(u => u.update.sessionUpdate === 'agent_message_chunk'),
++            false
++          )
++          // Do not yield/drain startup timers before the first prompt.
++          const result = await agent.prompt({
++            sessionId: response.sessionId,
++            prompt: [{ type: 'text', text: 'Return only a JSON object.' }]
++          })
++          assert.equal(result.stopReason, 'end_turn')
++          await new Promise(resolve => setTimeout(resolve, 30))
++          const text = conn.updates
++            .flatMap(u =>
++              u.update.sessionUpdate === 'agent_message_chunk' && u.update.content.type === 'text'
++                ? [u.update.content.text]
++                : []
++            )
++            .join('')
++          assert.equal(text, MODEL_TEXT)
++          assert.deepEqual(JSON.parse(text), { ok: true, answer: 42 })
++          assert.equal(metadata?.piAcp?.startupInfo, startupInfo)
++        } finally {
++          if (child) {
++            const exited = once(child, 'exit')
++            child.kill('SIGTERM')
++            const [code] = await exited
++            assert.equal(code, 0, stderr)
++          } else (agent as PiAcpAgent).dispose()
++          for (const key of Object.keys(process.env)) if (!(key in prev)) delete process.env[key]
++          Object.assign(process.env, prev)
++          resetMcpConfigSupportCacheForTests()
++          rmSync(dir, { recursive: true, force: true })
++        }
++      }
++    )
++  }
++}
+diff --git a/test/helpers/fake-pi.mjs b/test/helpers/fake-pi.mjs
+index 7f48657..62456b9 100755
+--- a/test/helpers/fake-pi.mjs
++++ b/test/helpers/fake-pi.mjs
+@@ -47,6 +47,16 @@ if (argv.includes('--help')) {
+   process.exit(0)
+ }
+ 
++// Deterministic startup version checks (also symlinked as npm by startup tests).
++if (argv.includes('--version')) {
++  console.log(process.env.FAKE_PI_INSTALLED_VERSION ?? '0.99.1')
++  process.exit(0)
++}
++if (argv[0] === 'view') {
++  console.log(process.env.FAKE_PI_LATEST_VERSION ?? '0.99.1')
++  process.exit(0)
++}
++
+ // Minimal RPC mode: newline-delimited JSON requests on stdin, responses on stdout.
+ process.stdin.setEncoding('utf8')
+ 
+@@ -83,6 +93,25 @@ function handle(line) {
+     case 'get_commands':
+       respond(msg, { commands: [] })
+       break
++    case 'prompt':
++      respond(msg, {})
++      if (process.env.FAKE_PI_MODEL_TEXT) {
++        // Keep the turn open while session/new's deferred work runs. This
++        // reproduces startup notices racing with an immediate first prompt.
++        setTimeout(() => {
++          for (const event of [
++            { type: 'agent_start' },
++            {
++              type: 'message_update',
++              assistantMessageEvent: { type: 'text_delta', delta: process.env.FAKE_PI_MODEL_TEXT }
++            },
++            { type: 'agent_end' },
++            { type: 'agent_settled' }
++          ])
++            process.stdout.write(JSON.stringify(event) + '\n')
++        }, 20)
++      }
++      break
+     default:
+       respond(msg, {})
+       break
+diff --git a/test/unit/startup-info-env.test.ts b/test/unit/startup-info-env.test.ts
+index fc485cc..b9980dc 100644
+--- a/test/unit/startup-info-env.test.ts
++++ b/test/unit/startup-info-env.test.ts
+@@ -21,7 +21,7 @@ test('PiAcpAgent: quietStartup=true disables startup info generation/emission',
+   writeFileSync(join(dir, 'settings.json'), JSON.stringify({ quietStartup: true }, null, 2), 'utf-8')
+   process.env.PI_CODING_AGENT_DIR = dir
+ 
+-  // Spy on setTimeout calls (agent schedules startup info + available commands)
++  // Spy on setTimeout calls: only usage/available commands should be scheduled.
+   const realSetTimeout = globalThis.setTimeout
+   const timeouts: Array<unknown> = []
+   ;(globalThis as any).setTimeout = (fn: unknown, _ms?: number) => {
+@@ -70,8 +70,8 @@ test('PiAcpAgent: quietStartup=true disables startup info generation/emission',
+     // The test must tolerate both cases since the live npm check may or may not find an update.
+     if (startupInfo) {
+       assert.match(startupInfo, /New version available/)
+-      assert.equal(setStartupInfoCalled, true)
+-      assert.equal(timeouts.length, 2)
++      assert.equal(setStartupInfoCalled, false)
++      assert.equal(timeouts.length, 1)
+     } else {
+       assert.equal(setStartupInfoCalled, false)
+       assert.equal(timeouts.length, 1)

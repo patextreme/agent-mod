@@ -47,6 +47,13 @@ This registers all extensions, prompts, and skills declared in [`package.json`](
 |-------|-------------|
 | [`openspec-review`](./skills/openspec-review/SKILL.md) | Review an OpenSpec change for semantic soundness before implementation |
 
+### Nix Packages
+
+[`pi-acp`](./nix/packages/pi-acp/README.md) is a separately built ACP adapter,
+pinned to upstream v0.0.34 with MCP compatibility and metadata-only startup
+notices. Build with `nix build .#pi-acp`; Pi is not bundled. Its upstream
+TypeScript/tests and source/bundled-output regressions run in `nix flake check`.
+
 ## Permission Extension
 
 Intercepts every `bash` tool call and applies regex-based permission rules in **forward order** — the first matching rule wins.
