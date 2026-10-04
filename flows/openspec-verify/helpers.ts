@@ -50,7 +50,8 @@ export async function snapshot(
   if (
     data.changeName !== target.changeId ||
     data.changeDir !== target.changeRoot ||
-    !["blocked", "ready", "all_done"].includes(String(data.state))
+    typeof data.state !== "string" ||
+    !["blocked", "ready", "all_done"].includes(data.state)
   )
     throw new Error("Invalid current verification context");
   const files = object(data.contextFiles);
@@ -150,7 +151,10 @@ export function parseReport(raw: string): Report {
   const dims = object(data.dimensions);
   const dimension = (key: string): Dimension => {
     const d = object(dims[key]);
-    if (!["checked", "inapplicable", "missing"].includes(String(d.status)))
+    if (
+      typeof d.status !== "string" ||
+      !["checked", "inapplicable", "missing"].includes(d.status)
+    )
       throw new Error("Invalid verification dimension");
     const evidence = strings(d.evidence);
     if (d.status === "checked" && !evidence.length)
@@ -170,7 +174,8 @@ export function parseReport(raw: string): Report {
       !/^[a-zA-Z0-9-]+$/.test(id) ||
       id.startsWith("flow-") ||
       ids.has(id) ||
-      !["CRITICAL", "WARNING", "SUGGESTION"].includes(String(f.severity)) ||
+      typeof f.severity !== "string" ||
+      !["CRITICAL", "WARNING", "SUGGESTION"].includes(f.severity) ||
       !evidence.length
     )
       throw new Error("Invalid finding identity, severity or references");
@@ -314,7 +319,7 @@ export async function parseAssessment(
   target: Target,
   report: Report,
 ): Promise<Assessment> {
-  const data = object(JSON.parse(raw));
+  const data = object(parseJsonObject(raw, { mode: "compat" }));
   if (!Array.isArray(data.resolutions) || !data.resolutions.length)
     throw new Error("Empty resolution assessment");
   const blockers = blocking(report);
@@ -343,7 +348,11 @@ export async function parseAssessment(
       const escalation = r.escalation;
       const reason = text(r.reason);
       if (
-        paths.some((path) => contains(resolve(target.cwd, "openspec"), path)) &&
+        paths.some(
+          (path) =>
+            path === resolve(target.cwd, "openspec") ||
+            contains(resolve(target.cwd, "openspec"), path),
+        ) &&
         !escalation
       )
         throw new Error("Planning-artifact changes require explicit steering");
@@ -389,8 +398,12 @@ export function verifyPrompt(
 ): string {
   return `/skill:openspec-verify-change ${target.changeId}\nOpenSpec independent verification flow for explicit changeId ${target.changeId}. READ-ONLY: inspect implementation and EVERY current contextFiles artifact and run applicable checks, but do not edit implementation or planning artifacts. Do not repair findings. No prior implement transcript is required. Check completeness, correctness and coherence; preserve the skill's useful report prose. Outer acceptance is STRICTER than archive-readiness prose: no CRITICAL/WARNING, conclusive, all required current evidence; SUGGESTIONs may remain. Missing required evidence is at least WARNING, never an allowed skip or human waiver. Justify checks genuinely inapplicable under the schema/project scope. Establish current applicable gate evidence; do not rely on earlier repair claims. Use unique finding IDs not starting flow-. ${policy}\nCURRENT SNAPSHOT: ${JSON.stringify(current)}\nACCUMULATED SCOPED STEERING: ${JSON.stringify(steering)}\nReturn ONLY JSON with full Markdown report and validated supporting envelope: ${shape}`;
 }
-export function judgePrompt(current: Snapshot, report: Report): string {
-  return `Read-only verification classifier: choose exactly accepted, blocking, or inconclusive. Classify the FULL report and evidence, not its archive-ready sentence. accepted requires conclusive no CRITICAL or WARNING and no missing required evidence, all current tasks done and applicable gates passed. Suggestions may remain. Judge gate/check applicability against current project instructions, artifacts and affected scope; merely listing a passing command does not establish that all required checks ran. Evaluate inapplicability reasons against the selected schema, not just their presence. Justified schema-inapplicable checks are allowed; absent required checks cannot be waived. Unusable/inconclusive evidence is inconclusive. Do not edit, repair, or invent consent.\n${JSON.stringify({ current, report })}`;
+export function judgePrompt(
+  current: Snapshot,
+  report: Report,
+  steering: Authorization[],
+): string {
+  return `Read-only verification classifier: choose exactly accepted, blocking, or inconclusive. Classify the FULL report and evidence, not its archive-ready sentence. accepted requires conclusive no CRITICAL or WARNING and no missing required evidence, all current tasks done and applicable gates passed. Suggestions may remain. Judge gate/check applicability against current project instructions, artifacts and affected scope; merely listing a passing command does not establish that all required checks ran. Evaluate inapplicability reasons against the selected schema, not just their presence. Justified schema-inapplicable checks are allowed; absent required checks cannot be waived. Unusable/inconclusive evidence is inconclusive. Do not edit, repair, or invent consent. Relevant accumulated guidance retains ONLY its original issue-associated scope, does not grant tool permissions, and cannot waive required evidence.\n${JSON.stringify({ current, report, steering })}`;
 }
 export function assessPrompt(
   target: Target,
@@ -407,7 +420,7 @@ export interface RepairReport {
   gates: Gate[];
 }
 export function parseRepairReport(raw: string): RepairReport {
-  const data = object(JSON.parse(raw));
+  const data = object(parseJsonObject(raw, { mode: "compat" }));
   return {
     summary: text(data.summary),
     changes: strings(data.changes),

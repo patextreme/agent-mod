@@ -9,8 +9,11 @@ import { createVerifyFlow, type VerifyResult } from "./flow.js";
 import {
   type Assessment,
   currentReport,
+  parseAssessment,
+  parseReport,
   type Report,
   type Snapshot,
+  type Target,
 } from "./helpers.js";
 
 interface Options {
@@ -21,6 +24,8 @@ interface Options {
   missing?: boolean;
   inconclusive?: boolean;
   suggestions?: boolean;
+  malformedEnum?: "missing" | "checked" | "WARNING";
+  planningRoot?: boolean;
   forceAccepted?: boolean;
   fail?: "verify" | "repair" | "judge" | "assess" | "refresh";
   failureAt?: number;
@@ -150,7 +155,29 @@ async function graph(t: TestContext, opts: Options = {}) {
     run: () => {
       verifies++;
       if (opts.fail === "verify") throw new Error("Verifier failure");
-      return report();
+      const payload = report();
+      if (opts.malformedEnum === "WARNING")
+        return parseReport(
+          JSON.stringify({
+            ...payload,
+            findings: [{ ...payload.findings[0], severity: ["WARNING"] }],
+          }),
+        );
+      if (opts.malformedEnum)
+        return parseReport(
+          JSON.stringify({
+            ...payload,
+            dimensions: {
+              ...payload.dimensions,
+              correctness: {
+                status: [opts.malformedEnum],
+                reason: "Missing check",
+                evidence: [],
+              },
+            },
+          }),
+        );
+      return parseReport(JSON.stringify(payload));
     },
   };
   if (opts.timeout)
@@ -164,9 +191,20 @@ async function graph(t: TestContext, opts: Options = {}) {
           }),
         ),
     };
+  const classifier = flow.nodes.judge;
+  assert.equal(classifier.nodeType, "acp");
+  if (classifier.nodeType !== "acp") throw new Error("Expected classifier");
+  const classifierPrompts: string[] = [];
   flow.nodes.judge = {
     nodeType: "compute",
-    run: () => {
+    run: async (c: FlowNodeContext) => {
+      const prompt =
+        typeof classifier.prompt === "function"
+          ? await classifier.prompt(c)
+          : classifier.prompt;
+      assert.equal(typeof prompt, "string");
+      if (typeof prompt !== "string") throw new Error("Expected text prompt");
+      classifierPrompts.push(prompt);
       judges++;
       if (opts.fail === "judge") return { route: "invalid" };
       return {
@@ -181,7 +219,7 @@ async function graph(t: TestContext, opts: Options = {}) {
   };
   flow.nodes.assess = {
     nodeType: "compute",
-    run: (c: FlowNodeContext): Assessment => {
+    run: async (c: FlowNodeContext): Promise<Assessment> => {
       assessments++;
       if (opts.fail === "assess") throw new Error("Assessor failure");
       const latest = c.outputs.evidence as Report;
@@ -205,9 +243,14 @@ async function graph(t: TestContext, opts: Options = {}) {
             escalation: true,
             reason: `Consequential ${kind}`,
             scope: `${kind} decision only`,
+            paths: [join(cwd, opts.planningRoot ? "openspec" : "code.ts")],
           })),
         );
-      return { resolutions };
+      return parseAssessment(
+        JSON.stringify({ resolutions }),
+        c.outputs.preflight as Target,
+        latest,
+      );
     },
   };
   flow.nodes.repair = {
@@ -251,8 +294,70 @@ async function graph(t: TestContext, opts: Options = {}) {
     judges,
     assessments,
     questions,
+    classifierPrompts,
   };
 }
+
+test("malformed verifier enums fail before classification assessment or repair", async (t) => {
+  for (const malformedEnum of ["missing", "checked", "WARNING"] as const) {
+    const f = await graph(t, { repairs: 1, malformedEnum });
+    assert.equal(f.result.outcome, "failed");
+    assert.equal(f.verifies, 1);
+    assert.equal(f.judges, 0);
+    assert.equal(f.assessments, 0);
+    assert.equal(f.repairs, 0);
+  }
+});
+test("planning-root mixed batches require all scoped answers before repair", async (t) => {
+  const accepted = await graph(t, {
+    repairs: 1,
+    escalation: true,
+    planningRoot: true,
+  });
+  assert.equal(accepted.result.outcome, "success");
+  assert.equal(accepted.questions, 1);
+  assert.equal(accepted.repairs, 1);
+  for (const steering of ["needs_human", "malformed"] as const) {
+    const stopped = await graph(t, {
+      repairs: 1,
+      escalation: true,
+      planningRoot: true,
+      steering,
+    });
+    assert.equal(
+      stopped.result.outcome,
+      steering === "malformed" ? "failed" : "needs_human",
+    );
+    assert.equal(stopped.questions, 1);
+    assert.equal(stopped.repairs, 0);
+  }
+});
+test("fresh classification receives accumulated issue-associated steering after repairs", async (t) => {
+  const f = await graph(t, { repairs: 2, escalation: true });
+  assert.equal(f.result.outcome, "success");
+  assert.equal(f.classifierPrompts.length, 3);
+  const packets = f.classifierPrompts.map((prompt) =>
+    JSON.parse(
+      prompt.split("\n").find((line) => line.startsWith('{"current":')) ??
+        "null",
+    ),
+  );
+  assert.deepEqual(packets[0].steering, []);
+  for (const [cycle, packet] of packets.entries()) {
+    assert.equal(packet.steering.length, cycle * 2);
+    for (const guidance of packet.steering) {
+      assert.equal(guidance.answer, `Only authorize ${guidance.resolution.id}`);
+      assert.match(guidance.resolution.id, /^(design|access)-[01]$/);
+      assert.equal(
+        guidance.resolution.scope,
+        `${guidance.resolution.id.split("-")[0]} decision only`,
+      );
+      assert.deepEqual(guidance.resolution.findingIds, [
+        `warning-${guidance.resolution.id.split("-")[1]}`,
+      ]);
+    }
+  }
+});
 test("initial conclusive verification is free and suggestions are retained", async (t) => {
   const f = await graph(t, { suggestions: true });
   assert.equal(f.result.outcome, "success");

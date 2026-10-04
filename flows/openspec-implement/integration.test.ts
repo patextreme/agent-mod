@@ -10,6 +10,7 @@ import {
   rm,
   writeFile,
 } from "node:fs/promises";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { PassThrough } from "node:stream";
@@ -52,9 +53,17 @@ interface Config {
     | "malformed-judge"
     | "judge-failure"
     | "snapshot-failure"
-    | "malformed-snapshot";
+    | "malformed-snapshot"
+    | "apply-interrupt"
+    | "repair-interrupt"
+    | "assessment-failure"
+    | "malformed-assessment"
+    | "empty-assessment";
   failureAt?: number;
   failureBeforeWrite?: boolean;
+  readyPort?: number;
+  initialUpdates?: number;
+  forceEscalation?: boolean;
   reportFault?:
     | "duplicate-blockers"
     | "missing-gates"
@@ -246,7 +255,7 @@ async function fixture(
     defaultNodeTimeoutMs: 10000,
     suppressSdkConsoleErrors: true,
   });
-  async function assertEdits(count: number) {
+  async function assertEdits(count: number, restartedEdits = 0) {
     const after = await files(cwd);
     assert.deepEqual(
       [...after.keys()].sort(),
@@ -260,6 +269,10 @@ async function fixture(
           ? content +
               Array.from(
                 { length: count },
+                (_, i) => `// fixture-implement-${i}\n`,
+              ).join("") +
+              Array.from(
+                { length: restartedEdits },
                 (_, i) => `// fixture-implement-${i}\n`,
               ).join("")
           : content,
@@ -899,6 +912,8 @@ for (const options of [
 async function runCli(
   f: Awaited<ReturnType<typeof fixture>>,
   modulePath = flowFile,
+  signalWhenReady?: Promise<void>,
+  signal: NodeJS.Signals = "SIGINT",
 ) {
   const child = spawn(
     process.execPath,
@@ -921,6 +936,10 @@ async function runCli(
     },
   );
   child.stdin.end();
+  const interrupt = signalWhenReady?.then(() => {
+    assert.ok(child.kill(signal), "signal actual CLI after phase readiness");
+  });
+  void interrupt?.catch(() => child.kill("SIGKILL"));
   let stdout = "";
   let stderr = "";
   child.stdout.setEncoding("utf8").on("data", (chunk: string) => {
@@ -935,6 +954,7 @@ async function runCli(
     child.once("error", reject);
     child.once("close", (code) => resolveExit(code));
   }).finally(() => clearTimeout(timer));
+  await interrupt;
   const emitted = stdout
     .split("\n")
     .filter((line) => line.startsWith('{"changeId":'))
@@ -1021,6 +1041,211 @@ for (const scenario of [
     await f.assertEdits(scenario.edits);
   });
 }
+
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  for (const phase of ["apply", "repair", "steering"] as const) {
+    test(`actual CLI ${signal} during ${phase} emits one cancellation and counts active repair`, {
+      timeout: 30000,
+    }, async (t) => {
+      let resolveReady!: (message: { phase: string; cycle: number }) => void;
+      const ready = new Promise<{ phase: string; cycle: number }>((resolve) => {
+        resolveReady = resolve;
+      });
+      const server = createServer((socket) => {
+        let message = "";
+        socket.setEncoding("utf8");
+        socket.on("data", (chunk: string) => {
+          message += chunk;
+        });
+        socket.on("end", () => resolveReady(JSON.parse(message)));
+      });
+      await new Promise<void>((resolve) =>
+        server.listen(0, "127.0.0.1", resolve),
+      );
+      t.after(
+        () => new Promise<void>((resolve) => server.close(() => resolve())),
+      );
+      const address = server.address();
+      assert.ok(address && typeof address !== "string");
+      const f = await fixture(t, {
+        repairsNeeded: 3,
+        readyPort: address.port,
+        failureAt: phase === "apply" ? 0 : 1,
+        escalation: phase === "steering",
+        ...(phase !== "steering"
+          ? { mode: `${phase}-interrupt` as const }
+          : {}),
+      });
+      let modulePath = flowFile;
+      if (phase === "steering") {
+        modulePath = join(f.base, "interrupt-steering.flow.ts");
+        await writeFile(
+          modulePath,
+          `import { createConnection } from "node:net";\nimport { createImplementFlow } from ${JSON.stringify(join(repo, "flows/openspec-implement/flow.ts"))};\nimport { SteeringError } from ${JSON.stringify(join(repo, "flows/shared/steering.ts"))};\nlet calls = 0;\nexport default createImplementFlow({ steering: async (issues, signal) => {\nif (++calls === 1) return Object.fromEntries(issues.map(issue => [issue.id, "ANSWER " + issue.id + ": permit only " + issue.scope]));\nreturn new Promise((_, reject) => {\nsignal.addEventListener("abort", () => reject(new SteeringError("cancelled", "interrupted pending steering")), { once: true });\nconst socket = createConnection({ host: "127.0.0.1", port: ${address.port} }, () => socket.end(JSON.stringify({ phase: "steering", cycle: 1 }) + "\\n"));\nsocket.on("error", reject);\n});\n} });\n`,
+        );
+      }
+      const edits = phase === "apply" ? 1 : 2;
+      const signalWhenReady = ready.then(async (message) => {
+        assert.equal(message.phase, phase);
+        assert.equal(message.cycle, phase === "apply" ? 0 : 1);
+        await f.assertEdits(edits);
+      });
+      const result = await runCli(f, modulePath, signalWhenReady, signal);
+      assert.equal(result.emitted.outcome, "cancelled", result.stderr);
+      assert.equal(result.emitted.repairAttempts, phase === "apply" ? 0 : 1);
+      assert.match(
+        result.emitted.summary,
+        new RegExp(`Interrupted during ${phase}`),
+      );
+      assert.notEqual(result.exitCode, 0);
+      assert.equal(visits(result.state, "success").length, 0);
+      assert.equal(
+        visits(result.state, "repair").length,
+        phase === "steering" ? 1 : 0,
+      );
+      if (phase === "apply") {
+        // Global interruption deliberately leaves the active ACP step unrecorded.
+        assert.equal(visits(result.state, "apply").length, 0);
+        const saved = JSON.parse(
+          await readFile(join(result.runDir, "projections/run.json"), "utf8"),
+        );
+        assert.deepEqual(saved.steps, result.state.steps);
+        const sessions = await readdir(join(result.runDir, "sessions"));
+        assert.equal(sessions.length, 1);
+        const events = await readFile(
+          join(result.runDir, "sessions", sessions[0], "events.ndjson"),
+          "utf8",
+        );
+        assert.match(events, /session\/prompt/);
+        assert.match(events, /openspec-apply-change/);
+      } else {
+        await assertPersisted(result);
+      }
+      await f.assertEdits(edits);
+    });
+  }
+}
+
+for (const mode of [
+  undefined,
+  "assessment-failure",
+  "malformed-assessment",
+  "empty-assessment",
+] as const) {
+  test(`real escalation assessment fallback: ${mode ?? "success"}`, {
+    timeout: 30000,
+  }, async (t) => {
+    const f = await fixture(t, { forceEscalation: true, mode });
+    const emitted: Result[] = [];
+    let questions = 0;
+    const flow = createImplementFlow({
+      cwd: f.cwd,
+      command: f.command,
+      emit: (item) => emitted.push(item),
+      steering: async (issues) => {
+        questions++;
+        assert.equal(issues.length, 1);
+        assert.equal(issues[0].id, "assessment-0");
+        return {
+          "assessment-0":
+            "ANSWER assessment-0: permit only design.md section 0 only",
+        };
+      },
+    });
+    const modulePath = join(f.base, "assessment.flow.ts");
+    await writeFile(
+      modulePath,
+      `import { createImplementFlow } from ${JSON.stringify(join(repo, "flows/openspec-implement/flow.ts"))};\nexport default createImplementFlow({ steering: async issues => Object.fromEntries(issues.map(issue => [issue.id, "ANSWER " + issue.id + ": permit only " + issue.scope])) });\n`,
+    );
+    if (mode) {
+      // Actual CLI supplies nonzero-exit coverage for every bad fallback packet.
+      const result = await runCli(f, modulePath);
+      assert.equal(result.emitted.outcome, "failed");
+      assert.notEqual(result.exitCode, 0);
+      assert.equal(visits(result.state, "assess").length, 1);
+      assert.equal(visits(result.state, "steering").length, 0);
+      assert.equal(visits(result.state, "repair").length, 0);
+      await assertPersisted(result);
+      await f.assertEdits(1);
+    } else {
+      const result = await f.runner.run(flow, { changeId });
+      assert.equal(emitted[0].outcome, "success");
+      assert.equal(emitted[0].repairAttempts, 1);
+      assert.equal(questions, 1);
+      assert.equal(visits(result.state, "assess").length, 1);
+      assert.equal(
+        visits(result.state, "assess")[0].session?.acpSessionId ===
+          visits(result.state, "judge")[0].session?.acpSessionId,
+        false,
+      );
+      await assertPersisted(result);
+      await f.assertEdits(2);
+    }
+  });
+}
+
+test("same-workspace restart after exhaustion preserves edits and starts a fresh ten-repair budget", {
+  timeout: 120000,
+}, async (t) => {
+  const f = await fixture(t, { repairsNeeded: 11 });
+  const emitted: Result[] = [];
+  const flow = createImplementFlow({
+    cwd: f.cwd,
+    command: f.command,
+    emit: (item) => emitted.push(item),
+  });
+  await assert.rejects(f.runner.run(flow, { changeId }), /unsuccessful/i);
+  const first = await persistedRun(f);
+  assert.equal(emitted[0].outcome, "limit_reached");
+  assert.equal(emitted[0].repairAttempts, 10);
+  await f.assertEdits(11);
+  // Configure only the fixture's existing-marker offset, never flow state/checkpoints.
+  f.config.initialUpdates = 11;
+  await writeFile(
+    join(f.cwd, ".implement-fixture.json"),
+    JSON.stringify(f.config),
+  );
+  const configBefore = await readFile(
+    join(f.cwd, ".implement-fixture.json"),
+    "utf8",
+  );
+  await assert.rejects(f.runner.run(flow, { changeId }), /unsuccessful/i);
+  assert.equal(emitted[1].outcome, "limit_reached");
+  assert.equal(emitted[1].repairAttempts, 10);
+  const runIds = await readdir(join(f.base, "runs"));
+  const secondDir = join(
+    f.base,
+    "runs",
+    runIds.find((id) => id !== first.state.runId) as string,
+  );
+  const second: FlowRunState = JSON.parse(
+    await readFile(join(secondDir, "projections/run.json"), "utf8"),
+  );
+  assert.equal(visits(second, "repair").length, 10);
+  assert.equal(visits(second, "judge").length, 11);
+  assert.match(
+    visits(second, "apply")[0].promptText ?? "",
+    /attempt 0 \(0 is initial apply\)/,
+  );
+  const priorSessions = new Set(
+    first.state.steps.map((step) => step.session?.acpSessionId),
+  );
+  for (const step of second.steps.filter((item) => item.session))
+    assert.ok(!priorSessions.has(step.session?.acpSessionId));
+  assert.equal(
+    await readFile(join(f.cwd, ".implement-fixture.json"), "utf8"),
+    configBefore,
+  );
+  // Config change is test setup; restore only that fixture config for exact tree comparison.
+  delete f.config.initialUpdates;
+  await writeFile(
+    join(f.cwd, ".implement-fixture.json"),
+    JSON.stringify(f.config),
+  );
+  await f.assertEdits(11, 11);
+  await assertPersisted(first);
+  await assertPersisted({ runDir: secondDir, state: second });
+});
 
 test("CLI cancelled steering emits cancelled and exits nonzero", {
   timeout: 20000,

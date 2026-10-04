@@ -81,7 +81,7 @@ async function implementResponse(prompt, sessionId) {
     const updates = [...before.matchAll(/^\/\/ fixture-implement-\d+$/gm)]
       .length;
     assert.equal(
-      attempt,
+      attempt + (config.initialUpdates ?? 0),
       updates,
       "repair prompt must advance exactly once per dispatch",
     );
@@ -104,11 +104,19 @@ async function implementResponse(prompt, sessionId) {
       assert.deepEqual(steering, []);
     } else {
       assert.equal(prior.summary, `Implementer attempt ${attempt - 1}`);
-      const expected = Array.from({ length: attempt }, (_, i) =>
-        implementBlockers(i),
-      )
-        .flat()
-        .filter((blocker) => blocker.escalation);
+      const expected = config.forceEscalation
+        ? [
+            {
+              id: "assessment-0",
+              issue: "Clarify existing approved scope",
+              recommendation: "Authorize this issue only",
+              escalation: true,
+              scope: "design.md section 0 only",
+            },
+          ]
+        : Array.from({ length: attempt }, (_, i) => implementBlockers(i))
+            .flat()
+            .filter((blocker) => blocker.escalation);
       assert.deepEqual(
         steering.map((item) => item.blocker),
         expected,
@@ -135,6 +143,23 @@ async function implementResponse(prompt, sessionId) {
       );
     // One bounded append to an existing implementation/task sentinel; no new files.
     await writeFile(artifact, `${before}// fixture-implement-${attempt}\n`);
+    if (
+      config.mode === `${attempt === 0 ? "apply" : "repair"}-interrupt` &&
+      attempt === (config.failureAt ?? 0)
+    ) {
+      await new Promise((resolveReady, reject) => {
+        const socket = createConnection(
+          { host: "127.0.0.1", port: config.readyPort },
+          () =>
+            socket.end(
+              `${JSON.stringify({ phase: attempt === 0 ? "apply" : "repair", sessionId, cycle: attempt })}\n`,
+            ),
+        );
+        socket.on("error", reject);
+        socket.on("close", resolveReady);
+      });
+      await new Promise(() => {});
+    }
     if (config.mode === "agent-failure" && attempt === (config.failureAt ?? 0))
       throw new acp.RequestError(
         -32000,
@@ -210,22 +235,49 @@ async function implementResponse(prompt, sessionId) {
       return JSON.stringify({ route: "unknown", sessionId });
     return JSON.stringify({
       route:
-        config.forceCompleted ||
-        (current.tasks.every((task) => task.done) &&
-          !report.blockers.length &&
-          !report.remainingTasks.length &&
-          (report.gates.length
-            ? report.gates.every(
-                (gate) =>
-                  gate.exitCode === 0 &&
-                  gate.afterEdits &&
-                  gate.attempt === attempt,
-              )
-            : Boolean(report.noApplicableGates)))
-          ? "completed"
-          : report.blockers.some((blocker) => blocker.escalation)
-            ? "escalation_required"
-            : "repairable_pause",
+        config.forceEscalation && attempt === 0
+          ? "escalation_required"
+          : config.forceCompleted ||
+              (current.tasks.every((task) => task.done) &&
+                !report.blockers.length &&
+                !report.remainingTasks.length &&
+                (report.gates.length
+                  ? report.gates.every(
+                      (gate) =>
+                        gate.exitCode === 0 &&
+                        gate.afterEdits &&
+                        gate.attempt === attempt,
+                    )
+                  : Boolean(report.noApplicableGates)))
+            ? "completed"
+            : report.blockers.some((blocker) => blocker.escalation)
+              ? "escalation_required"
+              : "repairable_pause",
+      sessionId,
+    });
+  }
+  if (prompt.startsWith("Read-only escalation assessment ")) {
+    const payload = JSON.parse(prompt.split("\n")[1]);
+    assert.equal(payload.current.instructions.changeName, config.changeId);
+    assert.deepEqual(payload.prior.blockers, []);
+    if (config.mode === "assessment-failure")
+      throw new acp.RequestError(-32000, "fixture assessment failure");
+    if (config.mode === "malformed-assessment")
+      return `not JSON ACP_SESSION_ID=${sessionId}`;
+    return JSON.stringify({
+      ...payload.prior,
+      blockers:
+        config.mode === "empty-assessment"
+          ? []
+          : [
+              {
+                id: `assessment-${payload.attempt}`,
+                issue: "Clarify existing approved scope",
+                recommendation: "Authorize this issue only",
+                escalation: true,
+                scope: "design.md section 0 only",
+              },
+            ],
       sessionId,
     });
   }

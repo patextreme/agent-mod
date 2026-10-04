@@ -146,7 +146,7 @@ export function createVerifyFlow(deps: Dependencies = {}) {
     judge: decision({
       ...fresh,
       choices: ["accepted", "blocking", "inconclusive"],
-      question: (c) => judgePrompt(current(c), latest(c)),
+      question: (c) => judgePrompt(current(c), latest(c), steering(c)),
     }),
     classification: compute({
       run(c) {

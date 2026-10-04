@@ -9,6 +9,7 @@ import {
   assessPrompt,
   authorize,
   currentReport,
+  judgePrompt,
   parseAssessment,
   parseRepairReport,
   parseReport,
@@ -148,6 +149,21 @@ test("preflight rejects omitted escaping archived store-backed missing and unusa
   f.data.contextFiles.tasks = [join(f.changeRoot, "missing.md")];
   await assert.rejects(preflight({ changeId: "example" }, f.cwd, f.run));
 });
+test("verification snapshot rejects array-valued CLI states", async (t) => {
+  const f = await fixture(t);
+  for (const state of ["blocked", "ready", "all_done"]) {
+    const run: Command = async (args, cwd, signal) => {
+      const reply = await f.run(args, cwd, signal);
+      if (args[0] === "instructions")
+        reply.stdout = JSON.stringify({ ...f.data, state: [state] });
+      return reply;
+    };
+    await assert.rejects(
+      snapshot(f.target, run),
+      /Invalid current verification context/,
+    );
+  }
+});
 test("preflight rejects symlinked roots, changes and artifact paths", async (t) => {
   const f = await fixture(t);
   const outside = join(f.cwd, "elsewhere");
@@ -235,6 +251,43 @@ test("report preserves prose and validates all severities, references and dimens
     JSON.stringify({ ...report, dimensions: {} }),
   ])
     assert.throws(() => parseReport(raw));
+});
+test("report rejects non-string dimension and severity enums", () => {
+  for (const status of ["missing", "checked", "inapplicable"]) {
+    const report = clearReport();
+    const dimensions = {
+      ...report.dimensions,
+      correctness: {
+        status: [status],
+        reason: "Required check unavailable",
+        evidence: [],
+      },
+    };
+    assert.throws(
+      () => parseReport(JSON.stringify({ ...report, dimensions })),
+      /Invalid verification dimension/,
+    );
+  }
+  for (const severity of ["CRITICAL", "WARNING", "SUGGESTION"]) {
+    assert.throws(
+      () =>
+        parseReport(
+          JSON.stringify({
+            ...clearReport(),
+            findings: [
+              {
+                id: "issue",
+                severity: [severity],
+                issue: "Mismatch",
+                recommendation: "Fix it",
+                evidence: ["code.ts:1"],
+              },
+            ],
+          }),
+        ),
+      /Invalid finding/,
+    );
+  }
 });
 test("acceptance blocks warning prose missing evidence gates dimensions and reopened tasks", async (t) => {
   const f = await fixture(t);
@@ -340,8 +393,15 @@ test("assessment covers only all current blockers and permits scoped new code pa
     [{ ...resolution, issue: "" }],
     [{ ...resolution, reason: "" }],
     [{ ...resolution, paths: [f.tasks] }],
+    [{ ...resolution, paths: ["openspec"] }],
+    [{ ...resolution, paths: [join(f.cwd, "openspec")] }],
   ])
     await assert.rejects(parse(resolutions));
+  const escalated = await parse([
+    { ...resolution, paths: ["openspec"], escalation: true },
+  ]);
+  assert.equal(escalated.resolutions[0].escalation, true);
+  assert.equal(escalated.resolutions[0].paths[0], join(f.cwd, "openspec"));
   await symlink(tmpdir(), join(f.cwd, "linked"));
   await assert.rejects(
     parse([{ ...resolution, paths: ["linked/escape.ts"] }]),
@@ -351,6 +411,73 @@ test("assessment covers only all current blockers and permits scoped new code pa
   await assert.rejects(parseAssessment("{}", f.target, report));
   report.findings.push({ ...report.findings[0], id: "second" });
   await assert.rejects(parse([resolution]), /Incomplete/);
+});
+test("assessment parser accepts startup prose and fenced JSON while retaining scope validation", async (t) => {
+  const f = await fixture(t);
+  const report = clearReport();
+  report.findings = [
+    {
+      id: "fix",
+      severity: "WARNING",
+      issue: "Bug",
+      recommendation: "Fix it",
+      evidence: ["code.ts:1"],
+    },
+  ];
+  const resolution = {
+    id: "repair",
+    findingIds: ["fix"],
+    issue: "Bug",
+    recommendation: "Add regression coverage",
+    scope: "Fix approved code",
+    paths: ["code.ts"],
+    escalation: false,
+    reason: "Approved intent",
+  };
+  for (const wrap of [
+    (json: string) => `pi v1.0.0\n---\n## Context\n- AGENTS.md\n---\n${json}`,
+    (json: string) => `\`\`\`json\n${json}\n\`\`\``,
+  ]) {
+    const payload = JSON.stringify({ resolutions: [resolution] });
+    assert.deepEqual(await parseAssessment(wrap(payload), f.target, report), {
+      resolutions: [{ ...resolution, paths: [join(f.cwd, "code.ts")] }],
+    });
+    for (const invalid of [
+      { resolutions: [] },
+      { resolutions: [{ ...resolution, findingIds: ["unknown"] }] },
+      { resolutions: [{ ...resolution, paths: ["../outside.ts"] }] },
+      { resolutions: [{ ...resolution, paths: [f.tasks] }] },
+    ])
+      await assert.rejects(
+        parseAssessment(wrap(JSON.stringify(invalid)), f.target, report),
+      );
+    await assert.rejects(
+      parseAssessment(wrap(payload.slice(0, -10)), f.target, report),
+    );
+  }
+});
+test("repair parser accepts startup prose and fenced JSON while retaining report validation", () => {
+  const report = {
+    summary: "Fixed approved bug",
+    changes: ["code.ts: fix"],
+    unresolved: [],
+    gates: [{ command: "npm test", exitCode: 0, result: "Passed" }],
+  };
+  for (const wrap of [
+    (json: string) => `pi v1.0.0\n---\n## Context\n- AGENTS.md\n---\n${json}`,
+    (json: string) => `\`\`\`json\n${json}\n\`\`\``,
+  ]) {
+    const payload = JSON.stringify(report);
+    assert.deepEqual(parseRepairReport(wrap(payload)), report);
+    for (const invalid of [
+      { ...report, summary: "" },
+      { ...report, changes: "code.ts" },
+      { ...report, unresolved: [42] },
+      { ...report, gates: [{ ...report.gates[0], exitCode: "0" }] },
+    ])
+      assert.throws(() => parseRepairReport(wrap(JSON.stringify(invalid))));
+    assert.throws(() => parseRepairReport(wrap(payload.slice(0, -10))));
+  }
 });
 test("scoped steering is complete, nonblank and cannot grant unrelated authorization", async (t) => {
   const f = await fixture(t);
@@ -378,6 +505,11 @@ test("scoped steering is complete, nonblank and cannot grant unrelated authoriza
     resolution,
     answer: "Authorize only design section 2",
   });
+  const classifier = judgePrompt(current(f.target), clearReport(), steering);
+  assert.deepEqual(JSON.parse(classifier.split("\n")[1]).steering, steering);
+  assert.match(classifier, /ONLY its original issue-associated scope/);
+  assert.match(classifier, /does not grant tool permissions/);
+  assert.match(classifier, /cannot waive required evidence/);
   assert.throws(
     () =>
       repairPrompt(

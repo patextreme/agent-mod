@@ -123,6 +123,7 @@ test("snapshot rejects escaping/symlinked paths and malformed task or CLI state"
     { changeName: "other" },
     { changeDir: f.cwd },
     { state: "unknown" },
+    ...["blocked", "ready", "all_done"].map((state) => ({ state: [state] })),
     { contextFiles: { tasks: [join(f.cwd, "outside")] } },
     { tasks: [{ id: "1", done: "yes", description: "Implement" }] },
     { tasks: [f.data.tasks[0], f.data.tasks[0]] },

@@ -36,7 +36,8 @@ export async function snapshot(
   if (
     data.changeName !== target.changeId ||
     data.changeDir !== target.changeRoot ||
-    !["blocked", "ready", "all_done"].includes(String(data.state))
+    typeof data.state !== "string" ||
+    !["blocked", "ready", "all_done"].includes(data.state)
   )
     throw new Error("Invalid apply target or state");
   const files = object(data.contextFiles);

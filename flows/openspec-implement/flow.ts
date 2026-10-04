@@ -108,38 +108,69 @@ export function createImplementFlow(deps: Dependencies = {}) {
         `${result.changeId}: ${result.outcome}, ${result.repairAttempts}/10 repairs — ${result.summary}\n`,
       );
     });
+  const emittedRuns = new Set<string>();
+  const publish = (
+    context: FlowNodeContext,
+    outcome: ImplementResult["outcome"],
+    summary: string,
+    interruptedRepair = false,
+  ): ImplementResult => {
+    const latest = report(context);
+    const result: ImplementResult = {
+      changeId:
+        target(context)?.changeId ??
+        (context.input &&
+        typeof context.input === "object" &&
+        "changeId" in context.input
+          ? String(context.input.changeId)
+          : "unknown"),
+      outcome,
+      repairAttempts: attempts(context) + Number(interruptedRepair),
+      summary: [summary, latest?.summary].filter(Boolean).join(" "),
+      remaining: {
+        tasks: current(context)?.tasks.filter((task) => !task.done) ?? [],
+        reportedTasks: latest?.remainingTasks ?? [],
+        blockers: packet(context)?.blockers ?? latest?.blockers ?? [],
+      },
+    };
+    if (!emittedRuns.has(context.state.runId)) {
+      emittedRuns.add(context.state.runId);
+      emit(result);
+    }
+    return result;
+  };
+  const observed = new WeakSet<AbortSignal>();
+  const observe = (context: FlowNodeContext, nodeId: string) => {
+    const signal = context.signal;
+    if (!signal || observed.has(signal)) return;
+    observed.add(signal);
+    const interrupted = () => {
+      const reason: unknown = signal.reason;
+      // Global runner interruption bypasses graph guards and does not record the
+      // active attempt. Observe its signal before ACP connection initialization.
+      // Ordinary failures and deadlines still use the guarded graph paths.
+      if (reason instanceof Error && reason.name === "InterruptedError")
+        publish(
+          context,
+          "cancelled",
+          `Interrupted during ${nodeId}; earlier edits preserved.`,
+          nodeId === "repair",
+        );
+    };
+    signal.addEventListener("abort", interrupted, { once: true });
+    if (signal.aborted) interrupted();
+  };
   const finish = (
     outcome: ImplementResult["outcome"],
     summary: string | ((context: FlowNodeContext) => string),
   ) =>
     compute({
-      run(context) {
-        const latest = report(context);
-        const result: ImplementResult = {
-          changeId:
-            target(context)?.changeId ??
-            (context.input &&
-            typeof context.input === "object" &&
-            "changeId" in context.input
-              ? String(context.input.changeId)
-              : "unknown"),
+      run: (context) =>
+        publish(
+          context,
           outcome,
-          repairAttempts: attempts(context),
-          summary: [
-            typeof summary === "function" ? summary(context) : summary,
-            latest?.summary,
-          ]
-            .filter(Boolean)
-            .join(" "),
-          remaining: {
-            tasks: current(context)?.tasks.filter((task) => !task.done) ?? [],
-            reportedTasks: latest?.remainingTasks ?? [],
-            blockers: packet(context)?.blockers ?? latest?.blockers ?? [],
-          },
-        };
-        emit(result);
-        return result;
-      },
+          typeof summary === "function" ? summary(context) : summary,
+        ),
     });
   const fresh = {
     profile: "pi",
@@ -339,6 +370,21 @@ export function createImplementFlow(deps: Dependencies = {}) {
       },
     }),
   };
+  for (const [id, node] of Object.entries(nodes)) {
+    if (node.nodeType === "acp") {
+      const cwd = node.cwd;
+      node.cwd = (context) => {
+        observe(context, id);
+        return typeof cwd === "function" ? cwd(context) : cwd;
+      };
+    } else if ("run" in node && typeof node.run === "function") {
+      const callback = node.run;
+      node.run = (context) => {
+        observe(context, id);
+        return callback(context);
+      };
+    }
+  }
   const edges: FlowEdge[] = [];
   const guarded = (from: string, to: string) =>
     edges.push({
