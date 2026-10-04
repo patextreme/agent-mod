@@ -12,12 +12,14 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { PassThrough } from "node:stream";
 import { type TestContext, test } from "node:test";
+import { setImmediate as nextTurn } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { FlowRunner, type FlowRunResult, type FlowRunState } from "acpx/flows";
 import type { Command, CommandResult } from "./groom.js";
 import { createGroomFlow, type GroomResult } from "./openspec-groom.flow.js";
-import { SteeringError } from "./steering.js";
+import { collectSteering, SteeringError } from "./steering.js";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const fakeAgent = join(repo, "flows/fixtures/fake-agent.mjs");
@@ -34,6 +36,9 @@ interface Config {
   mode?: "agent-failure" | "inconclusive" | "operational-failure";
   repairsNeeded?: number;
   escalation?: boolean;
+  mixedResolutions?: boolean;
+  assessmentFailure?: "missing-artifacts" | "inconclusive";
+  assessmentFailureAfter?: number;
 }
 
 // CLI and injected-command fixtures use the same targeted wire shapes.
@@ -490,6 +495,209 @@ test("steering cancellation fails the run and preserves earlier authorized edits
   await f.assertEdits(1);
 });
 
+function terminal(t: TestContext) {
+  const input = Object.assign(new PassThrough(), { isTTY: true });
+  const output = Object.assign(new PassThrough(), { isTTY: true });
+  let text = "";
+  output.setEncoding("utf8").on("data", (chunk: string) => {
+    text += chunk;
+  });
+  t.after(() => {
+    input.destroy();
+    output.destroy();
+  });
+  return {
+    input,
+    output,
+    get text() {
+      return text;
+    },
+  };
+}
+
+async function persistedRun(f: Awaited<ReturnType<typeof fixture>>) {
+  const [runId] = await readdir(join(f.base, "runs"));
+  const runDir = join(f.base, "runs", runId);
+  const state: FlowRunState = JSON.parse(
+    await readFile(join(runDir, "projections/run.json"), "utf8"),
+  );
+  return { runDir, state };
+}
+
+test("mixed repairs wait for every escalated answer, reprompting blanks before one coordinated update", {
+  timeout: 15000,
+}, async (t) => {
+  const f = await fixture(t, { mixedResolutions: true });
+  const io = terminal(t);
+  const emitted: GroomResult[] = [];
+  const answers = {
+    "cycle-1-product": "STEERING-1: preserve product intent",
+    "cycle-1-design": "STEERING-1: preserve design intent",
+  };
+  let collections = 0;
+  const result = await f.runner.run(
+    createGroomFlow({
+      cwd: f.cwd,
+      command: f.command,
+      emit: (item) => emitted.push(item),
+      steering: async (issues, signal) => {
+        collections++;
+        assert.deepEqual(
+          issues.map((issue) => issue.id),
+          Object.keys(answers),
+        );
+        const collection = collectSteering(issues, signal, io);
+        void collection.catch(() => {});
+        assert.match(io.text, /\[cycle-1-product\]/);
+        await f.assertEdits(0); // Even the autonomous repair must wait.
+        io.input.write("  \t  \n");
+        await nextTurn();
+        assert.match(io.text, /Please enter a non-blank answer/);
+        await f.assertEdits(0);
+        io.input.write(`${answers["cycle-1-product"]}\n`);
+        await nextTurn();
+        assert.match(io.text, /\[cycle-1-design\]/);
+        await f.assertEdits(0); // One answered issue is not enough.
+        io.input.write("\n");
+        await nextTurn();
+        assert.equal(
+          io.text.match(/Please enter a non-blank answer/g)?.length,
+          2,
+        );
+        await f.assertEdits(0);
+        io.input.write(`${answers["cycle-1-design"]}\n`);
+        return collection;
+      },
+    }),
+    { changeId },
+  );
+  assert.equal(collections, 1);
+  assert.equal(result.state.status, "completed");
+  assert.deepEqual(
+    emitted.map((item) => [item.outcome, item.updateAttempts]),
+    [["success", 1]],
+  );
+  assert.equal(visits(result.state, "update").length, 1);
+  const update = visits(result.state, "update")[0];
+  assert.ok(update.promptText);
+  const authorization = JSON.parse(update.promptText.split("\n")[3]);
+  assert.deepEqual(
+    authorization.resolutions.map(
+      (issue: { id: string; escalation: boolean }) => [
+        issue.id,
+        issue.escalation,
+      ],
+    ),
+    [
+      ["cycle-1-autonomous", false],
+      ["cycle-1-product", true],
+      ["cycle-1-design", true],
+    ],
+  );
+  assert.deepEqual(authorization.steering, answers);
+  assert.deepEqual(
+    authorization.resolutions,
+    (result.state.outputs.assess as { resolutions: unknown }).resolutions,
+  );
+  await assertPersisted(result);
+  await f.assertEdits(1);
+});
+
+for (const incomplete of ["missing", "blank"] as const) {
+  test(`mixed repairs reject ${incomplete} steering at authorization without any updater dispatch`, {
+    timeout: 15000,
+  }, async (t) => {
+    const f = await fixture(t, { mixedResolutions: true });
+    const emitted: GroomResult[] = [];
+    const flow = createGroomFlow({
+      cwd: f.cwd,
+      command: f.command,
+      emit: (item) => emitted.push(item),
+      // Deliberately bypass collection to exercise the independent authorization gate.
+      steering: async (issues) => {
+        assert.equal(issues.length, 2);
+        return {
+          [issues[0].id]: "Preserve product intent",
+          ...(incomplete === "blank" ? { [issues[1].id]: "  \t  " } : {}),
+        };
+      },
+    });
+    await assert.rejects(
+      f.runner.run(flow, { changeId }),
+      /Grooming unsuccessful/,
+    );
+    assert.deepEqual(
+      emitted.map((item) => [item.outcome, item.updateAttempts]),
+      [["failed", 0]],
+    );
+    assert.match(
+      emitted[0].summary,
+      /authorize:.*Missing steering for cycle-1-design/,
+    );
+    const result = await persistedRun(f);
+    assert.equal(result.state.status, "failed");
+    assert.equal(visits(result.state, "authorize")[0].outcome, "failed");
+    assert.equal(visits(result.state, "update").length, 0);
+    await assertPersisted(result);
+    await f.assertEdits(0);
+  });
+}
+
+test("EOF after partial mixed steering preserves the earlier cycle and applies none of the current repairs", {
+  timeout: 20000,
+}, async (t) => {
+  const f = await fixture(t, { mixedResolutions: true, repairsNeeded: 2 });
+  const io = terminal(t);
+  const emitted: GroomResult[] = [];
+  let cycle = 0;
+  const flow = createGroomFlow({
+    cwd: f.cwd,
+    command: f.command,
+    emit: (item) => emitted.push(item),
+    steering: async (issues, signal) => {
+      if (++cycle === 1)
+        return Object.fromEntries(
+          issues.map((issue) => [issue.id, "STEERING-1: keep intent"]),
+        );
+      assert.deepEqual(
+        issues.map((issue) => issue.id),
+        ["cycle-2-product", "cycle-2-design"],
+      );
+      const collection = collectSteering(issues, signal, io);
+      // Attach a handler before EOF can reject the pending collection.
+      void collection.catch(() => {});
+      io.input.write("STEERING-2: keep product intent\n");
+      await nextTurn();
+      assert.match(io.text, /\[cycle-2-design\]/);
+      io.input.write(" \t \n");
+      await nextTurn();
+      assert.match(io.text, /Please enter a non-blank answer/);
+      await f.assertEdits(1);
+      io.input.end();
+      return collection;
+    },
+  });
+  await assert.rejects(
+    f.runner.run(flow, { changeId }),
+    /Grooming unsuccessful/,
+  );
+  assert.deepEqual(
+    emitted.map((item) => [item.outcome, item.updateAttempts]),
+    [["needs_human", 1]],
+  );
+  assert.match(emitted[0].summary, /EOF.*before all answers/);
+  const result = await persistedRun(f);
+  assert.equal(result.state.status, "failed");
+  assert.equal(visits(result.state, "update").length, 1);
+  assert.equal(visits(result.state, "authorize").length, 1);
+  assert.equal(
+    (result.state.outputs.steering as { route: string }).route,
+    "needs_human",
+  );
+  await assertPersisted(result);
+  await f.assertEdits(1);
+});
+
 async function runCli(
   f: Awaited<ReturnType<typeof fixture>>,
   modulePath = flowFile,
@@ -582,6 +790,23 @@ const scenarios: {
     updates: 0,
     summary: /inconclusive/,
   },
+  ...(["missing-artifacts", "inconclusive"] as const).flatMap(
+    (assessmentFailure) =>
+      [0, 1].map((updates) => ({
+        name: `${assessmentFailure} assessment after ${updates} authorized edits`,
+        config: {
+          assessmentFailure,
+          assessmentFailureAfter: updates,
+          repairsNeeded: updates + 1,
+        },
+        outcome: "failed" as const,
+        updates,
+        summary:
+          assessmentFailure === "missing-artifacts"
+            ? /^Required artifacts are missing; creation is unsupported: specs\/missing-capability\/spec\.md$/
+            : /^Review or assessment is inconclusive\.$/,
+      })),
+  ),
   {
     name: "agent failure",
     config: { mode: "agent-failure" },
@@ -618,6 +843,38 @@ for (const scenario of scenarios) {
     if (scenario.outcome === "limit_reached") {
       assert.equal(visits(result.state, "review").length, 11);
       assert.equal(visits(result.state, "assess").length, 10);
+    }
+    if (scenario.config.assessmentFailure) {
+      const missing = scenario.config.assessmentFailure === "missing-artifacts";
+      const assessment = result.state.outputs.assess as {
+        route: string;
+        resolutions: { id: string; issue: string }[];
+        missingArtifacts: string[];
+      };
+      assert.equal(assessment.route, missing ? "missing" : "inconclusive");
+      assert.deepEqual(
+        assessment.missingArtifacts,
+        missing ? ["specs/missing-capability/spec.md"] : [],
+      );
+      assert.deepEqual(result.emitted.remaining, assessment);
+      assert.equal(
+        assessment.resolutions[0].id,
+        `cycle-${scenario.updates + 1}`,
+      );
+      assert.match(
+        assessment.resolutions[0].issue,
+        new RegExp(`FINDING-${scenario.updates + 1}:`),
+      );
+      assert.equal(visits(result.state, "assess").length, scenario.updates + 1);
+      assert.equal(visits(result.state, "review").length, scenario.updates + 1);
+      assert.equal(visits(result.state, "authorize").length, scenario.updates);
+      assert.equal(visits(result.state, "steering").length, 0);
+      assert.ok(
+        result.stderr.includes(
+          `${changeId}: failed, ${scenario.updates}/10 updates — ${result.emitted.summary}`,
+        ),
+      );
+      assert.notEqual(result.exitCode, 0);
     }
     if (scenario.config.mode === "agent-failure") {
       const failed = visits(result.state, "review")[0];

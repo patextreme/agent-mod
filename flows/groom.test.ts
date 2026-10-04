@@ -414,4 +414,19 @@ test("project update skill is discoverable and preserves ordinary confirmations"
   );
   assert.match(skill, /does not override tool permissions/);
   assert.match(skill, /structural or Critical repairs/);
+  assert.match(skill, /changeId` matches the selected active local change/);
+  assert.match(
+    skill,
+    /Every escalated resolution has explicit nonblank steering/,
+  );
+  assert.match(skill, /stop without applying any cycle fixes/);
+  assert.match(
+    skill,
+    /Restrict writes to the supplied existing-artifact allowlist/,
+  );
+  assert.match(
+    skill,
+    /Do not create artifacts, implementation changes, unrelated files/,
+  );
+  assert.match(skill, /never reuse earlier-cycle steering or transcripts/);
 });

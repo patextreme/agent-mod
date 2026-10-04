@@ -13,6 +13,29 @@ const config = JSON.parse(
   await readFile(resolve(process.cwd(), ".groom-fixture.json"), "utf8"),
 );
 
+function resolutions(cycle, artifact) {
+  const repair = {
+    id: `cycle-${cycle}`,
+    issue: `FINDING-${cycle}: repair the existing design`,
+    recommendation: `Preserve intent and append repair ${cycle}`,
+    escalation: config.escalation ?? false,
+    paths: [artifact],
+  };
+  return config.mixedResolutions
+    ? [
+        { ...repair, id: `${repair.id}-autonomous`, escalation: false },
+        { ...repair, id: `${repair.id}-product`, escalation: true },
+        { ...repair, id: `${repair.id}-design`, escalation: true },
+      ]
+    : [repair];
+}
+
+function assessmentFails(updates) {
+  return (
+    config.assessmentFailure && updates >= (config.assessmentFailureAfter ?? 0)
+  );
+}
+
 async function respond(params, client) {
   const session = sessions.get(params.sessionId);
   assert.ok(session, "unknown ACP session");
@@ -70,28 +93,25 @@ async function respond(params, client) {
       );
     }
     response = JSON.stringify({
-      conclusive: true,
-      missingArtifacts: [],
-      resolutions: [
-        {
-          id: `cycle-${cycle}`,
-          issue: `FINDING-${cycle}: repair the existing design`,
-          recommendation: `Preserve intent and append repair ${cycle}`,
-          escalation: config.escalation ?? false,
-          paths: [artifact],
-        },
-      ],
+      conclusive: !(
+        assessmentFails(updates) && config.assessmentFailure === "inconclusive"
+      ),
+      missingArtifacts:
+        assessmentFails(updates) &&
+        config.assessmentFailure === "missing-artifacts"
+          ? ["specs/missing-capability/spec.md"]
+          : [],
+      resolutions: resolutions(cycle, artifact),
       sessionId: params.sessionId,
     });
   } else if (prompt.startsWith("/skill:openspec-update-change ")) {
     const authorization = JSON.parse(prompt.split("\n")[3]);
     assert.equal(authorization.changeId, config.changeId);
-    assert.equal(authorization.resolutions.length, 1);
-    const issue = authorization.resolutions[0];
-    assert.equal(issue.id, `cycle-${cycle}`);
-    assert.deepEqual(issue.paths, [artifact]);
+    assert.ok(!assessmentFails(updates), "failed assessment authorized update");
+    assert.deepEqual(authorization.resolutions, resolutions(cycle, artifact));
     assert.ok(authorization.existingArtifactAllowlist.includes(artifact));
-    if (issue.escalation) assert.ok(authorization.steering[issue.id]?.trim());
+    for (const issue of authorization.resolutions)
+      if (issue.escalation) assert.ok(authorization.steering[issue.id]?.trim());
     for (let prior = 1; prior < cycle; prior++) {
       assert.ok(
         !prompt.includes(`FINDING-${prior}:`),
