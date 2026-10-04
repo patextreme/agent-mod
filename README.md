@@ -21,6 +21,21 @@ pi install git:github.com/patextreme/agent-mod
 
 This registers all extensions, prompts, and skills declared in [`package.json`](./package.json).
 
+## Nix Packages
+
+The flake also exposes [`pi-acp`](./nix/packages/pi-acp/README.md), an ACP stdio
+adapter for Pi, ported from Ptah with its MCP-support patch:
+
+```bash
+nix build .#pi-acp
+./result/bin/pi-acp
+```
+
+Pi must be installed separately and available on `PATH`, or selected with
+`PI_ACP_PI_COMMAND`. This is a standalone Nix package, not part of `pi install`,
+and is not added to the development shell. `nix flake check` builds it and runs
+its upstream and patch tests.
+
 ## Contents
 
 ### Extensions

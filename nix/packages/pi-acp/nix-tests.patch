@@ -1,0 +1,81 @@
+diff --git a/test/component/session-mcp-config.test.ts b/test/component/session-mcp-config.test.ts
+index ebf62fd..0176e3d 100644
+--- a/test/component/session-mcp-config.test.ts
++++ b/test/component/session-mcp-config.test.ts
+@@ -81,6 +81,16 @@ function useFakePi(mode: FakeMode): {
+   }
+ }
+ 
++async function waitForStartup(conn: FakeAgentSideConnection): Promise<void> {
++  // newSession schedules context usage and command discovery after returning.
++  // Wait for their final notification rather than racing them with a fixed sleep.
++  const deadline = Date.now() + 5_000
++  while (!conn.updates.some(msg => msg.update.sessionUpdate === 'available_commands_update')) {
++    assert.ok(Date.now() < deadline, 'startup command discovery did not finish')
++    await new Promise(resolve => setTimeout(resolve, 10))
++  }
++}
++
+ function rpcArgv(fake: ReturnType<typeof useFakePi>): string[] {
+   const argv = fake.argvLines().find(a => a.includes('--mode') && a.includes('rpc'))
+   assert.ok(argv, 'fake pi was not spawned in rpc mode')
+@@ -125,8 +135,8 @@ test('newSession wires stdio MCP servers through native built-in MCP and cleans
+   })
+ 
+   // Session end: the temp dir (config + extension) is removed.
+-  // (First drain newSession's deferred timers so no post-dispose writes happen.)
+-  await new Promise(resolve => setTimeout(resolve, 25))
++  // First drain newSession's deferred RPCs so no post-dispose writes happen.
++  await waitForStartup(conn)
+   agent.dispose()
+   assert.equal(existsSync(configPath!), false, 'config file survived session dispose')
+   assert.equal(existsSync(extensionPath), false, 'extension file survived session dispose')
+@@ -170,7 +180,7 @@ test('newSession still delivers via --mcp-config when the pi-mcp-adapter owns MC
+       }
+     })
+ 
+-    await new Promise(resolve => setTimeout(resolve, 25))
++    await waitForStartup(conn)
+     agent.dispose()
+     assert.equal(existsSync(configPath), false, 'config file survived session dispose')
+   } finally {
+@@ -198,7 +208,7 @@ test('newSession without MCP support still spawns, warns, and passes no MCP flag
+     assert.equal(argv.includes('--mcp-config'), false, '--mcp-config passed to a pi without support')
+     assert.equal(argv.includes('-e'), false, '-e passed to a pi without support')
+ 
+-    await new Promise(resolve => setTimeout(resolve, 25))
++    await waitForStartup(conn)
+     agent.dispose()
+   } finally {
+     fake.restore()
+@@ -220,7 +230,7 @@ test('newSession without MCP servers passes no MCP flags and stays quiet', async
+     assert.equal(argv.includes('--mcp-config'), false, '--mcp-config passed without servers')
+     assert.equal(argv.includes('-e'), false, '-e passed without servers')
+ 
+-    await new Promise(resolve => setTimeout(resolve, 25))
++    await waitForStartup(conn)
+     agent.dispose()
+   } finally {
+     fake.restore()
+diff --git a/test/unit/pi-rpc-session-path.test.ts b/test/unit/pi-rpc-session-path.test.ts
+index 3948748..6c77a47 100644
+--- a/test/unit/pi-rpc-session-path.test.ts
++++ b/test/unit/pi-rpc-session-path.test.ts
+@@ -41,7 +41,7 @@ test('PiRpcProcess passes distinct session paths intact to the pi launcher', asy
+       if (process.platform === 'win32') {
+         writeFileSync(launcher, `@echo off\r\n"${process.execPath}" "${fixture}" %*\r\n`)
+       } else {
+-        writeFileSync(launcher, `#!/usr/bin/env node\nrequire('./fake-pi.cjs')\n`)
++        writeFileSync(launcher, `#!${process.execPath}\nrequire('./fake-pi.cjs')\n`)
+         chmodSync(launcher, 0o755)
+       }
+ 
+@@ -72,7 +72,7 @@ test(
+     const root = mkdtempSync(join(tmpdir(), 'pi-acp-cmd-'))
+     writeFakePi(root)
+     const launcher = join(root, 'pi.cmd')
+-    writeFileSync(launcher, "#!/usr/bin/env node\nrequire('./fake-pi.cjs')\n")
++    writeFileSync(launcher, `#!${process.execPath}\nrequire('./fake-pi.cjs')\n`)
+     chmodSync(launcher, 0o755)
+     const sessionDir = join(root, 'my project')
+     mkdirSync(sessionDir)
