@@ -89,6 +89,54 @@ Shows Ollama Cloud session and weekly usage in the pi status bar as `ollama: 2.6
 - Reuses pi's resolved ollama-cloud provider key, so no separate configuration is needed beyond the existing ollama-cloud entry in `models.json`.
 - Failure paths are non-throwing: a failed fetch renders the dim placeholder `ollama: ? / ?`, and a missing provider key silently clears the slot.
 
+## OpenSpec grooming flow
+
+[`flows/openspec-groom.flow.ts`](./flows/openspec-groom.flow.ts) grooms an **existing active local** change. From this checkout (after `npm install`):
+
+```bash
+acpx flow run ./flows/openspec-groom.flow.ts --input-json '{"changeId":"example-change"}'
+```
+
+From another local workspace, pass the absolute flow path. Only `changeId` is accepted; archived, missing, store-backed, symlinked, and escaping targets are rejected before edits. OpenSpec must provide `list` and `status --json` with schema-resolved `existingOutputPaths`. The flow runs targeted `openspec validate <id> --type change --strict --json --no-interactive` before review and after each update. Invalid artifacts enter repair; command/JSON failures terminate without retries. Repairs can revise only existing schema planning artifacts, never create missing ones.
+
+### Prerequisites and skill discovery
+
+Requires acpx **0.19.4**, OpenSpec, authenticated Pi, and a working `pi-acp` adapter. Configure acpx's `pi` profile (not just its default agent) in `~/.acpx/config.json`, for example `{"agents":{"pi":{"argv":["pi-acp"]}}}`. Every agent/decision invocation uses an isolated new Pi session, including repeated graph visits. Agent timeouts remain acpx defaults; do not set a global timeout shorter than the intended steering wait.
+
+Pi ACP passes prompts to Pi's RPC skill expansion. Review uses `/skill:openspec-review <id>` with **only the change ID** as run-specific input. Update uses `/skill:openspec-update-change` with current-cycle resolutions, complete steering, and the resolved artifact allowlist. The required update policy lives in this checkout's [project skill](./.pi/skills/openspec-update-change/SKILL.md), not the published `skills/` directory. Ordinary updates still require per-artifact confirmation.
+
+To avoid a same-named global/package skill silently shadowing this policy, pin both skill files in the Pi process used by the adapter. For example create an executable wrapper outside the target change, substituting absolute paths:
+
+```sh
+#!/bin/sh
+exec /absolute/path/to/pi --no-skills \
+  --skill /absolute/path/to/agent-mod/skills/openspec-review/SKILL.md \
+  --skill /absolute/path/to/agent-mod/.pi/skills/openspec-update-change/SKILL.md "$@"
+```
+
+Set `PI_ACP_PI_COMMAND=/absolute/path/to/wrapper` when running the flow (supported by pi-acp 0.0.34). Verify Pi's loaded-skill diagnostics with that wrapper before use. Without a wrapper, ensure the project skill is trusted/discovered and no same-named skill wins discovery. Model-free repository tests exercise Pi's native `AgentSession.prompt` skill expansion with an explicitly pinned project skill, including a same-name global collision, ordinary confirmations, and preservation of complete multiline grooming authorization. Fake-agent tests additionally check flow routing and sessions; neither test suite proves a live model will obey the policy.
+
+**Tool permissions are separate.** Configure acpx/adapter and Pi permission-extension approvals explicitly for the intended read/edit commands; flow authorization does not approve tools, bypass deny rules, or enable YOLO. Unattended updates need an appropriate separately configured permission policy. If you require no provider retries either, disable Pi's `retry.enabled` separately; the flow itself never retries failed phases.
+
+### Completion, steering, and outcomes
+
+Success means strict structural validation passes and a conclusive review has **no Critical findings**. Major findings, blockers, and readiness labels alone do not trigger repairs or prevent success; grooming success is **not implementation readiness**. Assessments escalate architectural, design, product, high-stakes, and materially different alternatives, for structural repairs as well as Critical findings.
+
+When any issue needs steering, stdin and stderr must be TTYs. The flow displays every escalated issue and recommendation and requires a nonblank answer for each before dispatching one coordinated update (including autonomous fixes). Steering has a **seven-day** deadline, supports cancellation, and closes readline on every exit. EOF or no terminal returns `needs_human`; timeout returns `failed` with its reason. No ACP phase runs while steering reads input.
+
+There are at most **ten updater dispatches**, shared by structural and semantic repairs. Failed updates count, stop immediately, and may leave partial edits. Validation and review still run after update ten, so final convergence can succeed. Repeated Critical findings consume the same budget without a separate early-stop heuristic.
+
+The flow emits one structured result and a concise stderr summary. Examples (the `remaining` field contains the current review/errors):
+
+```json
+{"changeId":"example-change","outcome":"success","updateAttempts":2,"summary":"Validation passes; no Critical findings. This is not implementation readiness.","remaining":"Major findings remain..."}
+{"changeId":"example-change","outcome":"limit_reached","updateAttempts":10,"summary":"Ten update attempts consumed; unresolved errors or Critical findings remain.","remaining":"Critical findings remain..."}
+```
+
+Only `success` exits zero. Other outcomes are `limit_reached`, `needs_human`, `cancelled`, and `failed` (including inconclusive review/assessment, missing artifacts, malformed output, and agent/command errors). Failure routes throw after emitting their result so acpx really exits nonzero. Process-wide termination can interrupt output; acpx's persisted run state remains the diagnostic source.
+
+acpx retains run history and transcripts under `~/.acpx/flows/runs/`. There are **no additional report files, commits, stashes, rollback, or resume/checkpoint support**. Existing dirty artifacts are the starting state; earlier edits are preserved on failure. Restarting explicitly starts a new flow and budget. The allowlist and authorization constrain prompts, not an OS sandbox; use separate isolation if needed.
+
 ## Development
 
 ```bash
@@ -97,7 +145,7 @@ npm run format         # biome format --write .
 npm run lint           # biome lint .
 npm run check          # biome check . (lint + format check combined)
 npm run typecheck      # tsc --noEmit
-npm test               # tsx --test (permission and ollama-usage suites)
+npm test               # tsx --test (extensions, docs, and flow suites)
 nix flake check        # nix build checks (biome, tsc, tests, package builds)
 ```
 
