@@ -1,6 +1,6 @@
 # OpenSpec Automation
 
-Language for automated implementation of approved OpenSpec changes.
+Language for automated implementation and verification of approved OpenSpec changes.
 
 ## Language
 
@@ -16,3 +16,15 @@ An implementation blocker requiring human input, including ambiguous requirement
 
 **Human steering**:
 Explicit human guidance for resolving an escalation-required pause. It authorizes changes to the approved plan only when those changes are explicitly within its scope.
+
+**Verification finding**:
+An issue identified when checking an implemented change against its OpenSpec artifacts, classified as CRITICAL, WARNING, or SUGGESTION.
+
+**Verification acceptance**:
+A conclusive verification result with no CRITICAL or WARNING findings and no missing required evidence. SUGGESTION findings may remain; acceptance does not mean the change has been synced or archived.
+
+**Blocking verification finding**:
+A CRITICAL or WARNING finding that must be resolved before verification acceptance. Explicitly missing required evidence is blocking, rather than evidence of success.
+
+**Inconclusive verification**:
+An incomplete or unusable verification report that cannot support classification. It differs from a conclusive report identifying missing evidence as a blocking finding.
