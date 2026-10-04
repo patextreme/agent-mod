@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { type TestContext, test } from "node:test";
 import type {
   AgentSessionConfig,
@@ -10,11 +10,13 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { type Assessment, type Target, updatePrompt } from "./groom.js";
 
-const projectSkill = resolve(
+const reviewSkill = resolve(process.cwd(), "skills/openspec-review/SKILL.md");
+const ordinaryUpdateSkill = resolve(
   process.cwd(),
   ".pi/skills/openspec-update-change/SKILL.md",
 );
-const skillCommand = "/skill:openspec-update-change";
+const reviewCommand = "/skill:openspec-review";
+const ordinaryUpdateCommand = "/skill:openspec-update-change";
 const authorizationHeader =
   "OPENSpec GROOMING AUTHORIZATION (current cycle only)";
 const globalBody = "SAME-NAME GLOBAL SKILL MUST NOT WIN THE PINNED INVOCATION";
@@ -90,7 +92,7 @@ async function capturingSession(
   };
 }
 
-async function fixture(t: TestContext) {
+async function fixture(t: TestContext, skill = reviewSkill) {
   const {
     DefaultResourceLoader,
     loadSkills,
@@ -100,41 +102,43 @@ async function fixture(t: TestContext) {
   const cwd = await mkdtemp(join(tmpdir(), "groom-native-skills-"));
   t.after(() => rm(cwd, { recursive: true, force: true }));
   const agentDir = join(cwd, "agent");
-  const globalSkill = join(agentDir, "skills/openspec-update-change/SKILL.md");
-  await mkdir(dirname(globalSkill), { recursive: true });
-  await writeFile(
-    globalSkill,
-    `---\nname: openspec-update-change\ndescription: Shadowing global skill for regression testing.\n---\n\n${globalBody}\n`,
-  );
-  // Establish a genuine collision: normal discovery would select the global
-  // skill first. The pin must exclude it, not rely on project precedence.
-  const unpinned = loadSkills({
-    cwd,
-    agentDir,
-    skillPaths: [projectSkill],
-    includeDefaults: true,
-  });
-  assert.equal(unpinned.skills[0]?.filePath, globalSkill);
-  assert.ok(
-    unpinned.diagnostics.some(
-      (diagnostic) =>
-        diagnostic.type === "collision" &&
-        diagnostic.collision?.winnerPath === globalSkill &&
-        diagnostic.collision.loserPath === projectSkill,
-    ),
-  );
+  if (skill === reviewSkill) {
+    const globalSkill = join(agentDir, "skills/openspec-review/SKILL.md");
+    await mkdir(dirname(globalSkill), { recursive: true });
+    await writeFile(
+      globalSkill,
+      `---\nname: openspec-review\ndescription: Shadowing global skill for regression testing.\n---\n\n${globalBody}\n`,
+    );
+    // Only review is pinned by grooming. Normal discovery would select the
+    // global skill first; the pin must exclude it, not rely on precedence.
+    const unpinned = loadSkills({
+      cwd,
+      agentDir,
+      skillPaths: [reviewSkill],
+      includeDefaults: true,
+    });
+    assert.equal(unpinned.skills[0]?.filePath, globalSkill);
+    assert.ok(
+      unpinned.diagnostics.some(
+        (diagnostic) =>
+          diagnostic.type === "collision" &&
+          diagnostic.collision?.winnerPath === globalSkill &&
+          diagnostic.collision.loserPath === reviewSkill,
+      ),
+    );
+  }
   const settingsManager = SettingsManager.inMemory({
     compaction: { enabled: false },
     retry: { enabled: false },
   });
-  // SDK equivalent of the flow profile's --no-skills --skill <project path>.
+  // Grooming loads only review; ordinary update gets a separate loader.
   const loader = new DefaultResourceLoader({
     cwd,
     agentDir,
     settingsManager,
     noExtensions: true,
     noSkills: true,
-    additionalSkillPaths: [projectSkill],
+    additionalSkillPaths: [skill],
     noPromptTemplates: true,
     noThemes: true,
     noContextFiles: true,
@@ -143,9 +147,9 @@ async function fixture(t: TestContext) {
   assert.deepEqual(loader.getSkills().diagnostics, []);
   assert.deepEqual(
     loader.getSkills().skills.map((skill) => skill.filePath),
-    [projectSkill],
+    [skill],
   );
-  const body = stripFrontmatter(await readFile(projectSkill, "utf8")).trim();
+  const body = stripFrontmatter(await readFile(skill, "utf8")).trim();
   const target: Target = {
     cwd,
     changeId: "example",
@@ -159,24 +163,39 @@ async function fixture(t: TestContext) {
   };
 }
 
-async function assertProjectExpansion(expanded: string, body: string) {
+async function assertSkillExpansion(
+  expanded: string,
+  body: string,
+  skill = reviewSkill,
+) {
   const { parseSkillBlock } = await import("@earendil-works/pi-coding-agent");
   const block = parseSkillBlock(expanded);
   assert.ok(
     block,
     "Pi must dispatch a native <skill> block, not a slash command",
   );
-  assert.equal(block.name, "openspec-update-change");
-  assert.equal(block.location, projectSkill);
+  assert.equal(block.name, basename(dirname(skill)));
+  assert.equal(block.location, skill);
   assert.equal(
     block.content,
-    `References are relative to ${dirname(projectSkill)}.\n\n${body}`,
+    `References are relative to ${dirname(skill)}.\n\n${body}`,
   );
   assert.ok(!expanded.includes(globalBody));
   return block;
 }
 
-test("native skill expansion keeps the pinned project body and complete current-cycle authorization", async (t) => {
+test("native review expansion keeps the pinned project body and only the change ID", async (t) => {
+  const f = await fixture(t);
+  const block = await assertSkillExpansion(
+    await f.prompt(`${reviewCommand} ${f.target.changeId}`),
+    f.body,
+  );
+  assert.equal(block.userMessage, f.target.changeId);
+  assert.ok(!block.userMessage.includes(authorizationHeader));
+});
+
+test("standalone updater passes through the full current-cycle authorization without skill expansion", async (t) => {
+  const { parseSkillBlock } = await import("@earendil-works/pi-coding-agent");
   const f = await fixture(t);
   // Two invocations exercise autonomous structural repairs and mixed Critical
   // repairs requiring steering, with distinct JSON so stale-cycle leakage fails.
@@ -188,7 +207,7 @@ test("native skill expansion keeps the pinned project body and complete current-
         {
           id: `${route}-structural`,
           issue: "Existing scenario heading is malformed",
-          recommendation: "Repair only the heading; preserve dirty edits",
+          recommendation: "Repair only the heading;\npreserve dirty edits",
           escalation: false,
           paths: f.target.artifacts,
         },
@@ -214,11 +233,14 @@ test("native skill expansion keeps the pinned project body and complete current-
           }
         : {};
     const prompt = updatePrompt(f.target, assessment, steering);
-    const expectedRequest = prompt.slice(`${skillCommand} `.length);
-    const block = await assertProjectExpansion(await f.prompt(prompt), f.body);
-    assert.equal(block.userMessage, expectedRequest);
-    const lines = block.userMessage.split("\n");
-    assert.equal(lines[0], f.target.changeId);
+    const dispatched = await f.prompt(prompt);
+    assert.equal(dispatched, prompt);
+    assert.equal(parseSkillBlock(dispatched), null);
+    assert.ok(!dispatched.includes("<skill"));
+    assert.ok(!dispatched.includes(ordinaryUpdateCommand));
+    assert.ok(!dispatched.includes(globalBody));
+    const lines = dispatched.split("\n");
+    assert.equal(lines[0], "OpenSpec grooming updater for example");
     assert.equal(lines[1], "");
     assert.equal(lines[2], authorizationHeader);
     assert.deepEqual(JSON.parse(lines[3]), {
@@ -228,26 +250,25 @@ test("native skill expansion keeps the pinned project body and complete current-
       existingArtifactAllowlist: f.target.artifacts,
     });
     assert.match(
-      lines[4],
+      dispatched,
       /Apply only these assessed structural or Critical repairs together/,
     );
     assert.match(
-      lines[4],
+      dispatched,
       /No new files, unrelated edits, implementation changes/,
     );
-    assert.match(lines[4], /tool permission overrides/);
-    assert.match(lines[4], /Preserve existing dirty edits/);
-    assert.match(lines[4], /Stop if a required artifact is missing/);
-    assert.equal(
-      lines.length,
-      5,
-      "No part of the multiline user request is dropped",
-    );
+    assert.match(dispatched, /tool permission overrides/);
+    assert.match(dispatched, /Preserve existing dirty edits/);
+    assert.match(dispatched, /Stop if a required artifact is missing/);
+    assert.match(dispatched, /schema-resolved artifactPaths/);
+    assert.match(dispatched, /openspec instructions <artifact-id>/);
+    assert.match(dispatched, /Reject invalid scope, incomplete steering/);
+    assert.match(dispatched, /without additional per-artifact confirmations/);
   }
 });
 
 test("ordinary native skill invocations retain confirmations without injecting grooming authorization", async (t) => {
-  const f = await fixture(t);
+  const f = await fixture(t, ordinaryUpdateSkill);
   assert.match(f.body, /Confirm and apply, one artifact at a time/);
   assert.match(f.body, /Write only after the user confirms/);
   for (const args of [
@@ -255,8 +276,17 @@ test("ordinary native skill invocations retain confirmations without injecting g
     "example",
     "example\n\nReconcile the existing plan.\nAsk before writing.",
   ]) {
-    const prompt = args ? `${skillCommand} ${args}` : skillCommand;
-    const block = await assertProjectExpansion(await f.prompt(prompt), f.body);
+    const prompt = args
+      ? `${ordinaryUpdateCommand} ${args}`
+      : ordinaryUpdateCommand;
+    const block = await assertSkillExpansion(
+      await f.prompt(prompt),
+      f.body,
+      ordinaryUpdateSkill,
+    );
+    assert.match(block.content, /Confirm and apply, one artifact at a time/);
+    assert.match(block.content, /Write only after the user confirms/);
+    assert.ok(!block.content.includes(authorizationHeader));
     assert.equal(block.userMessage, args || undefined);
     assert.ok(!block.userMessage?.includes(authorizationHeader));
   }
@@ -264,7 +294,7 @@ test("ordinary native skill invocations retain confirmations without injecting g
 
 test("native prompt passthrough remains available for disabled expansion and unknown skills", async (t) => {
   const f = await fixture(t);
-  const ordinary = `${skillCommand} example\n\nKeep ordinary confirmations.`;
+  const ordinary = `${reviewCommand} example\n\nPreserve this request.`;
   assert.equal(await f.prompt(ordinary, false), ordinary);
   const unknown = "/skill:not-installed example\n\nPreserve this request.";
   assert.equal(await f.prompt(unknown), unknown);

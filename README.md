@@ -103,18 +103,17 @@ From another local workspace, pass the absolute flow path. Only `changeId` is ac
 
 Requires acpx **0.19.4**, OpenSpec, authenticated Pi, and a working `pi-acp` adapter. Configure acpx's `pi` profile (not just its default agent) in `~/.acpx/config.json`, for example `{"agents":{"pi":{"argv":["pi-acp"]}}}`. Every agent/decision invocation uses an isolated new Pi session, including repeated graph visits. Agent timeouts remain acpx defaults; do not set a global timeout shorter than the intended steering wait.
 
-Pi ACP passes prompts to Pi's RPC skill expansion. Review uses `/skill:openspec-review <id>` with **only the change ID** as run-specific input. Update uses `/skill:openspec-update-change` with current-cycle resolutions, complete steering, and the resolved artifact allowlist. The required update policy lives in this checkout's [project skill](./.pi/skills/openspec-update-change/SKILL.md), not the published `skills/` directory. Ordinary updates still require per-artifact confirmation.
+Pi ACP passes prompts to Pi's RPC skill expansion. Review uses `/skill:openspec-review <id>` with **only the change ID** as run-specific input. Updates instead receive a standalone flow-owned prompt from [`flows/groom.ts`](./flows/groom.ts), with current-cycle assessed structural/Critical resolutions, complete steering, and the resolved existing-artifact allowlist. It authorizes those planning repairs together without per-artifact confirmations, never invokes the built-in update skill, and stops on invalid scope, missing artifacts, or newly discovered consequential decisions. The generated `openspec-update-change` skill remains unchanged; ordinary invocations still require confirmation for every artifact revision.
 
-To avoid a same-named global/package skill silently shadowing this policy, pin both skill files in the Pi process used by the adapter. For example create an executable wrapper outside the target change, substituting absolute paths:
+Ensure the review skill is discovered. To avoid a same-named global/package skill shadowing it, optionally pin only the review skill in the Pi process used by the adapter. For example create an executable wrapper outside the target change, substituting absolute paths:
 
 ```sh
 #!/bin/sh
 exec /absolute/path/to/pi --no-skills \
-  --skill /absolute/path/to/agent-mod/skills/openspec-review/SKILL.md \
-  --skill /absolute/path/to/agent-mod/.pi/skills/openspec-update-change/SKILL.md "$@"
+  --skill /absolute/path/to/agent-mod/skills/openspec-review/SKILL.md "$@"
 ```
 
-Set `PI_ACP_PI_COMMAND=/absolute/path/to/wrapper` when running the flow (supported by pi-acp 0.0.34). Verify Pi's loaded-skill diagnostics with that wrapper before use. Without a wrapper, ensure the project skill is trusted/discovered and no same-named skill wins discovery. Model-free repository tests exercise Pi's native `AgentSession.prompt` skill expansion with an explicitly pinned project skill, including a same-name global collision, ordinary confirmations, and preservation of complete multiline grooming authorization. Fake-agent tests additionally check flow routing and sessions; neither test suite proves a live model will obey the policy.
+Set `PI_ACP_PI_COMMAND=/absolute/path/to/wrapper` when running the flow (supported by pi-acp 0.0.34). Verify Pi's loaded-skill diagnostics with that wrapper before use. Without a wrapper, ensure the review skill is trusted/discovered and no same-named skill wins discovery. No update-skill discovery or pinning is required. Model-free tests exercise native review-skill expansion, direct updater prompt passthrough with complete multiline authorization, and unchanged ordinary update confirmations. Fake-agent tests additionally check flow routing and fresh sessions; neither test suite proves a live model will obey the policy.
 
 **Tool permissions are separate.** Configure acpx/adapter and Pi permission-extension approvals explicitly for the intended read/edit commands; flow authorization does not approve tools, bypass deny rules, or enable YOLO. Unattended updates need an appropriate separately configured permission policy. If you require no provider retries either, disable Pi's `retry.enabled` separately; the flow itself never retries failed phases.
 

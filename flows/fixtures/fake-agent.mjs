@@ -104,7 +104,10 @@ async function respond(params, client) {
       resolutions: resolutions(cycle, artifact),
       sessionId: params.sessionId,
     });
-  } else if (prompt.startsWith("/skill:openspec-update-change ")) {
+  } else if (prompt.startsWith("OpenSpec grooming updater for ")) {
+    assert.ok(!prompt.includes("/skill:openspec-update-change"));
+    assert.ok(prompt.includes("without additional per-artifact confirmations"));
+    assert.ok(prompt.includes("fresh assessment and steering"));
     const authorization = JSON.parse(prompt.split("\n")[3]);
     assert.equal(authorization.changeId, config.changeId);
     assert.ok(!assessmentFails(updates), "failed assessment authorized update");

@@ -258,7 +258,11 @@ test("update authorization refuses incomplete steering and missing artifact crea
   const prompt = updatePrompt(f.target, assessment, {
     "issue-1": "keep existing product intent",
   });
-  assert.ok(prompt.startsWith("/skill:openspec-update-change example"));
+  assert.ok(prompt.startsWith("OpenSpec grooming updater for example"));
+  assert.ok(!prompt.includes("/skill:openspec-update-change"));
+  assert.match(prompt, /without additional per-artifact confirmations/);
+  assert.match(prompt, /fresh assessment and steering/);
+  assert.match(prompt, /does not independently target Major findings/);
   assert.match(prompt, /current cycle only/);
   assert.match(prompt, /keep existing product intent/);
   assert.throws(() =>
@@ -267,6 +271,32 @@ test("update authorization refuses incomplete steering and missing artifact crea
       { ...assessment, route: "missing" },
       { "issue-1": "yes" },
     ),
+  );
+});
+
+test("direct updater rejects forged scope and inconsistent cycle authorization", async (t) => {
+  const f = await fixture(t);
+  const assessment = parseAssessment(assessed(f.target), f.target);
+  for (const target of [
+    { ...f.target, changeId: "other" },
+    { ...f.target, changeRoot: f.cwd },
+    { ...f.target, artifacts: [join(f.cwd, "outside.md")] },
+    { ...f.target, artifacts: [] },
+  ])
+    assert.throws(() => updatePrompt(target, assessment, {}), /scope/);
+  for (const invalid of [
+    { ...assessment, missingArtifacts: ["missing.md"] },
+    { ...assessment, resolutions: [] },
+    { ...assessment, route: "steering" as const },
+    {
+      ...assessment,
+      resolutions: [{ ...assessment.resolutions[0], paths: [f.cwd] }],
+    },
+  ])
+    assert.throws(() => updatePrompt(f.target, invalid, {}));
+  assert.throws(
+    () => updatePrompt(f.target, assessment, { stale: "yes" }),
+    /current-cycle/,
   );
 });
 
@@ -380,53 +410,25 @@ test("failed updater counts dispatch and terminates without retry", async (t) =>
   assert.equal(value.result.outcome, "failed");
   assert.match(value.result.summary, /fixture updater failure/);
 });
-test("project update skill is discoverable and preserves ordinary confirmations", async () => {
+test("review skill can be pinned and ordinary update confirmations remain unchanged", async () => {
   const cwd = process.cwd();
   const { loadSkills } = await import("@earendil-works/pi-coding-agent");
-  const skills = loadSkills({
-    cwd,
-    agentDir: join(homedir(), ".pi/agent"),
-    skillPaths: [],
-    includeDefaults: true,
-  });
   const expected = resolve(cwd, ".pi/skills/openspec-update-change/SKILL.md");
-  assert.equal(
-    skills.skills.find((skill) => skill.name === "openspec-update-change")
-      ?.filePath,
-    expected,
-  );
+  const review = resolve(cwd, "skills/openspec-review/SKILL.md");
   const pinned = loadSkills({
     cwd,
     agentDir: join(homedir(), ".pi/agent"),
-    skillPaths: [resolve(cwd, "skills/openspec-review/SKILL.md"), expected],
+    skillPaths: [review],
     includeDefaults: false,
   });
   assert.equal(
-    pinned.skills.find((skill) => skill.name === "openspec-update-change")
-      ?.filePath,
-    expected,
+    pinned.skills.find((skill) => skill.name === "openspec-review")?.filePath,
+    review,
   );
-  assert.equal(pinned.skills.length, 2);
+  assert.equal(pinned.skills.length, 1);
   const skill = await readFile(expected, "utf8");
-  assert.match(
-    skill,
-    /Without valid explicit authorization, retain every ordinary confirmation/,
-  );
-  assert.match(skill, /does not override tool permissions/);
-  assert.match(skill, /structural or Critical repairs/);
-  assert.match(skill, /changeId` matches the selected active local change/);
-  assert.match(
-    skill,
-    /Every escalated resolution has explicit nonblank steering/,
-  );
-  assert.match(skill, /stop without applying any cycle fixes/);
-  assert.match(
-    skill,
-    /Restrict writes to the supplied existing-artifact allowlist/,
-  );
-  assert.match(
-    skill,
-    /Do not create artifacts, implementation changes, unrelated files/,
-  );
-  assert.match(skill, /never reuse earlier-cycle steering or transcripts/);
+  assert.match(skill, /Confirm and apply, one artifact at a time/);
+  assert.match(skill, /Write only after the user confirms/);
+  assert.match(skill, /Confirm every edit with the user before writing/);
+  assert.ok(!skill.includes("GROOMING AUTHORIZATION"));
 });

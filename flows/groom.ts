@@ -244,10 +244,48 @@ export function updatePrompt(
   assessment: Assessment,
   steering: Record<string, string>,
 ): string {
-  for (const issue of assessment.resolutions)
-    if (issue.escalation && !steering[issue.id]?.trim())
-      throw new Error(`Missing steering for ${issue.id}`);
-  if (!["autonomous", "steering"].includes(assessment.route))
+  if (
+    !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(target.changeId) ||
+    target.changeRoot !==
+      resolve(target.cwd, "openspec/changes", target.changeId) ||
+    !target.artifacts.length ||
+    target.artifacts.some(
+      (path) => !isAbsolute(path) || !contains(target.changeRoot, path),
+    )
+  )
+    throw new Error("Invalid authorized change scope");
+  const checked = parseAssessment(
+    JSON.stringify({
+      conclusive: true,
+      missingArtifacts: assessment.missingArtifacts,
+      resolutions: assessment.resolutions,
+    }),
+    target,
+  );
+  if (
+    !["autonomous", "steering"].includes(assessment.route) ||
+    checked.route !== assessment.route
+  )
     throw new Error("Assessment cannot authorize update");
-  return `/skill:openspec-update-change ${target.changeId}\n\nOPENSpec GROOMING AUTHORIZATION (current cycle only)\n${JSON.stringify({ changeId: target.changeId, resolutions: assessment.resolutions, steering, existingArtifactAllowlist: target.artifacts })}\nApply only these assessed structural or Critical repairs together. No new files, unrelated edits, implementation changes, Git automation, report files, or tool permission overrides. Preserve existing dirty edits. Stop if a required artifact is missing.`;
+  for (const issue of checked.resolutions)
+    if (
+      issue.escalation &&
+      (typeof steering[issue.id] !== "string" || !steering[issue.id].trim())
+    )
+      throw new Error(`Missing steering for ${issue.id}`);
+  if (
+    Object.keys(steering).some(
+      (id) =>
+        !checked.resolutions.some(
+          (issue) => issue.id === id && issue.escalation,
+        ),
+    )
+  )
+    throw new Error("Steering outside current-cycle escalations");
+  return `OpenSpec grooming updater for ${target.changeId}\n\nOPENSpec GROOMING AUTHORIZATION (current cycle only)\n${JSON.stringify({ changeId: target.changeId, resolutions: checked.resolutions, steering, existingArtifactAllowlist: target.artifacts })}
+You are the flow-owned planning updater, not a skill invocation. Do not invoke the built-in update skill.
+Before ANY edits, run openspec status --change ${target.changeId} --json from the local workspace. Verify the selected active local change ID and changeRoot, repo-local actionContext, and schema-resolved artifactPaths.<id>.existingOutputPaths against this authorization. Verify every authorized path still exists as a regular file within that change, with no symlink or path escape. Reject invalid scope, incomplete steering, or required missing artifacts without applying any cycle fixes. Never write to a glob resolvedOutputPath.
+Read all existing planning artifacts and reconcile the assessed resolutions across them. Apply only these assessed structural or Critical repairs together, with supplied steering, without additional per-artifact confirmations. Authorization does not independently target Major findings or unrelated inconsistencies. For substantial rewrites, first read openspec instructions <artifact-id> --change ${target.changeId} --json for the schema-resolved artifact. Honor applicable project context and artifact rules within this scope.
+If you discover a new consequential architecture, design, product, high-stakes decision or materially different alternative, stop and report it for fresh assessment and steering; never invent consent. Use only current-cycle resolutions and steering, never previous-cycle transcripts.
+Restrict writes to the supplied existing-artifact allowlist and assessed resolution paths. No new files, unrelated edits, implementation changes, Git automation, report files, or tool permission overrides. Preserve existing dirty edits. Stop if a required artifact is missing. This authorization does not approve tools, bypass permission denials, or enable YOLO. Report revised artifacts and any unresolved limitation in your response only.`;
 }
