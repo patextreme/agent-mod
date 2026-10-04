@@ -8,7 +8,11 @@ import type {
   DefaultResourceLoader,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
-import { type Assessment, type Target, updatePrompt } from "./groom.js";
+import {
+  type Assessment,
+  type Target,
+  updatePrompt,
+} from "../openspec-groom/helpers.js";
 
 const reviewSkill = resolve(process.cwd(), "skills/openspec-review/SKILL.md");
 const ordinaryUpdateSkill = resolve(

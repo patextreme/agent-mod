@@ -10,7 +10,7 @@ npm run format         # biome format --write .
 npm run lint           # biome lint .
 npm run check          # biome check . (lint + format check combined)
 npm run typecheck      # tsc --noEmit
-npm test              # tsx --test (permission rules)
+npm test              # tsx --test (extensions, docs, recursive flow tests)
 nix flake check        # nix build checks (biome, tsc, permission tests, package builds)
 ```
 
@@ -35,9 +35,13 @@ nix flake check
 - `extensions/permission/rules.test.ts` — Permission rules test suite (65 tests)
 - `prompts/` — Pi prompt templates (Markdown + YAML frontmatter). Naming convention: `category-name.md`
 - `skills/` — Pi skills (`<name>/SKILL.md` with YAML frontmatter), packaged via the `pi` field and the `pi-skills` flake output
+- `flows/openspec-groom/` — Groom entrypoint (`index.ts`), composition (`flow.ts`), artifact validation/authorization (`helpers.ts`), and colocated unit/integration tests
+- `flows/openspec-implement/` — Bounded implementation/repair entrypoint, decision graph, apply/report contracts, and colocated tests; success is task-and-gate completion, not independent verification
+- `flows/openspec-verify/` — Completed-local-change verification entrypoint, read-only verifier/classifier/assessor, bounded scoped repairs, and colocated tests including native skill expansion; owns stricter no-Critical/no-Warning/evidence acceptance without changing the generated verify skill
+- `flows/shared/` — Reusable command/data/local-target helpers, terminal steering, skill-expansion tests, and `fixtures/fake-agent.mjs`
 - `nix/` — Flake devshell and package build config
 
-`package.json` `"pi"` field declares `extensions`, `prompts`, and `skills` directories. `tsconfig.json` includes `extensions/**/*.ts`.
+`package.json` `"pi"` field declares `extensions`, `prompts`, and `skills` directories. `tsconfig.json` includes `extensions/**/*.ts` and `flows/**/*.ts`. Flow entrypoints live at `flows/<name>/index.ts`, with composition and flow-specific helpers/tests alongside. Package and Nix flow tests discover `*.test.ts` recursively; shared infrastructure must not carry groom's artifact-only edit authorization.
 
 ## Key Conventions
 

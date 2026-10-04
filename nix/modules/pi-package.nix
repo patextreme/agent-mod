@@ -126,12 +126,12 @@
       groom-test = pkgs.stdenv.mkDerivation {
         name = "groom-test";
         src = ./../..;
-        nativeBuildInputs = [ pkgs.nodejs ];
+        nativeBuildInputs = [ pkgs.nodejs pkgs.git ];
         phases = [ "unpackPhase" "buildPhase" "installPhase" ];
         buildPhase = ''
           cp -r ${rootNodeModules} node_modules
           chmod -R u+w node_modules
-          ./node_modules/.bin/tsx --test flows/*.test.ts
+          ./node_modules/.bin/tsx --test $(find flows -type f -name '*.test.ts' | sort)
         '';
         installPhase = ''
           touch $out

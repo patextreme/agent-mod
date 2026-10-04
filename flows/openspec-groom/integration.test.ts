@@ -17,13 +17,13 @@ import { type TestContext, test } from "node:test";
 import { setImmediate as nextTurn } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { FlowRunner, type FlowRunResult, type FlowRunState } from "acpx/flows";
-import type { Command, CommandResult } from "./groom.js";
-import { createGroomFlow, type GroomResult } from "./openspec-groom.flow.js";
-import { collectSteering, SteeringError } from "./steering.js";
+import type { Command, CommandResult } from "../shared/command.js";
+import { collectSteering, SteeringError } from "../shared/steering.js";
+import { createGroomFlow, type GroomResult } from "./flow.js";
 
-const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const fakeAgent = join(repo, "flows/fixtures/fake-agent.mjs");
-const flowFile = join(repo, "flows/openspec-groom.flow.ts");
+const repo = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+const fakeAgent = join(repo, "flows/shared/fixtures/fake-agent.mjs");
+const flowFile = join(repo, "flows/openspec-groom/index.ts");
 const cliFile = join(repo, "node_modules/acpx/dist/cli.js");
 const changeId = "fixture-change";
 const dirtySentinel = "Uncommitted human edit: KEEP THIS EXACTLY.\n";
@@ -1011,7 +1011,7 @@ test("CLI: cancelled steering emits cancelled and exits nonzero", {
   const modulePath = join(f.base, "cancelled.flow.ts");
   await writeFile(
     modulePath,
-    `import { createGroomFlow } from ${JSON.stringify(flowFile)};\nimport { SteeringError } from ${JSON.stringify(join(repo, "flows/steering.ts"))};\nexport default createGroomFlow({ steering: async () => { throw new SteeringError("cancelled", "fixture cancellation"); } });\n`,
+    `import { createGroomFlow } from ${JSON.stringify(join(repo, "flows/openspec-groom/flow.ts"))};\nimport { SteeringError } from ${JSON.stringify(join(repo, "flows/shared/steering.ts"))};\nexport default createGroomFlow({ steering: async () => { throw new SteeringError("cancelled", "fixture cancellation"); } });\n`,
   );
   const result = await runCli(f, modulePath);
   assert.equal(result.emitted.outcome, "cancelled");

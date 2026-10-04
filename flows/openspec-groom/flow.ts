@@ -8,17 +8,16 @@ import {
   type FlowNodeContext,
   type FlowNodeDefinition,
 } from "acpx/flows";
+import { type Command, command } from "../shared/command.js";
+import { collectSteering, SteeringError } from "../shared/steering.js";
 import {
   type Assessment,
-  type Command,
-  command,
   parseAssessment,
   preflight,
   type Target,
   updatePrompt,
   validate,
-} from "./groom.js";
-import { collectSteering, SteeringError } from "./steering.js";
+} from "./helpers.js";
 
 export interface GroomResult {
   changeId: string;
@@ -297,4 +296,3 @@ export function createGroomFlow(deps: Dependencies = {}) {
     edges,
   });
 }
-export default createGroomFlow();

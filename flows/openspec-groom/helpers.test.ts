@@ -11,15 +11,15 @@ import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { type TestContext, test } from "node:test";
 import { type FlowNodeContext, FlowRunner } from "acpx/flows";
+import type { Command } from "../shared/command.js";
+import { createGroomFlow, type GroomResult } from "./flow.js";
 import {
-  type Command,
   parseAssessment,
   preflight,
   type Target,
   updatePrompt,
   validate,
-} from "./groom.js";
-import { createGroomFlow, type GroomResult } from "./openspec-groom.flow.js";
+} from "./helpers.js";
 
 async function fixture(t: TestContext) {
   const cwd = await mkdtemp(join(tmpdir(), "groom-unit-"));
