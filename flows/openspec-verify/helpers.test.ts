@@ -407,6 +407,17 @@ test("assessment covers only all current blockers and permits scoped new code pa
     parse([{ ...resolution, paths: ["linked/escape.ts"] }]),
     /Symlinked/,
   );
+  // A broken symlink must be rejected as well; its target not existing must not
+  // let the path walk past it.
+  await symlink(join(f.cwd, "missing-target"), join(f.cwd, "broken"));
+  await assert.rejects(
+    parse([{ ...resolution, paths: ["broken"] }]),
+    /Symlinked/,
+  );
+  await assert.rejects(
+    parse([{ ...resolution, paths: ["broken/escape.ts"] }]),
+    /Symlinked/,
+  );
   await assert.rejects(parseAssessment("{", f.target, report));
   await assert.rejects(parseAssessment("{}", f.target, report));
   report.findings.push({ ...report.findings[0], id: "second" });

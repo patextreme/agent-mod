@@ -302,15 +302,20 @@ async function scopedPath(target: Target, value: unknown): Promise<string> {
   // New paths are allowed, but every existing ancestor must remain canonical.
   let existing = path;
   while (true) {
+    let stats: Awaited<ReturnType<typeof lstat>>;
     try {
-      await lstat(existing);
-      if ((await realpath(existing)) !== existing)
-        throw new Error("Symlinked resolution path");
-      break;
+      stats = await lstat(existing);
     } catch (error) {
+      // Only a missing entry lets us walk up; broken symlinks resolve below.
       if (object(error).code !== "ENOENT") throw error;
       existing = dirname(existing);
+      continue;
     }
+    // lstat does not follow the final component, so a broken symlink must be
+    // rejected here; realpath below catches intermediate symlinks.
+    if (stats.isSymbolicLink() || (await realpath(existing)) !== existing)
+      throw new Error("Symlinked resolution path");
+    break;
   }
   return path;
 }
