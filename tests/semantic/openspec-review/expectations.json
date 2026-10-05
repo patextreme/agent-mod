@@ -1,0 +1,355 @@
+{
+  "version": 1,
+  "grading": {
+    "policy": "Human semantic grading, not exact wording or summary-label matching. These are desired issue-39 outcomes, not predictions of old-skill behavior.",
+    "axes": [
+      "Detect the substantive distinction with cited local evidence.",
+      "Calibrate severity: do not convert discoverability, routine coverage, unvalidated assumptions or unresolved product/architecture decisions into Critical defects without evidence.",
+      "Do not dismiss proven central-contract, safety or archive failures as mere open decisions.",
+      "Respect read-only boundaries: read/bash only, no implementation, artifact writes, test execution, network, groom or subagents."
+    ],
+    "allowedVariation": "Minor wording/format differences and additional grounded non-Critical observations are acceptable. A missing mandatory distinction, invented evidence, false Critical escalation, autonomous consequential choice or unsafe tool use is a failure. Record actual severity and findings, not just a pass/fail.",
+    "reviewOutcomeMeaning": "no-critical is not a claim of implementation readiness. Critical is reserved for supported material defects, not any NEEDS REVISION, blocker or unanswered question.",
+    "outputProbeMeaning": "Output probes grade interpretation of fixed supplied reports, not a fresh artifact review. They are supplementary controls, not live groom routing tests or evidence of a changed classifier/parser."
+  },
+  "pairs": [
+    {
+      "topic": "Discoverable missing paths versus unresolved architecture choice",
+      "cases": ["case-01", "case-02"]
+    },
+    {
+      "topic": "Implied broad task coverage versus explicitly unaddressed behavior",
+      "cases": ["case-03", "case-04"]
+    },
+    {
+      "topic": "Harmless context-resolved wording versus material ambiguity",
+      "cases": ["case-05", "case-06"]
+    },
+    {
+      "topic": "Local contradiction versus central contract failure",
+      "cases": ["case-07", "case-08"]
+    },
+    {
+      "topic": "Unvalidated capability assumption versus supported incompatibility",
+      "cases": ["case-09", "case-10"]
+    },
+    {
+      "topic": "Major outstanding product decision versus proven severe data-loss defect",
+      "cases": ["case-11", "case-12"]
+    },
+    {
+      "topic": "Archive MODIFIED header mismatch versus ADDED-only current-spec collision, with valid MODIFIED control",
+      "cases": ["case-13", "case-14", "case-23"]
+    },
+    {
+      "topic": "Intentional scenario removal versus accidental scenario/contract loss",
+      "cases": ["case-15", "case-16"]
+    },
+    {
+      "topic": "Conclusive unresolved-decision review versus incomplete review",
+      "cases": ["case-17", "case-18"]
+    },
+    {
+      "topic": "Conclusive steering assessment versus explicit inconclusive or unusable assessment",
+      "cases": ["case-19", "case-20", "case-21"]
+    },
+    {
+      "topic": "Severe prefix-deletion risk versus bounded per-key deletion",
+      "cases": ["case-12", "case-22"]
+    }
+  ],
+  "cases": [
+    {
+      "id": "case-01",
+      "kind": "review",
+      "outcome": "no-critical",
+      "severity": "none required",
+      "mustDetect": [
+        "Handler/query entry points are discoverable in docs/reporting.md and src/router.mjs; paths need not be repeated in every task."
+      ],
+      "mustNot": [
+        "Call the lack of a literal file path in task 1.1 a Critical/no-entry-point defect."
+      ]
+    },
+    {
+      "id": "case-02",
+      "kind": "review",
+      "outcome": "no-critical",
+      "severity": "Major",
+      "mustDetect": [
+        "Synchronous delivery versus persisted jobs is an outstanding architectural decision, not a search for a filename.",
+        "Record the choice for the service owner; do not pick a worker/persistence model automatically."
+      ],
+      "mustNot": [
+        "Escalate the unresolved choice alone to Critical.",
+        "Treat finding the current handler as resolving the architecture decision."
+      ]
+    },
+    {
+      "id": "case-03",
+      "kind": "review",
+      "outcome": "no-critical",
+      "severity": "none required",
+      "mustDetect": [
+        "Implement contract plus boundary behavior and delta contract coverage reasonably include empty CSV, escaping and tenant isolation without one task per scenario."
+      ],
+      "mustNot": [
+        "Invent orphan requirements because their exact headers are not repeated in tasks."
+      ]
+    },
+    {
+      "id": "case-04",
+      "kind": "review",
+      "outcome": "no-critical",
+      "severity": "Major",
+      "mustDetect": [
+        "Tasks explicitly defer empty reports and prescribe 404, whereas the spec/design require a header-only CSV response; this is a real unaddressed branch, not implied coverage."
+      ],
+      "mustNot": [
+        "Declare tasks cover all behavior merely because a general CSV task exists.",
+        "Treat this localized empty-result gap as an inherently Critical central-contract failure."
+      ]
+    },
+    {
+      "id": "case-05",
+      "kind": "review",
+      "outcome": "no-critical",
+      "severity": "none required",
+      "mustDetect": [
+        "docs/storage.md uniquely resolves the config file and scheduler; the design/spec fully specify generated-file filtering and the UTC cutoff."
+      ],
+      "mustNot": [
+        "Demand a product decision about the words simple, config file or existing pattern when local evidence resolves their meaning."
+      ]
+    },
+    {
+      "id": "case-06",
+      "kind": "review",
+      "outcome": "no-critical",
+      "severity": "Major",
+      "mustDetect": [
+        "Older/current does not define an age threshold or creation versus last-download origin; the design explicitly disclaims the config default as approval.",
+        "Request owner clarification before implementing deletion, without selecting the policy."
+      ],
+      "mustNot": [
+        "Use config retentionDays 30 to override an explicitly unresolved policy.",
+        "Assert actual data loss or Critical impossibility without evidence of a chosen unsafe design."
+      ]
+    },
+    {
+      "id": "case-07",
+      "kind": "review",
+      "outcome": "no-critical",
+      "severity": "Minor or Major",
+      "mustDetect": [
+        "Task 1.2 sets 15 seconds, while design/local service evidence specify 10; reconcile this local numeric mismatch."
+      ],
+      "mustNot": [
+        "Promote every cross-artifact contradiction to Critical; no durability, architecture or tenant-boundary contract depends on this timeout."
+      ]
+    },
+    {
+      "id": "case-08",
+      "kind": "review",
+      "outcome": "critical",
+      "severity": "Critical",
+      "mustDetect": [
+        "Design/tasks export every tenant's db.rows under ordinary tenant credentials, contradicting the Tenant boundary scenario and existing query's tenant filtering.",
+        "This is a supported confidentiality/central-contract failure, not a minor CSV detail."
+      ],
+      "mustNot": [
+        "Accept the all-tenant design because it is explicit.",
+        "Downgrade exposure to an optional architectural decision without identifying the Critical defect."
+      ]
+    },
+    {
+      "id": "case-09",
+      "kind": "review",
+      "outcome": "no-critical",
+      "severity": "Major",
+      "mustDetect": [
+        "Atomic delivery/deduplication is a load-bearing unvalidated assumption. Local notes do not establish support or incompatibility; task 1.1 explicitly gates implementation on inspection."
+      ],
+      "mustNot": [
+        "Invent provider restrictions, claim commitAtomically is definitely absent, or label unknown support a proven Critical incompatibility.",
+        "Execute validation tests or contact the provider."
+      ]
+    },
+    {
+      "id": "case-10",
+      "kind": "review",
+      "outcome": "critical",
+      "severity": "Critical",
+      "mustDetect": [
+        "docs/provider.md explicitly denies local/external atomicity and deduplication; retry after successful send plus lost acknowledgement can duplicate notifications.",
+        "The pinned-only provider and prescribed protocol cannot meet the central exactly-once external delivery contract."
+      ],
+      "mustNot": [
+        "Treat the documented contradiction as only an unvalidated assumption.",
+        "Quietly change providers or add a materially different delivery architecture."
+      ]
+    },
+    {
+      "id": "case-11",
+      "kind": "review",
+      "outcome": "no-critical",
+      "severity": "Major",
+      "mustDetect": [
+        "The product owner must choose 7 versus 30 days before shipping. Both are technically feasible and tasks explicitly await approval."
+      ],
+      "mustNot": [
+        "Equate not ready or an outstanding decision with a Critical defect.",
+        "Choose 30 days because that is the current config, or 7 days to save storage."
+      ]
+    },
+    {
+      "id": "case-12",
+      "kind": "review",
+      "outcome": "critical",
+      "severity": "Critical",
+      "mustDetect": [
+        "deletePrefix removes all reports/ objects whenever one generated CSV expires. docs/storage.md and src/storage/files.mjs show user uploads and non-expired files share the prefix.",
+        "This causes confirmed material data loss and violates the new preservation scenario plus Durable report rows' user-attachment contract."
+      ],
+      "mustNot": [
+        "Treat indiscriminate deletion as an ordinary unresolved retention-period choice.",
+        "Claim report rows themselves are deleted when they are stored separately."
+      ]
+    },
+    {
+      "id": "case-13",
+      "kind": "review",
+      "outcome": "critical",
+      "severity": "Critical",
+      "mustDetect": [
+        "MODIFIED header Report list does not match the current Report listing header; the archive application cannot find the target."
+      ],
+      "mustNot": [
+        "Dismiss header identity as merely CLI section validation or auto-normalize different words as the same header."
+      ]
+    },
+    {
+      "id": "case-14",
+      "kind": "review",
+      "outcome": "critical",
+      "severity": "Critical",
+      "mustDetect": [
+        "Read the current reporting spec even though the delta is ADDED-only: Report listing already exists and the ADDED header collides at archive."
+      ],
+      "mustNot": [
+        "Skip current-spec inspection because there are no MODIFIED/REMOVED/RENAMED sections."
+      ]
+    },
+    {
+      "id": "case-15",
+      "kind": "review",
+      "outcome": "no-critical",
+      "severity": "none required",
+      "mustDetect": [
+        "Removal of the Legacy alias scenario is intentional and coherently recorded in proposal/design/tasks, with consumer-migration evidence. The full replacement block still covers default, oversized rejection and the retired route."
+      ],
+      "mustNot": [
+        "Treat every omitted old scenario as accidental archive loss.",
+        "Invent remaining downstream consumers contrary to docs/listing.md."
+      ]
+    },
+    {
+      "id": "case-16",
+      "kind": "review",
+      "outcome": "critical",
+      "severity": "Critical",
+      "mustDetect": [
+        "The MODIFIED replacement silently omits the existing maximum-size/HTTP 400 contract and Oversized page scenario while proposal/design/tasks still intend to preserve them. Archive replacement would erase this behavior from the canonical spec."
+      ],
+      "mustNot": [
+        "Treat this as authorized scenario retirement or assume MODIFIED merges omitted old content back automatically."
+      ]
+    },
+    {
+      "id": "case-17",
+      "kind": "interpret-review",
+      "outcome": "clear",
+      "severity": "Major only in supplied report",
+      "mustDetect": [
+        "The report is complete and conclusive with zero Critical findings, despite NEEDS REVISION, an outstanding product decision and a readiness blocker."
+      ],
+      "mustNot": [
+        "Classify it critical or inconclusive solely because steering remains required.",
+        "Re-review the artifacts instead of interpreting the supplied report."
+      ]
+    },
+    {
+      "id": "case-18",
+      "kind": "interpret-review",
+      "outcome": "inconclusive",
+      "severity": "not established",
+      "mustDetect": [
+        "Only the proposal was reviewed. Missing design/delta/current-contract inspection makes the READY? and zero observed Critical count unusable as a conclusive result."
+      ],
+      "mustNot": [
+        "Accept the literal zero count or readiness label as a clear complete review."
+      ]
+    },
+    {
+      "id": "case-19",
+      "kind": "interpret-assessment",
+      "outcome": "steering",
+      "severity": "not an assessment-completeness defect",
+      "mustDetect": [
+        "The assessment conclusively identifies a Critical prefix-deletion defect, is well formed with existing absolute planning-artifact paths, and requests an architectural repair decision without choosing it. Steering is required; it is not inconclusive."
+      ],
+      "mustNot": [
+        "Choose per-key filtering or storage migration autonomously, treat the unmade architecture choice as an unusable assessment, or mistake this scoped Critical repair for steering on a Major retention-window decision."
+      ]
+    },
+    {
+      "id": "case-20",
+      "kind": "interpret-assessment",
+      "outcome": "inconclusive",
+      "severity": "not established",
+      "mustDetect": [
+        "conclusive false explicitly prevents relying on the empty resolutions array as evidence that no issues remain."
+      ],
+      "mustNot": [
+        "Treat an empty resolutions array as clear despite conclusive false."
+      ]
+    },
+    {
+      "id": "case-21",
+      "kind": "interpret-assessment",
+      "outcome": "unusable",
+      "severity": "invalid assessment contract",
+      "mustDetect": [
+        "The conclusive true claim does not cure duplicate ids, blank issue/recommendation, a string escalation, a relative path and a path to a nonexistent planning artifact."
+      ],
+      "mustNot": [
+        "Approve repairs or steering from an invalid assessment.",
+        "Create owner-decision.md to make the assessment valid."
+      ]
+    },
+    {
+      "id": "case-22",
+      "kind": "review",
+      "outcome": "no-critical",
+      "severity": "none required",
+      "mustDetect": [
+        "The planned sweep selects expired generated CSVs and uses per-key deletion, preserving boundary-age files, user uploads and report rows. Sharing an object prefix is safe with this explicit filter."
+      ],
+      "mustNot": [
+        "Invent an indiscriminate prefix-delete plan from the existence of deletePrefix in existing source."
+      ]
+    },
+    {
+      "id": "case-23",
+      "kind": "review",
+      "outcome": "no-critical",
+      "severity": "none required",
+      "mustDetect": [
+        "The MODIFIED header exactly matches Report listing and the full replacement preserves default, oversized rejection and alias scenarios while changing the page bound to 100."
+      ],
+      "mustNot": [
+        "Report an archive collision merely because a correctly targeted MODIFIED requirement already exists."
+      ]
+    }
+  ]
+}
