@@ -81,7 +81,7 @@ The final stage SHALL use the `openspec-finalize` contract: synchronize all appl
 - **THEN** it reports sync and assessment as not applicable and can archive under the same finalization contract
 
 ### Requirement: Aggregate observable outcome
-The flow SHALL emit one aggregate flow-owned terminal result and a concise summary identifying the change, overall outcome, active or failed stage, ordered stage statuses, captured constituent results, and known finalization or archive state. Later unstarted stages MUST be explicit. Only success of all four stages SHALL exit zero. Progress and escalation messages MUST remain visible separately from terminal result capture.
+On normal terminal routing the flow SHALL emit one aggregate flow-owned result and concise summary identifying the change, overall outcome, active or failed stage, ordered stage statuses, captured constituent results, and known finalization or archive state. Cancellation reporting SHALL follow the bounded contract below. Later unstarted stages MUST be explicit. Only success of all four stages SHALL exit zero. Progress and escalation messages MUST remain visible separately from result capture.
 
 #### Scenario: Aggregate success
 - **WHEN** all four stages succeed
@@ -92,15 +92,27 @@ The flow SHALL emit one aggregate flow-owned terminal result and a concise summa
 - **THEN** the result retains the grooming and implementation results and marks verification and finalization as not started
 
 ### Requirement: Cancellation preserves observed progress
-Orderly interruption SHALL reach the active constituent stage's commands, agents, and steering and stop further stage dispatch. The pipeline SHALL emit its cancelled result once even when normal terminal graph routing is bypassed, preserving observed progress without fabricating absent constituent results. It MUST NOT undo writes or claim unconfirmed archival.
+Flow-owned cancellation reporting SHALL be best-effort where supported active attempt abort signals are observable. Observed cancellation SHALL stop later dispatch and attempt aggregate emission at most once from observed progress without fabricated child results, false completion, or undoing edits. The flow MUST NOT promise a public parent-run signal or whole-invocation coverage. Documentation SHALL identify absent JSON and acpx persisted run history/transcripts as diagnostic fallback.
 
 #### Scenario: Interruption during steering
-- **WHEN** the caller interrupts an active human-steering step
-- **THEN** steering stops, the aggregate result reports cancellation once, and no later stage starts
+- **WHEN** interruption of an active human-steering attempt is observed through its supported abort signal
+- **THEN** steering stops, the flow attempts aggregate cancellation reporting at most once from observed progress, and no later stage starts
 
 #### Scenario: Interruption during finalization
-- **WHEN** cancellation interrupts sync or the archive stage
-- **THEN** the result reports observed finalization progress, preserves partial edits, and does not claim a move completed without confirmation
+- **WHEN** cancellation during sync or archive is observed through a supported active attempt abort signal
+- **THEN** the flow attempts reporting at most once using observed finalization progress, preserves partial edits, blocks later dispatch, and does not claim a move completed without confirmation
+
+#### Scenario: Routing bypass after listener installation
+- **WHEN** an installed active-attempt listener observes cancellation but normal terminal graph routing is bypassed
+- **THEN** the flow attempts aggregate cancellation emission at most once without inventing absent child results or marking interrupted stages completed
+
+#### Scenario: Uncovered interruption interval
+- **WHEN** interruption occurs in a callback gap, during node-start persistence, or through graph-routing bypass before listener installation
+- **THEN** flow-owned aggregate JSON may be absent and documented diagnostics fall back to acpx persisted run history/transcripts without fabricated results
+
+#### Scenario: Forced termination
+- **WHEN** termination prevents flow code from reporting
+- **THEN** flow-owned aggregate JSON may be absent and documentation identifies the same diagnostic fallback
 
 ### Requirement: Explicit restart and independent entrypoints
 A new `openspec-all` invocation SHALL start again at groom against the current active tree with fresh stage budgets, without skipping stages using previous results. Users SHALL retain standalone entrypoints for intentional later-stage recovery. Neither pipeline nor finalization SHALL manage Git state or create separate checkpoint/report files. Already-archived targets MUST remain invalid.

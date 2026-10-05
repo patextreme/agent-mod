@@ -100,7 +100,7 @@ After synchronization acceptance or a no-delta result, the flow SHALL move the c
 - **THEN** the flow fails without overwriting or merging it and leaves the active change in place
 
 ### Requirement: Observable partial completion
-The flow SHALL emit one structured terminal result and a concise summary identifying the change, outcome, phase completion, sync assessment, unresolved issues, and archive destination when applicable. Only success SHALL exit zero. Failure or cancellation SHALL preserve existing and partial edits without commits, stashes, rollback, automatic retries, or separate report files.
+On normal terminal routing the flow SHALL emit one structured result and concise summary identifying the change, outcome, phase completion, sync assessment, unresolved issues, and archive destination when applicable. Cancellation reporting SHALL follow the bounded contract below. Only success SHALL exit zero. Failure or cancellation SHALL preserve existing and partial edits without commits, stashes, rollback, automatic retries, or separate report files.
 
 #### Scenario: Sync partially fails
 - **WHEN** synchronization edits one spec and then fails
@@ -110,9 +110,20 @@ The flow SHALL emit one structured terminal result and a concise summary identif
 - **WHEN** sync is accepted but the archive move fails
 - **THEN** the flow exits nonzero and reports accepted sync separately from unsuccessful archival without reverting main specs
 
-#### Scenario: Cancellation
-- **WHEN** orderly cancellation interrupts a running stage
-- **THEN** the flow reports cancellation once with observed stage completion and preserves any edits without claiming unconfirmed archival
+### Requirement: Bounded cancellation reporting
+Flow-owned cancellation reporting SHALL be best-effort where supported active attempt abort signals are observable, emitting at most once from observed progress and stopping later dispatch without false completion. The flow MUST preserve edits and MUST NOT claim a public parent-run signal or whole-invocation coverage. Documentation SHALL identify potentially absent JSON and acpx persisted run history/transcripts as diagnostic fallback.
+
+#### Scenario: Observable cancellation
+- **WHEN** cancellation is observed through a supported active attempt abort signal, including routing bypass after listener installation
+- **THEN** the flow attempts cancellation reporting at most once with observed progress, preserves edits, stops later dispatch, and does not claim unconfirmed archival or stage completion
+
+#### Scenario: Uncovered interruption interval
+- **WHEN** interruption occurs in a callback gap, during node-start persistence, or through graph-routing bypass before a listener is installed
+- **THEN** flow-owned JSON may be absent and documented diagnostics fall back to acpx persisted run history/transcripts without fabricated completion
+
+#### Scenario: Forced termination
+- **WHEN** termination prevents flow code from reporting
+- **THEN** flow-owned JSON may be absent and documentation identifies the same diagnostic fallback
 
 ### Requirement: Explicit restart from current state
 A new invocation SHALL reassess the current active change and main specs without relying on a previous transcript or checkpoint. It SHALL complete remaining sync effects before assessing and retrying archival. Already-archived targets SHALL remain invalid rather than being treated as successful restarts.
