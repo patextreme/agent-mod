@@ -60,6 +60,7 @@ its upstream and patch tests.
 
 | Skill | Description |
 |-------|-------------|
+| [`acpx-flow`](./skills/acpx-flow/SKILL.md) | Create, modify, and debug acpx flows using the official capability documentation |
 | [`openspec-review`](./skills/openspec-review/SKILL.md) | Review an OpenSpec change for semantic soundness before implementation |
 
 ## Permission Extension
@@ -104,6 +105,132 @@ Shows Ollama Cloud session and weekly usage in the pi status bar as `ollama: 2.6
 - Reuses pi's resolved ollama-cloud provider key, so no separate configuration is needed beyond the existing ollama-cloud entry in `models.json`.
 - Failure paths are non-throwing: a failed fetch renders the dim placeholder `ollama: ? / ?`, and a missing provider key silently clears the slot.
 
+## OpenSpec grooming flow
+
+[`flows/openspec-groom/index.ts`](./flows/openspec-groom/index.ts) grooms an **existing active local** change. From this checkout (after `npm install`):
+
+```bash
+acpx flow run ./flows/openspec-groom/index.ts --input-json '{"changeId":"example-change"}'
+```
+
+From another local workspace, pass the absolute flow path. Only `changeId` is accepted; archived, missing, store-backed, symlinked, and escaping targets are rejected before edits. OpenSpec must provide `list` and `status --json` with schema-resolved `existingOutputPaths`. The flow runs targeted `openspec validate <id> --type change --strict --json --no-interactive` before review and after each update. Invalid artifacts enter repair; command/JSON failures terminate without retries. Repairs can revise only existing schema planning artifacts, never create missing ones.
+
+### Prerequisites and skill discovery
+
+Requires acpx **0.19.4**, OpenSpec, authenticated Pi, and a working `pi-acp` adapter. Configure acpx's `pi` profile (not just its default agent) in `~/.acpx/config.json`, for example `{"agents":{"pi":{"argv":["pi-acp"]}}}`. Every agent/decision invocation uses an isolated new Pi session, including repeated graph visits. Agent timeouts remain acpx defaults; do not set a global timeout shorter than the intended steering wait.
+
+Pi ACP passes prompts to Pi's RPC skill expansion. Review uses `/skill:openspec-review <id>` with **only the change ID** as run-specific input. Updates instead receive a standalone flow-owned prompt from [`flows/openspec-groom/helpers.ts`](./flows/openspec-groom/helpers.ts), with current-cycle assessed structural/Critical resolutions, complete steering, and the resolved existing-artifact allowlist. It authorizes those planning repairs together without per-artifact confirmations, never invokes the built-in update skill, and stops on invalid scope, missing artifacts, or newly discovered consequential decisions. The generated `openspec-update-change` skill remains unchanged; ordinary invocations still require confirmation for every artifact revision.
+
+Ensure the review skill is discovered. To avoid a same-named global/package skill shadowing it, optionally pin only the review skill in the Pi process used by the adapter. For example create an executable wrapper outside the target change, substituting absolute paths:
+
+```sh
+#!/bin/sh
+exec /absolute/path/to/pi --no-skills \
+  --skill /absolute/path/to/agent-mod/skills/openspec-review/SKILL.md "$@"
+```
+
+Set `PI_ACP_PI_COMMAND=/absolute/path/to/wrapper` when running the flow (supported by pi-acp 0.0.34). Verify Pi's loaded-skill diagnostics with that wrapper before use. Without a wrapper, ensure the review skill is trusted/discovered and no same-named skill wins discovery. No update-skill discovery or pinning is required. Model-free tests exercise native review-skill expansion, direct updater prompt passthrough with complete multiline authorization, and unchanged ordinary update confirmations. Fake-agent tests additionally check flow routing and fresh sessions; neither test suite proves a live model will obey the policy.
+
+**Tool permissions are separate.** Configure acpx/adapter and Pi permission-extension approvals explicitly for the intended read/edit commands; flow authorization does not approve tools, bypass deny rules, or enable YOLO. Unattended updates need an appropriate separately configured permission policy. If you require no provider retries either, disable Pi's `retry.enabled` separately; the flow itself never retries failed phases.
+
+### Completion, steering, and outcomes
+
+Success means strict structural validation passes and a conclusive review has **no Critical findings**. Major findings, blockers, and readiness labels alone do not trigger repairs or prevent success; grooming success is **not implementation readiness**. Assessments escalate architectural, design, product, high-stakes, and materially different alternatives, for structural repairs as well as Critical findings.
+
+When any issue needs steering, stdin and stderr must be TTYs. The flow displays every escalated issue and recommendation and requires a nonblank answer for each before dispatching one coordinated update (including autonomous fixes). Steering has a **seven-day** deadline, supports cancellation, and closes readline on every exit. EOF or no terminal returns `needs_human`; timeout returns `failed` with its reason. No ACP phase runs while steering reads input.
+
+There are at most **ten updater dispatches**, shared by structural and semantic repairs. Failed updates count, stop immediately, and may leave partial edits. Validation and review still run after update ten, so final convergence can succeed. Repeated Critical findings consume the same budget without a separate early-stop heuristic.
+
+The flow emits one structured result and a concise stderr summary. Examples (the `remaining` field contains the current review/errors):
+
+```json
+{"changeId":"example-change","outcome":"success","updateAttempts":2,"summary":"Validation passes; no Critical findings. This is not implementation readiness.","remaining":"Major findings remain..."}
+{"changeId":"example-change","outcome":"limit_reached","updateAttempts":10,"summary":"Ten update attempts consumed; unresolved errors or Critical findings remain.","remaining":"Critical findings remain..."}
+```
+
+Only `success` exits zero. Other outcomes are `limit_reached`, `needs_human`, `cancelled`, and `failed` (including inconclusive review/assessment, missing artifacts, malformed output, and agent/command errors). Failure routes throw after emitting their result so acpx really exits nonzero. Process-wide termination can interrupt output; acpx's persisted run state remains the diagnostic source.
+
+acpx retains run history and transcripts under `~/.acpx/flows/runs/`. There are **no additional report files, commits, stashes, rollback, or resume/checkpoint support**. Existing dirty artifacts are the starting state; earlier edits are preserved on failure. Restarting explicitly starts a new flow and budget. The allowlist and authorization constrain prompts, not an OS sandbox; use separate isolation if needed.
+
+## OpenSpec implementation flow
+
+[`flows/openspec-implement/index.ts`](./flows/openspec-implement/index.ts) implements an approved **active repo-local** change:
+
+```bash
+acpx flow run ./flows/openspec-implement/index.ts --input-json '{"changeId":"example-change"}'
+```
+
+From another workspace use the absolute entrypoint path. Only `changeId` is accepted; invalid, archived, missing, store-backed, symlinked and escaping targets are rejected before implementation. Use the same acpx/Pi/adapter prerequisites and explicit `pi` profile described above, with the `openspec-apply-change` skill discovered in the adapter's Pi process. Every apply, repair, assessment and decision invocation gets a fresh isolated session at the selected workspace. This is session isolation, not filesystem isolation.
+
+```mermaid
+flowchart TD
+    Start[Validate local changeId] --> Apply[Initial apply and gates]
+    Apply --> Snapshot[Refresh apply task snapshot]
+    Snapshot --> Judge{Task-and-gate judge}
+    Judge -->|completed| Success[Success]
+    Judge -->|repairable_pause or escalation_required| Budget{Ten repairs used?}
+    Budget -->|yes| Limit[limit_reached]
+    Budget -->|no, repairable| Repair[Repair and gates]
+    Budget -->|no, consequential| Steering[Human steering]
+    Steering -->|complete scoped answers| Repair
+    Steering -->|cancelled or unavailable| Stop[Unsuccessful exit]
+    Repair --> Snapshot
+```
+
+### Implementer contract
+
+Apply and repair explicitly select the change, read current status/apply instructions and every context file, preserve CLI-controlled blocked/ready/all-done state, and honor project context and compatible guidance. A blocked state is not permission to create missing planning artifacts. The implementer attempts all remaining tasks. Multiple substantive groups are delegated with task identities, scoped ownership and dependencies; only independent groups run concurrently. A trivial single substantive group need not delegate. The parent owns checklist consolidation, marks completed work promptly, waits for all delegates, and runs final applicable gates after consolidation.
+
+The implementer returns a JSON report with `summary`, `completedTasks`, `remainingTasks`, `blockers`, `gates`, `noApplicableGates`, and `delegatedGroups`. Each blocker includes unique `id`, `issue`, `recommendation`, boolean `escalation`, and requested authorization `scope`. Each gate includes its concrete `command`, integer `exitCode`, boolean `afterEdits`, and numeric `attempt` (initial apply is 0). `delegatedGroups` records task IDs, ownership and results. Empty arrays are allowed; `noApplicableGates` is normally null and otherwise must explain why the current edit scope has no applicable project gates.
+
+Success requires a refreshed task snapshot showing every task complete, no remaining work/blockers, and applicable current gates passing **after the last relevant edit** on the current attempt. Initially complete checkboxes still require gates. Repairs can correct code and rerun gates even if checkboxes already read done. Missing, stale or failing evidence cannot support completion; malformed reports fail rather than authorize unsafe steering. The read-only three-choice judge uses the snapshot, report, current project instructions and scope to assess gate applicability. Deterministic checks reject unsupported completion claims. Reported evidence is not independent execution proof: success means **task-and-gate completion only**, not an independent implementation verification review or readiness to archive. The flow does not invoke the verify skill.
+
+### Repairs, authority and exits
+
+An initial apply does not consume the budget. Up to **ten repair dispatches** are allowed, including failed dispatches. Each normal return refreshes tasks and is judged, including repair ten: it may succeed; either pause category after that exits `limit_reached`, without collecting more steering or dispatching repair eleven. Normal test failures/blocker reports are judge inputs. Invocation errors, timeouts, command failures and unusable decision results terminate without silent invocation retries.
+
+Repairs within approved design can proceed autonomously. Ambiguity, design changes, destructive actions and missing external access require human guidance; mixed blockers escalate before any further repair. The outer flow owns interaction: inner agents return pauses rather than waiting for a human. Validated issues show recommendations and requested scope. Scoped answers accumulate with their associated issues across fresh repair sessions. Plan edits require an answer explicitly authorizing those plan edits; consent never expands to unrelated/destructive actions or access. stdin and stderr must be TTYs for steering; the shared seven-day deadline and cancellation rules apply. No terminal/EOF returns `needs_human`; cancellation returns `cancelled`; malformed steering and timeout return `failed`.
+
+Tool permissions remain separate: flow prompts do not approve tools, bypass deny rules or enable YOLO, and are not an OS sandbox. Apply and repair invocations use 90-minute timeouts; assessment and judge invocations retain acpx defaults. Do not set a global timeout shorter than the desired steering wait. Provider retry settings are separately controlled by Pi.
+
+Terminal results contain `changeId`, `outcome`, `repairAttempts`, `summary`, and `remaining` tasks/blockers, plus a concise stderr line. Only `success` exits zero; `limit_reached`, `needs_human`, `cancelled`, and `failed` deliberately exit nonzero after reporting. acpx retains transcripts/run history; no additional report files, automatic commits, stashes, archive, rollback or resume are performed. Existing working-tree edits are preserved even on failure. An explicit restart uses the current tree and a fresh zero-repair budget, not a prior-run checkpoint.
+
+## OpenSpec verification flow
+
+[`flows/openspec-verify/index.ts`](./flows/openspec-verify/index.ts) independently verifies an explicitly selected, **completed active repo-local** change and performs bounded repairs:
+
+```bash
+acpx flow run ./flows/openspec-verify/index.ts --input-json '{"changeId":"example-change"}'
+```
+
+From another local workspace, use the absolute entrypoint path. Only `changeId` is accepted; archived, missing, store-backed, symlinked and escaping targets are rejected. The initial refreshed OpenSpec apply snapshot must be unblocked with usable tasks and every task complete; incomplete-entry diagnostics direct the caller to `openspec-implement`, not to verifier repair. Requires the same acpx **0.19.4**, OpenSpec, authenticated Pi and `pi-acp` prerequisites and explicit acpx `pi` profile described above.
+
+### Native verification skill and isolation
+
+The verifier invokes the existing [`openspec-verify-change`](./.pi/skills/openspec-verify-change/SKILL.md) skill through Pi's native `/skill:openspec-verify-change <id>` expansion, followed by flow-owned read-only policy and current context. The generated skill itself is unchanged, including its ordinary warning-tolerant archive wording; the flow applies its own stricter acceptance contract. Pin this checkout's skill in the adapter's Pi process so a same-named global/package skill cannot shadow it. Create an executable wrapper outside the target change, substituting absolute paths:
+
+```sh
+#!/bin/sh
+exec /absolute/path/to/pi --no-skills \
+  --skill /absolute/path/to/agent-mod/.pi/skills/openspec-verify-change/SKILL.md "$@"
+```
+
+Set `PI_ACP_PI_COMMAND=/absolute/path/to/wrapper` when running the flow (supported by pi-acp 0.0.34), and inspect the wrapper's loaded-skill diagnostics before use. `--no-skills` excludes default discovery while the explicit absolute `--skill` loads the intended file even in another workspace. No apply/update skill is needed for the flow-owned repair prompt. Model-free native-expansion tests in [`flows/openspec-verify/skill-expansion.test.ts`](./flows/openspec-verify/skill-expansion.test.ts) exercise the absolute pin against a same-name global collision and preserve the full flow policy/context and ordinary skill behavior; they do not prove model obedience.
+
+Every verifier, classifier, assessor and repair invocation gets a **fresh session** in the selected workspace, including repeated cycles. Verifier, classifier and assessor are read-only; only the scoped repair agent may edit. Read-only policy and repair authorization are **prompt-level constraints, not OS isolation**. Tool permissions are separate: configure acpx/adapter and Pi permissions explicitly; these prompts do not approve tools, bypass deny rules or enable YOLO. Use separate filesystem/process isolation if required. Verifier and repair invocations use 90-minute timeouts; classifier and assessor invocations retain acpx defaults. Do not impose a global timeout shorter than the intended steering wait. Pi provider retry settings are separately controlled.
+
+### Acceptance, repairs and outcomes
+
+Success requires a **conclusive verification with no Critical or Warning findings and no missing verification evidence**, plus a refreshed completed task snapshot. Suggestions are allowed and do not trigger repairs. Genuinely schema/scope-inapplicable checks need explicit justification; required checks cannot be skipped or waived by steering. An archive-ready label, complete checkboxes alone or absence of an explicit issue list cannot substitute for current applicable gate and verification evidence. Unusable/inconclusive verification or classification fails rather than silently accepting the change.
+
+The read-only classifier is a constrained decision node choosing `accepted`, `blocking` or `inconclusive`; deterministic guards reject unsupported acceptance. It does not plan repairs. A separate read-only ACP assessor prepares validated resolutions covering every current Critical/Warning finding, with finding IDs, repository paths, recommendations, intended scope and escalation reasons. Repairs within the approved design may proceed autonomously; ambiguous requirements, design changes, destructive actions and missing external access require scoped human steering. **All consequential issues in a mixed batch must receive steering before any repair is dispatched**, including the autonomous fixes in that batch. The outer flow owns interaction; inner agents return issues instead of waiting for user input. Planning edits need explicit scoped authorization, and answers never authorize unrelated/destructive actions or external access. stdin and stderr must be TTYs; the shared seven-day steering deadline and cancellation rules apply. No terminal/EOF yields `needs_human`; cancellation yields `cancelled`; timeout or malformed steering yields `failed`.
+
+There are at most **ten repair dispatches**, including failed dispatches. Invocation failures terminate without silent flow retries and may leave partial edits. After every normally returned repair, tasks are refreshed and a fresh verifier/classifier runs, **including repair ten**: convergence can still succeed, but unresolved findings then yield `limit_reached` without repair eleven or more steering.
+
+The flow emits one structured terminal result containing `changeId`, `outcome`, `repairAttempts`, `summary`, `remaining` findings and the full verification `report`, plus a concise stderr summary. Outcomes are `success`, `limit_reached`, `needs_human`, `cancelled` and `failed` (including invalid/incomplete targets, malformed output, inconclusive evidence and agent/command errors). **Only `success` exits zero**; other outcomes report their result and deliberately fail so acpx exits nonzero. Orderly acpx interruption (SIGINT) is observed on the active phase's abort signal: it emits `cancelled` once and includes an interrupted repair in the dispatch count, even when the runner bypasses graph routing. Forced process termination can prevent output; acpx retains run history/transcripts under `~/.acpx/flows/runs/`.
+
+Existing dirty edits are the starting state and are preserved, including on failure. The flow never syncs specs, archives, commits, stashes or rolls back, and writes **no extra report file**. There is no resume/checkpoint support; an explicit restart uses the current working tree and a fresh repair budget. Verification success is not an automatic archive action.
+
 ## Development
 
 ```bash
@@ -112,7 +239,7 @@ npm run format         # biome format --write .
 npm run lint           # biome lint .
 npm run check          # biome check . (lint + format check combined)
 npm run typecheck      # tsc --noEmit
-npm test               # tsx --test (permission and ollama-usage suites)
+npm test               # tsx --test (extensions, docs, and flow suites)
 nix flake check        # nix build checks (biome, tsc, tests, package builds)
 ```
 

@@ -8,7 +8,7 @@
         src = ./../..;
         # Update via: set to pkgs.lib.fakeHash, run `nix build .#checks.x86_64-linux.pi-root-node-modules`
         # (or any check), copy the `got:` hash back.
-        npmDepsHash = "sha256-eOzcE2pb2RG+rtXsc/A4eaAk0TxfNpi8CQhsKNNew1Q=";
+        npmDepsHash = "sha256-jRvcqFwfMiGPIwC7aHPfeJ/W7+3XsfAzWH0VI17fkrU=";
         makeCacheWritable = true;
         dontNpmBuild = true;
         installPhase = ''
@@ -123,6 +123,21 @@
         '';
       };
 
+      groom-test = pkgs.stdenv.mkDerivation {
+        name = "groom-test";
+        src = ./../..;
+        nativeBuildInputs = [ pkgs.nodejs pkgs.git ];
+        phases = [ "unpackPhase" "buildPhase" "installPhase" ];
+        buildPhase = ''
+          cp -r ${rootNodeModules} node_modules
+          chmod -R u+w node_modules
+          ./node_modules/.bin/tsx --test $(find flows -type f -name '*.test.ts' | sort)
+        '';
+        installPhase = ''
+          touch $out
+        '';
+      };
+
       docs-version-check = pkgs.stdenv.mkDerivation {
         name = "docs-version-check";
         src = ./../..;
@@ -144,7 +159,7 @@
 
       checks = {
         inherit pi-permission pi-ollama-usage pi-prompts pi-skills;
-        inherit biome-check tsc-check permission-test ollama-usage-test docs-version-check;
+        inherit biome-check tsc-check permission-test ollama-usage-test docs-version-check groom-test;
       };
     };
 }
