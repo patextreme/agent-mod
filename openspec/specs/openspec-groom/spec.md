@@ -32,15 +32,15 @@ The flow SHALL validate before every semantic review and after each revision. It
 The flow SHALL perform semantic review using the `openspec-review` criteria and classify its prose through a decision node as `critical`, `clear`, or `inconclusive`. It SHALL succeed only after validation passes and a conclusive review contains no Critical findings. Major findings, other blockers, and review readiness labels MUST NOT independently prevent completion.
 
 #### Scenario: No Critical findings
-- **WHEN** validation passes and review has Major findings but no Critical findings
-- **THEN** grooming succeeds and reports remaining findings without claiming implementation readiness
+- **WHEN** validation passes and a conclusive review has Major findings but no Critical findings, including an outstanding product or architecture decision
+- **THEN** grooming succeeds and reports remaining findings without claiming implementation readiness, and that Major decision does not independently reach repair or human steering
 
 #### Scenario: Critical findings present
 - **WHEN** the review contains a Critical finding
 - **THEN** grooming enters resolution assessment rather than reporting success
 
 #### Scenario: Ambiguous review
-- **WHEN** the review is incomplete or ambiguous about Critical findings
+- **WHEN** the review output is incomplete, unusable, or indeterminate about whether Critical findings exist, rather than merely reporting an unresolved change decision
 - **THEN** the decision is inconclusive and grooming fails rather than assuming it is clear
 
 ### Requirement: Consequential decisions require steering
@@ -52,7 +52,7 @@ The flow SHALL attempt autonomous corrections grounded in existing intent and pr
 
 #### Scenario: Mixed repairs
 - **WHEN** a cycle includes both mechanical corrections and a product decision
-- **THEN** grooming presents all escalated issues with recommendations and waits for steering before applying any cycle fixes
+- **THEN** grooming conclusively identifies all escalated decisions with recommendations without choosing their answers and waits for steering before applying any cycle fixes
 
 ### Requirement: Interactive steering contract
 When steering is needed, the flow SHALL require an interactive terminal and allow seven days for the steering step. It SHALL require answers covering every escalated issue; blank or incomplete input MUST NOT authorize an update. Cancellation, timeout, or absence of a terminal SHALL terminate unsuccessfully without that cycle's edits.

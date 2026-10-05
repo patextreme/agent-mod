@@ -1,0 +1,272 @@
+{
+  "version": 1,
+  "limits": { "maxCases": 24, "maxFilesPerCase": 16, "maxBytesPerCase": 24576 },
+  "prompts": {
+    "review": "{{CHANGE}}. Review the change's semantic soundness using the loaded skill. Read the planning artifacts, current specifications and relevant local source/documentation. This is read-only: do not edit files, implement, run tests, install dependencies, access the network, or invoke groom/other agents. Use only read and bash; bash is limited to listing/searching/reading local evidence and openspec status/list. If OpenSpec is unavailable, use the skill's direct-file fallback. Return the review in your final response. Stay within this repository and the pinned skill directory; do not read sibling directories or evaluation metadata.",
+    "interpret-review": "{{CHANGE}}. This is a read-only report interpretation probe, not a request to re-review or repair the change. Read docs/review.md and the local planning artifacts with the loaded skill as context. State whether the supplied report establishes actual Critical findings, conclusively establishes no Critical findings despite other issues, or is inconclusive/unusable. Explain with quoted evidence; do not infer severity from readiness/blocker labels alone. Do not edit, run tests, invoke groom, call other agents, install anything or use the network. Use only read and bash for local reading/listing/searching; stay within this repository and the pinned skill directory.",
+    "interpret-assessment": "{{CHANGE}}. This is a read-only assessment interpretation probe, not a request to perform repairs. Read docs/assessment.json and the local planning artifacts with the loaded skill as context. State whether the supplied assessment is conclusive and usable, whether it requires human steering, or whether it is inconclusive/unusable. A conclusive assessment must have a boolean conclusive, a string-array missingArtifacts, and a resolutions array whose entries have unique nonblank id, issue and recommendation, boolean escalation and existing absolute planning-artifact paths. Product/architecture/high-stakes choices require steering; do not select one yourself. Explain with evidence. Do not edit, run tests, invoke groom, call other agents, install anything or use the network. Use only read and bash for local reading/listing/searching; stay within this repository and the pinned skill directory."
+  },
+  "commonFiles": {
+    "openspec/config.yaml": "schema: spec-driven\n",
+    "README.md": "# Ledger Reports\n\nA small tenant-scoped reporting service. Source files describe the existing service; the active OpenSpec change describes future work. This repository uses the spec-driven workflow. Read openspec/changes/ and openspec/specs/ for planning and existing contracts. Relevant implementation notes live under docs/.\n"
+  },
+  "bases": {
+    "export": {
+      "changeId": "download-report-csv",
+      "files": {
+        "openspec/changes/download-report-csv/.openspec.yaml": "schema: spec-driven\ncreated: 2026-01-15\n",
+        "openspec/changes/download-report-csv/proposal.md": "## Why\nAccountants need a downloadable report rather than copying rows from the report page.\n\n## What Changes\nAdd a tenant-scoped CSV download for reports. Existing report listing is unchanged.\n\n## Capabilities\n### New Capabilities\n### Modified Capabilities\n- `reporting`: Add CSV downloads alongside existing listing.\n\n## Impact\nThe reporting HTTP handler and response encoder gain CSV output. No new service or dependency is required.\n",
+        "openspec/changes/download-report-csv/design.md": "## Context\nThe service is a single-process HTTP application; docs/reporting.md describes its module boundaries.\n\n## Decisions\nHandle CSV synchronously through the existing report handler. Reuse the existing tenant-filtered list query. Encode UTF-8 with an id,amount header and CRLF line separators; quote embedded commas, quotes and line breaks. Empty reports return the header only. Existing JSON listing remains unchanged.\n\n## Risks\nThe existing 500-row query limit bounds memory usage.\n\n## Open Questions\nNone.\n",
+        "openspec/changes/download-report-csv/tasks.md": "## 1. CSV download\n- [ ] 1.1 Extend src/reporting/handler.mjs with GET /reports.csv using the tenant-filtered query and a CSV encoder.\n- [ ] 1.2 Add encoder and handler coverage for populated rows, empty results, escaping and cross-tenant isolation; preserve JSON listing tests.\n",
+        "openspec/changes/download-report-csv/specs/reporting/spec.md": "## ADDED Requirements\n\n### Requirement: CSV report download\nThe service SHALL return the requesting tenant's rows as UTF-8 CSV from GET /reports.csv, with Content-Type text/csv and an id,amount header. Commas, quotes and line breaks SHALL be escaped as CSV fields. Empty results SHALL return the header only.\n\n#### Scenario: Populated report\n- **WHEN** an authenticated tenant requests /reports.csv with a row id a1 and amount 12\n- **THEN** the response has Content-Type text/csv and body id,amount followed by a CRLF and a1,12 followed by a CRLF\n\n#### Scenario: Empty report\n- **WHEN** an authenticated tenant with no rows requests /reports.csv\n- **THEN** the response contains only id,amount followed by a CRLF\n\n#### Scenario: Quoted identifier\n- **WHEN** a row identifier contains a comma or quote\n- **THEN** it is quoted and each embedded quote is doubled\n\n#### Scenario: Tenant boundary\n- **WHEN** tenant north downloads CSV while tenant south owns a row\n- **THEN** the CSV contains none of south's rows\n",
+        "openspec/specs/reporting/spec.md": "## Purpose\nProvide tenant-scoped report access.\n\n## Requirements\n\n### Requirement: Report listing\nThe service SHALL return at most 500 rows belonging to the authenticated tenant from GET /reports. JSON listing SHALL preserve ascending identifier order.\n\n#### Scenario: Default listing\n- **WHEN** tenant north requests /reports\n- **THEN** only north's rows are returned in ascending identifier order\n\n#### Scenario: Bounded result\n- **WHEN** tenant north owns more than 500 rows\n- **THEN** at most 500 are returned\n",
+        "docs/reporting.md": "# Reporting module\n\nsrc/router.mjs dispatches /reports to src/reporting/handler.mjs. Authentication populates request.tenantId. listRows in src/reporting/query.mjs owns tenant filtering and the 500-row bound; callers must supply tenantId. The HTTP handler can return another representation without changing the query.\n",
+        "src/router.mjs": "import { reportHandler } from './reporting/handler.mjs';\nexport const routes = new Map([['GET /reports', reportHandler]]);\n",
+        "src/reporting/handler.mjs": "import { listRows } from './query.mjs';\nexport function reportHandler(request, db) {\n  return { status: 200, body: listRows(db, request.tenantId) };\n}\n",
+        "src/reporting/query.mjs": "export function listRows(db, tenantId) {\n  if (!tenantId) throw new Error('tenantId required');\n  return db.rows.filter(row => row.tenantId === tenantId)\n    .sort((a, b) => a.id.localeCompare(b.id)).slice(0, 500);\n}\n"
+      }
+    },
+    "cleanup": {
+      "changeId": "expire-report-files",
+      "files": {
+        "openspec/changes/expire-report-files/.openspec.yaml": "schema: spec-driven\ncreated: 2026-01-15\n",
+        "openspec/changes/expire-report-files/proposal.md": "## Why\nExpired generated CSV files consume storage after their download links expire.\n\n## What Changes\nAdd automatic expiration of generated CSV files. Report rows and user-uploaded files are out of scope.\n\n## Capabilities\n### New Capabilities\n- `report-retention`: Delete expired generated report files.\n### Modified Capabilities\n\n## Impact\nA scheduled sweep uses the existing report-file store. No report data migration is required.\n",
+        "openspec/changes/expire-report-files/design.md": "## Context\nThe scheduler and file store are documented in docs/storage.md.\n\n## Decisions\nUse the existing daily scheduler. Read retentionDays from config/reporting.json, whose value is 30. Compare each generated file's createdAt against the sweep start timestamp in UTC. Delete only generated CSV files strictly older than retentionDays; do not delete report rows or uploaded attachments.\n\n## Open Questions\nNone.\n",
+        "openspec/changes/expire-report-files/tasks.md": "## 1. Expiration\n- [ ] 1.1 Add the sweep to src/jobs/sweep.mjs and register it with the daily scheduler.\n- [ ] 1.2 Cover the exact cutoff, a newer file, an expired file and a user attachment; verify report rows are unchanged.\n",
+        "openspec/changes/expire-report-files/specs/report-retention/spec.md": "## ADDED Requirements\n\n### Requirement: Generated report expiration\nThe service SHALL delete generated CSV files strictly older than retentionDays during the daily sweep, using UTC elapsed days measured from createdAt to the sweep start. Files at the cutoff SHALL remain. Report rows and user-uploaded attachments SHALL remain.\n\n#### Scenario: Expired generated file\n- **WHEN** a sweep starts at 2026-02-01T00:00:00Z with retentionDays 30 and a generated file created at 2026-01-01T00:00:00Z\n- **THEN** the generated file is deleted\n\n#### Scenario: Boundary and user attachment\n- **WHEN** the same sweep sees a generated file created at 2026-01-02T00:00:00Z and a user-uploaded attachment created at 2025-01-01T00:00:00Z\n- **THEN** both files remain and no report rows are deleted\n",
+        "openspec/specs/reporting/spec.md": "## Purpose\nRetain tenant report records for audit.\n\n## Requirements\n\n### Requirement: Durable report rows\nThe service SHALL retain report rows and user attachments until the owning tenant explicitly requests deletion. Expiration of generated downloads SHALL NOT delete these records.\n\n#### Scenario: Expired download\n- **WHEN** a generated CSV expires\n- **THEN** its report rows and user-uploaded attachments remain available\n",
+        "docs/storage.md": "# Storage and scheduling\n\nconfig/reporting.json is the only reporting configuration file. The daily scheduler calls src/jobs/sweep.mjs once at midnight UTC. The report-file store records kind, key and createdAt. kind is generated-csv or user-upload. Both use the reports/ object prefix. deleteKey removes one object; deletePrefix removes all objects under a prefix without checking kind or age. Report rows are stored separately.\n",
+        "config/reporting.json": "{ \"retentionDays\": 30 }\n",
+        "src/jobs/sweep.mjs": "export async function sweep(store, now) {\n  return { checkedAt: now, generated: await store.list('reports/') };\n}\n",
+        "src/storage/files.mjs": "export async function deleteKey(store, key) { return store.remove(key); }\nexport async function deletePrefix(store, prefix) {\n  for (const file of await store.list(prefix)) await store.remove(file.key);\n}\n"
+      }
+    },
+    "delivery": {
+      "changeId": "send-report-webhooks",
+      "files": {
+        "openspec/changes/send-report-webhooks/.openspec.yaml": "schema: spec-driven\ncreated: 2026-01-15\n",
+        "openspec/changes/send-report-webhooks/proposal.md": "## Why\nCustomers need a notification after each report is completed.\n\n## What Changes\nDeliver one external notification per report completion, including after a sender process restarts.\n\n## Capabilities\n### New Capabilities\n- `report-delivery`: Deliver report-completion webhooks.\n### Modified Capabilities\n\n## Impact\nUse the existing Nimbus SDK adapter and report completion handler; no additional delivery provider is permitted for this release.\n",
+        "openspec/changes/send-report-webhooks/design.md": "## Context\nThe completion handler is src/reporting/complete.mjs. Nimbus 2.4 is pinned; docs/provider.md records the locally available integration information.\n\n## Decisions\nUse Nimbus commitAtomically to commit the report completion and external notification as one operation. The provider records reportId, so a retry after restart cannot deliver a duplicate. We believe the pinned SDK supports this operation; validation has not yet been performed. Do not implement delivery until the capability check is complete; report unsupported operations to the owner before proceeding.\n\n## Open Questions\nConfirm Nimbus 2.4 supports the atomic operation and reportId deduplication.\n",
+        "openspec/changes/send-report-webhooks/tasks.md": "## 1. Delivery\n- [ ] 1.1 Inspect the pinned provider contract and confirm commitAtomically and reportId deduplication; stop for an owner decision if unsupported.\n- [ ] 1.2 Integrate the validated operation in src/reporting/complete.mjs.\n- [ ] 1.3 Cover restart after send, retry after failure and one externally received notification per reportId.\n",
+        "openspec/changes/send-report-webhooks/specs/report-delivery/spec.md": "## ADDED Requirements\n\n### Requirement: Report completion notification\nThe service SHALL deliver exactly one externally received notification for each completed report, including retries and restarts between local commit and external send.\n\n#### Scenario: Retry after process restart\n- **WHEN** the sender restarts after sending a notification but before observing the result and retries the same reportId\n- **THEN** the customer has received exactly one notification for that reportId\n",
+        "openspec/specs/reporting/spec.md": "## Purpose\nRecord completed reports.\n\n## Requirements\n\n### Requirement: Completion record\nThe service SHALL commit each completed report locally once.\n\n#### Scenario: Repeated completion\n- **WHEN** completion is called twice for the same reportId\n- **THEN** only one completion record exists\n",
+        "docs/provider.md": "# Provider integration notes\n\nProduction pins Nimbus SDK 2.4. Only credential setup and basic adapter wiring have been inspected so far. The current notes do not specify whether atomic delivery or deduplication is supported; no vendor capability contract is included in this checkout.\n",
+        "src/reporting/complete.mjs": "export async function complete(db, reportId) {\n  return db.insertCompletionOnce(reportId);\n}\n",
+        "src/adapters/nimbus.mjs": "export const nimbusVersion = '2.4';\nexport function createClient(sdk, token) { return new sdk.Client({ token }); }\n"
+      }
+    },
+    "listing": {
+      "changeId": "extend-report-listing",
+      "files": {
+        "openspec/changes/extend-report-listing/.openspec.yaml": "schema: spec-driven\ncreated: 2026-01-15\n",
+        "openspec/changes/extend-report-listing/proposal.md": "## Why\nUsers need a larger report page and explicit handling of oversized requests.\n\n## What Changes\nIncrease the default and maximum report-list page size to 100. Preserve tenant filtering.\n\n## Capabilities\n### New Capabilities\n### Modified Capabilities\n- `reporting`: Update the Report listing behavior.\n\n## Impact\nThe existing listing handler changes its page limit and validation.\n",
+        "openspec/changes/extend-report-listing/design.md": "## Context\nListing behavior is owned by src/reporting/list.mjs.\n\n## Decisions\nChange both page-size constants to 100 and reject an explicit size above 100 with HTTP 400. Keep tenant filtering and the legacy alias.\n\n## Open Questions\nNone.\n",
+        "openspec/changes/extend-report-listing/tasks.md": "## 1. Listing\n- [ ] 1.1 Update src/reporting/list.mjs default and maximum page size to 100.\n- [ ] 1.2 Cover the default, oversized requests, tenant isolation and the legacy alias.\n",
+        "openspec/changes/extend-report-listing/specs/reporting/spec.md": "## MODIFIED Requirements\n\n### Requirement: Report listing\nThe service SHALL return only the authenticated tenant's rows. The default and maximum page size SHALL be 100; larger explicit requests SHALL return HTTP 400. The legacy /report-list alias SHALL continue to behave like /reports.\n\n#### Scenario: Default page\n- **WHEN** a tenant requests /reports without a page size\n- **THEN** at most 100 of that tenant's rows are returned\n\n#### Scenario: Oversized page\n- **WHEN** a tenant requests /reports?size=101\n- **THEN** the response is HTTP 400\n\n#### Scenario: Legacy alias\n- **WHEN** a tenant requests /report-list\n- **THEN** it receives the same result as /reports\n",
+        "openspec/specs/reporting/spec.md": "## Purpose\nProvide a bounded tenant-scoped report list.\n\n## Requirements\n\n### Requirement: Report listing\nThe service SHALL return only the authenticated tenant's rows. The default and maximum page size SHALL be 50; larger explicit requests SHALL return HTTP 400. The legacy /report-list alias SHALL behave like /reports.\n\n#### Scenario: Default page\n- **WHEN** a tenant requests /reports without a page size\n- **THEN** at most 50 of that tenant's rows are returned\n\n#### Scenario: Oversized page\n- **WHEN** a tenant requests /reports?size=51\n- **THEN** the response is HTTP 400\n\n#### Scenario: Legacy alias\n- **WHEN** a tenant requests /report-list\n- **THEN** it receives the same result as /reports\n",
+        "docs/listing.md": "# Listing compatibility\n\nThe /report-list alias was deprecated six months ago. Access-log inventory for the last 90 days contains zero alias requests, and all first-party callers use /reports. No supported SDK uses the alias. Removing it in the next release is permitted; keep /reports page-size rejection and tenant filtering unchanged.\n",
+        "src/reporting/list.mjs": "export function list(request, db) {\n  const size = Number(request.query.size ?? 50);\n  if (size > 50) return { status: 400 };\n  return { status: 200, body: db.rows.filter(row => row.tenantId === request.tenantId).slice(0, size) };\n}\nexport const aliases = ['/reports', '/report-list'];\n"
+      }
+    },
+    "retention-decision": {
+      "changeId": "expire-report-files",
+      "extends": "cleanup",
+      "files": {
+        "openspec/changes/expire-report-files/design.md": "## Context\nUse the existing daily sweep and per-key generated-file deletion in docs/storage.md.\n\n## Decisions\nThe sweep reads retentionDays, never deletes user uploads, and leaves report rows unchanged.\n\n## Open Questions\nThe product owner must choose the public retention period: 7 days for smaller storage usage or 30 days for the current customer download window. Both are technically supported. config/reporting.json currently says 30 but is not an approved product decision for this feature. Do not ship the sweep until this choice is recorded.\n",
+        "openspec/changes/expire-report-files/tasks.md": "## 1. Expiration\n- [ ] 1.1 Obtain the product owner's 7-day or 30-day retention decision and record it in the design and config/reporting.json before shipping.\n- [ ] 1.2 Add the per-key generated-file sweep in src/jobs/sweep.mjs using the selected retentionDays.\n- [ ] 1.3 Cover exact cutoff, expired/newer generated files and preservation of user attachments and report rows.\n"
+      }
+    }
+  },
+  "cases": [
+    {
+      "id": "case-01",
+      "base": "export",
+      "prompt": "review",
+      "files": {
+        "openspec/changes/download-report-csv/tasks.md": "## 1. CSV download\n- [ ] 1.1 Extend the existing reporting HTTP handler to return the specified CSV representation, reusing the tenant-filtered query.\n- [ ] 1.2 Cover populated/empty results, escaping, tenant isolation and unchanged JSON listing.\n"
+      }
+    },
+    {
+      "id": "case-02",
+      "base": "export",
+      "prompt": "review",
+      "files": {
+        "openspec/changes/download-report-csv/design.md": "## Context\nThe existing single-process handler is documented in docs/reporting.md.\n\n## Decisions\nReuse tenant filtering and the specified CSV format. The transport is not decided: either extend the synchronous handler, or introduce persisted export jobs with a worker, job status and authenticated artifact download. Both would support the small current reports, but only jobs would introduce persistence, new deployment and failure-state contracts. No owner has selected an approach.\n\n## Open Questions\nWhich transport and deployment model should the release adopt?\n",
+        "openspec/changes/download-report-csv/tasks.md": "## 1. CSV download\n- [ ] 1.1 Have the service owner select synchronous delivery or persisted export jobs and reconcile the delivery contract before implementation.\n- [ ] 1.2 Implement the selected export transport and tenant-filtered CSV format.\n- [ ] 1.3 Cover populated/empty reports, escaping and tenant isolation through the selected transport.\n"
+      }
+    },
+    {
+      "id": "case-03",
+      "base": "export",
+      "prompt": "review",
+      "files": {
+        "openspec/changes/download-report-csv/tasks.md": "## 1. Export\n- [ ] 1.1 Implement the CSV report download contract in src/reporting/handler.mjs, including its response encoder and boundary behavior.\n- [ ] 1.2 Add handler/encoder contract coverage for the delta specification and preserve existing JSON behavior.\n"
+      }
+    },
+    {
+      "id": "case-04",
+      "base": "export",
+      "prompt": "review",
+      "files": {
+        "openspec/changes/download-report-csv/tasks.md": "## 1. Export\n- [ ] 1.1 Add src/reporting/handler.mjs CSV output for nonempty rows, including quoting and tenant filtering.\n- [ ] 1.2 Test populated downloads, quoted fields and cross-tenant isolation. Empty reports are explicitly deferred to a later change; this implementation will return HTTP 404 for them.\n"
+      }
+    },
+    {
+      "id": "case-05",
+      "base": "cleanup",
+      "prompt": "review",
+      "files": {
+        "openspec/changes/expire-report-files/tasks.md": "## 1. Expiration\n- [ ] 1.1 Add a simple daily sweep in src/jobs/sweep.mjs; read the config file and follow the existing scheduler pattern documented in docs/storage.md. Apply the specified generated-file filter and UTC cutoff exactly.\n- [ ] 1.2 Cover expired files, the exact cutoff, newer files and preservation of report rows and user attachments.\n"
+      }
+    },
+    {
+      "id": "case-06",
+      "base": "cleanup",
+      "prompt": "review",
+      "files": {
+        "openspec/changes/expire-report-files/design.md": "## Context\nUse the existing scheduler and per-key file store described in docs/storage.md.\n\n## Decisions\nSweep generated CSV files daily. The business request says remove older reports; there is no approved age threshold or rule for whether downloading refreshes a file's age. config/reporting.json's 30-day value is an unrelated legacy default and is not approved for this feature. Uploaded attachments and report rows are excluded.\n\n## Open Questions\nChoose the retention period and whether age starts at creation or last download.\n",
+        "openspec/changes/expire-report-files/specs/report-retention/spec.md": "## ADDED Requirements\n\n### Requirement: Generated report expiration\nThe service SHALL delete older generated report files during the daily sweep. It SHALL retain current generated files, report rows and user-uploaded attachments.\n\n#### Scenario: Old report\n- **WHEN** the daily sweep encounters an older generated report file\n- **THEN** it deletes that file but retains current generated files and user attachments\n",
+        "openspec/changes/expire-report-files/tasks.md": "## 1. Expiration\n- [ ] 1.1 Resolve the retention cutoff with the product owner, then implement it in src/jobs/sweep.mjs using per-key deletion.\n- [ ] 1.2 Add boundary coverage for the agreed older/current distinction and attachment preservation.\n"
+      }
+    },
+    {
+      "id": "case-07",
+      "base": "export",
+      "prompt": "review",
+      "files": {
+        "openspec/changes/download-report-csv/design.md": "## Context\nUse the existing synchronous reporting handler and tenant-filtered query.\n\n## Decisions\nReturn the specified UTF-8 CSV, header-only empty results and quoted fields. The query is bounded to 500 rows. The download timeout is 10 seconds, matching the service timeout recorded in docs/reporting.md.\n\n## Open Questions\nNone.\n",
+        "openspec/changes/download-report-csv/tasks.md": "## 1. Download\n- [ ] 1.1 Implement the specified CSV behavior in src/reporting/handler.mjs with tenant filtering and header-only empty output.\n- [ ] 1.2 Set the CSV handler timeout to 15 seconds.\n- [ ] 1.3 Cover populated/empty results, quoting and tenant isolation.\n",
+        "docs/reporting.md": "# Reporting module\n\nsrc/router.mjs dispatches /reports to src/reporting/handler.mjs. listRows in src/reporting/query.mjs filters by tenantId and caps output at 500 rows. The service timeout is 10 seconds. CSV rows are tiny; no asynchronous job lifecycle or durable state depends on this timeout.\n"
+      }
+    },
+    {
+      "id": "case-08",
+      "base": "export",
+      "prompt": "review",
+      "files": {
+        "openspec/changes/download-report-csv/design.md": "## Context\nUse the existing HTTP handler. src/reporting/query.mjs demonstrates current tenant filtering.\n\n## Decisions\nFor CSV downloads, scan all db.rows directly rather than calling listRows; do not filter by tenantId so the finance team sees every tenant in one file. Expose this through the same ordinary tenant credentials, without a new administrator role. Use the specified CSV encoding and header-only empty response.\n\n## Open Questions\nNone.\n",
+        "openspec/changes/download-report-csv/tasks.md": "## 1. Download\n- [ ] 1.1 In src/reporting/handler.mjs, export all db.rows for GET /reports.csv using ordinary tenant authentication, as required by the design.\n- [ ] 1.2 Cover CSV encoding, empty reports and the all-tenant result.\n"
+      }
+    },
+    {
+      "id": "case-09",
+      "base": "delivery",
+      "prompt": "review",
+      "files": {}
+    },
+    {
+      "id": "case-10",
+      "base": "delivery",
+      "prompt": "review",
+      "files": {
+        "docs/provider.md": "# Nimbus SDK 2.4 contract\n\nPinned adapter API: Client.send(payload). It performs an external POST outside any local database transaction. It has no commitAtomically operation, idempotency key, reportId deduplication or delivery-status lookup. A network timeout can occur after successful delivery. Sending the same payload again may deliver it twice. These restrictions are part of the pinned API contract. No other provider is permitted in this release.\n",
+        "openspec/changes/send-report-webhooks/design.md": "## Context\nUse the pinned Nimbus 2.4 adapter contract in docs/provider.md; no provider or version change is permitted.\n\n## Decisions\nTreat Client.send as atomic with local completion commit and assume reportId suppresses duplicate notifications. If it times out, retry until success; do not add an outbox, receiver cooperation or any other protocol. This provides the specified exactly-once external notification across restarts.\n\n## Open Questions\nNone.\n",
+        "openspec/changes/send-report-webhooks/tasks.md": "## 1. Delivery\n- [ ] 1.1 Call the pinned Client.send in src/reporting/complete.mjs and commit the local completion afterward. Retry timeouts with the same reportId.\n- [ ] 1.2 Verify exactly one received notification per reportId after restart and timeout.\n"
+      }
+    },
+    {
+      "id": "case-11",
+      "base": "retention-decision",
+      "prompt": "review",
+      "files": {}
+    },
+    {
+      "id": "case-12",
+      "base": "cleanup",
+      "prompt": "review",
+      "files": {
+        "openspec/changes/expire-report-files/design.md": "## Context\nUse the current storage adapter in src/storage/files.mjs; docs/storage.md records the shared prefix.\n\n## Decisions\nWhen at least one generated CSV is older than 30 days, call deletePrefix(store, 'reports/') to remove the expired output in one operation. This is cheaper than per-key filtering and is the required implementation. Report rows remain untouched.\n\n## Open Questions\nNone.\n",
+        "openspec/changes/expire-report-files/tasks.md": "## 1. Expiration\n- [ ] 1.1 In src/jobs/sweep.mjs, detect an expired generated CSV and invoke deletePrefix on reports/.\n- [ ] 1.2 Cover a sweep with one expired CSV and confirm the prefix is empty afterward; report rows remain.\n"
+      }
+    },
+    {
+      "id": "case-13",
+      "base": "listing",
+      "prompt": "review",
+      "files": {
+        "openspec/changes/extend-report-listing/specs/reporting/spec.md": "## MODIFIED Requirements\n\n### Requirement: Report list\nThe service SHALL return only the authenticated tenant's rows. The default and maximum page size SHALL be 100; larger explicit requests SHALL return HTTP 400. The legacy /report-list alias SHALL continue to behave like /reports.\n\n#### Scenario: Default page\n- **WHEN** a tenant requests /reports without a page size\n- **THEN** at most 100 of that tenant's rows are returned\n\n#### Scenario: Oversized page\n- **WHEN** a tenant requests /reports?size=101\n- **THEN** the response is HTTP 400\n\n#### Scenario: Legacy alias\n- **WHEN** a tenant requests /report-list\n- **THEN** it receives the same result as /reports\n"
+      }
+    },
+    {
+      "id": "case-14",
+      "base": "listing",
+      "prompt": "review",
+      "files": {
+        "openspec/changes/extend-report-listing/specs/reporting/spec.md": "## ADDED Requirements\n\n### Requirement: Report listing\nThe service SHALL return only the authenticated tenant's rows. The default and maximum page size SHALL be 100; larger explicit requests SHALL return HTTP 400. The legacy /report-list alias SHALL continue to behave like /reports.\n\n#### Scenario: Default page\n- **WHEN** a tenant requests /reports without a page size\n- **THEN** at most 100 of that tenant's rows are returned\n\n#### Scenario: Oversized page\n- **WHEN** a tenant requests /reports?size=101\n- **THEN** the response is HTTP 400\n\n#### Scenario: Legacy alias\n- **WHEN** a tenant requests /report-list\n- **THEN** it receives the same result as /reports\n"
+      }
+    },
+    {
+      "id": "case-15",
+      "base": "listing",
+      "prompt": "review",
+      "files": {
+        "openspec/changes/extend-report-listing/proposal.md": "## Why\nUsers need larger report pages, and the unused legacy alias is ready for retirement.\n\n## What Changes\nRaise the default and maximum page size to 100; keep oversized-request rejection and tenant filtering. Intentionally remove /report-list and its legacy-alias scenario. The consumer inventory in docs/listing.md confirms migration is complete.\n\n## Capabilities\n### New Capabilities\n### Modified Capabilities\n- `reporting`: Update listing and retire its unused alias.\n\n## Impact\nOnly src/reporting/list.mjs changes. Supported consumers already use /reports.\n",
+        "openspec/changes/extend-report-listing/design.md": "## Context\nRead docs/listing.md for the completed consumer migration inventory.\n\n## Decisions\nSet both page sizes to 100. Preserve HTTP 400 for sizes above 100 and tenant filtering. Remove the /report-list alias and its scenario intentionally; return HTTP 404 for that route. No supported consumer remains on it.\n\n## Open Questions\nNone.\n",
+        "openspec/changes/extend-report-listing/tasks.md": "## 1. Listing\n- [ ] 1.1 Update src/reporting/list.mjs page limits while preserving oversized-request rejection and tenant filtering.\n- [ ] 1.2 Remove the legacy alias; cover HTTP 404 for /report-list and all remaining /reports scenarios.\n",
+        "openspec/changes/extend-report-listing/specs/reporting/spec.md": "## MODIFIED Requirements\n\n### Requirement: Report listing\nThe service SHALL return only the authenticated tenant's rows. The default and maximum page size SHALL be 100; larger explicit requests SHALL return HTTP 400. The retired /report-list route SHALL return HTTP 404.\n\n#### Scenario: Default page\n- **WHEN** a tenant requests /reports without a page size\n- **THEN** at most 100 of that tenant's rows are returned\n\n#### Scenario: Oversized page\n- **WHEN** a tenant requests /reports?size=101\n- **THEN** the response is HTTP 400\n\n#### Scenario: Retired route\n- **WHEN** a tenant requests /report-list\n- **THEN** the response is HTTP 404\n"
+      }
+    },
+    {
+      "id": "case-16",
+      "base": "listing",
+      "prompt": "review",
+      "files": {
+        "openspec/changes/extend-report-listing/specs/reporting/spec.md": "## MODIFIED Requirements\n\n### Requirement: Report listing\nThe service SHALL return only the authenticated tenant's rows with a default page size of 100. The legacy /report-list alias SHALL continue to behave like /reports.\n\n#### Scenario: Default page\n- **WHEN** a tenant requests /reports without a page size\n- **THEN** at most 100 of that tenant's rows are returned\n\n#### Scenario: Legacy alias\n- **WHEN** a tenant requests /report-list\n- **THEN** it receives the same result as /reports\n"
+      }
+    },
+    {
+      "id": "case-17",
+      "base": "retention-decision",
+      "prompt": "interpret-review",
+      "files": {
+        "docs/review.md": "# Semantic review: expire-report-files\n\nReviewed proposal.md, design.md, tasks.md, the report-retention delta, current reporting spec, config/reporting.json, docs/storage.md and the sweep/storage source. Delta headers are valid, behavior is testable once the retention period is selected, and task coverage is complete. No archive failure, safety defect or unsupported implementation promise was found.\n\n## Finding 1: Retention period awaits product approval\n**Severity:** Major\n**Category:** Ambiguity\n**Location:** openspec/changes/expire-report-files/design.md, Open Questions\n**Issue:** Both 7 and 30 days are feasible. The product owner has not selected the download window, and the design explicitly says not to ship before this decision. This is an implementation-readiness blocker, not evidence of a Critical defect.\n**Recommendation:** Obtain the owner's decision and record it in the design/config before shipping.\n\n## Summary\n- Critical findings: 0\n- Major findings: 1\n- Blockers: 1 outstanding product decision\n- Verdict: NEEDS REVISION; do not ship until approved.\nThe review is complete. No Critical findings remain; the unresolved product choice still prevents implementation readiness.\n"
+      }
+    },
+    {
+      "id": "case-18",
+      "base": "retention-decision",
+      "prompt": "interpret-review",
+      "files": {
+        "docs/review.md": "# Semantic review: expire-report-files\n\nI read only the proposal. I could not open the design or delta specifications, and I have not compared current contracts, task coverage or storage behavior. The proposal looks reasonable so far.\n\n## Summary\n- Critical findings: 0 observed so far\n- Verdict: READY? Probably.\nThis is a partial draft; the remaining artifacts must be reviewed before any conclusion can be trusted.\n"
+      }
+    },
+    {
+      "id": "case-19",
+      "base": "cleanup",
+      "prompt": "interpret-assessment",
+      "files": {
+        "openspec/changes/expire-report-files/design.md": "## Context\nThe current reports/ prefix contains generated files and user uploads; see docs/storage.md.\n\n## Decisions\nWhen any generated file expires, deletePrefix(store, 'reports/'). Report rows are separate.\n\n## Open Questions\nNone.\n",
+        "openspec/changes/expire-report-files/tasks.md": "## 1. Expiration\n- [ ] 1.1 Invoke deletePrefix on reports/ when a generated CSV expires.\n- [ ] 1.2 Cover prefix removal and unchanged report rows.\n",
+        "docs/assessment.json": "{\n  \"conclusive\": true,\n  \"missingArtifacts\": [],\n  \"resolutions\": [\n    {\n      \"id\": \"safe-expiration\",\n      \"issue\": \"Critical: the mandated prefix deletion erases user uploads and unexpired generated files, violating the preservation contract.\",\n      \"recommendation\": \"Obtain the owner's architecture decision: use per-key generated-file filtering in the shared prefix, or migrate generated files into isolated storage with age filtering. Both must preserve uploads and unexpired files. Record the selected safe design and aligned tasks only after steering; do not select the architecture autonomously.\",\n      \"escalation\": true,\n      \"paths\": [\"{{ROOT}}/openspec/changes/expire-report-files/design.md\", \"{{ROOT}}/openspec/changes/expire-report-files/tasks.md\"]\n    }\n  ]\n}\n"
+      }
+    },
+    {
+      "id": "case-20",
+      "base": "retention-decision",
+      "prompt": "interpret-assessment",
+      "files": {
+        "docs/assessment.json": "{\n  \"conclusive\": false,\n  \"missingArtifacts\": [],\n  \"resolutions\": []\n}\n"
+      }
+    },
+    {
+      "id": "case-21",
+      "base": "retention-decision",
+      "prompt": "interpret-assessment",
+      "files": {
+        "docs/assessment.json": "{\n  \"conclusive\": true,\n  \"missingArtifacts\": [],\n  \"resolutions\": [\n    {\n      \"id\": \"retention-window\",\n      \"issue\": \"Retention period requires approval.\",\n      \"recommendation\": \"Record the owner's selection after steering.\",\n      \"escalation\": true,\n      \"paths\": [\"openspec/changes/expire-report-files/design.md\"]\n    },\n    {\n      \"id\": \"retention-window\",\n      \"issue\": \"\",\n      \"recommendation\": \"\",\n      \"escalation\": \"yes\",\n      \"paths\": [\"{{ROOT}}/openspec/changes/expire-report-files/owner-decision.md\"]\n    }\n  ]\n}\n"
+      }
+    },
+    {
+      "id": "case-22",
+      "base": "cleanup",
+      "prompt": "review",
+      "files": {}
+    },
+    {
+      "id": "case-23",
+      "base": "listing",
+      "prompt": "review",
+      "files": {}
+    }
+  ]
+}
