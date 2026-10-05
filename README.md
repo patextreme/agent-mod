@@ -95,6 +95,115 @@ The always-allow state resets on each new session.
 
 A bell (`extensions/permission/sounds/message.oga`, played via `pw-play`) rings on each permission prompt and when the agent finishes a run (suppressed if you aborted it), so you don't have to watch the screen.
 
+### Subagent permissions
+
+Parent-only permission checks are **opt-in, per-type configuration** in
+`@tintinweb/pi-subagents`, not a new runtime guarantee from this package.
+This guidance was checked against the installed **0.19.0** documentation,
+frontmatter parser, discovery, and extension-selection implementation. Check
+compatibility and extension identity again for other versions/installations.
+Installing this package does not create or customize agent definitions.
+
+Merge this fragment into each intended child type's **existing** frontmatter:
+
+```yaml
+extensions: true
+exclude_extensions: permission
+```
+
+**Security warning:** Excluded children bypass this extension's bash approval
+and deny policy, including both `ask` and `deny` enforcement, regardless of
+parent YOLO, approvals, or `/permission-reset`. The unchanged parent extension
+continues checking parent bash; other loaded extensions may independently veto
+child execution. Approval to delegate is not approval of individual child
+commands. Read-only tool menus and worktree isolation do not sandbox arbitrary
+bash. Exclusion prevents this extension's hooks/tools from binding, but extension
+factories can still execute during loading: it is not containment or an OS
+sandbox. Delegate trusted tasks; use real sandboxing where unrestricted
+execution is unacceptable.
+
+Keep any deliberate `extensions` allowlist instead of replacing it with `true`.
+Append `permission` to existing exclusions rather than overwriting them; CSV
+strings and YAML lists (for example, `[telemetry, permission]`) are supported.
+Exclusions win over inclusion and use case-insensitive plain canonical names,
+not paths or wildcards. The conventional `permission/index.ts` entry (including
+`extensions/permission/index.ts`) matches `permission`, not this package's name.
+Check the actual discovered entry path if your installation differs. Avoid
+`extensions: false` for this purpose: it removes unrelated extensions too.
+
+For a built-in, use `/agents` → **Agent types** → select type → **Eject**, choose
+Project or Personal, then edit the exported definition. Preserve its full prompt
+body, tools, model, and other settings; a minimal same-name override replaces,
+not merges with, the original. For an existing override, edit the winning file.
+Discovery precedence, highest first, is:
+
+1. Project `.pi/agents/<name>.md`
+2. Project `.agents/agents/<name>.md`
+3. Global `$PI_CODING_AGENT_DIR/agents/<name>.md` (default
+   `~/.pi/agent/agents/<name>.md`)
+
+Frontmatter `name` determines the dispatch type when present, otherwise the
+filename does. Same-name project definitions override global ones.
+
+Inventory every selected type in the intended delegation paths: nested children
+use their own definitions, not their caller's exclusion. Workflows select
+`agentType`, defaulting to `general-purpose`. Include configured fallback types
+(the default top-level fallback is `general-purpose`); nested unknown, disabled,
+or out-of-allowlist types are rejected rather than falling back. Excluding one
+type is not a global setting or automatic inheritance. Future types need an
+explicit decision too.
+
+#### Operator smoke test and rollback
+
+Manual adoption and testing are separate operator rollout steps; this repository
+does not deploy them. Use a disposable workspace with the intended project
+agent definitions and extension discovery; run Pi from that configuration root.
+Restart Pi to rediscover configuration and spawn **fresh** children;
+do not resume existing ones to test a frontmatter change.
+
+1. Inspect each winning definition via `/agents` → **Agent types** → select type
+   → **Edit** (cancel without changes when only inspecting). Check its source
+   location, exclusions, extension allowlist, and bash availability. Verify the
+   installed pi-subagents documentation/parser supports `exclude_extensions`,
+   and its `src/agent-runner.ts` canonical-name logic matches the discovered
+   permission entry. Check for typos or path/wildcard exclusions. Investigate
+   any surfaced `extension-error:exclude_extensions` unmatched-name diagnostics.
+   In the checked 0.19.0 UI, these activity events are not reliably displayed or
+   retained: absence of visible warnings is **not** evidence of a match. File
+   inspection alone also does not enumerate a live child's loaded extensions;
+   use the behavioral controls below before relying on the configuration.
+2. Start without `--yolo`, with `PI_SANDBOX` unset or `false` at process startup,
+   and run `/permission-yolo off`. A CLI-pinned YOLO mode cannot be disabled by
+   that command or reset: restart without the flag. Ensure the parent still
+   loads the permission extension.
+3. Ask the parent to execute exactly this harmless bash command:
+
+   ```bash
+   printf 'permission-scope-check\n'
+   ```
+
+   It matches no current permission rule. Expect the parent's unmatched-command
+   confirmation and approve it. Do not substitute destructive or remote commands.
+4. Spawn a fresh, bash-capable configured child and request the exact same
+   command. Inspect actual successful bash output (`permission-scope-check`),
+   not merely a claim of success. Expect no confirmation/headless block from
+   this extension; unrelated tool restrictions or extension vetoes can still
+   prevent execution.
+5. As a rollback control, remove only `permission` from that type's exclusions,
+   preserve its extension inclusion and other settings, restart, and spawn a
+   fresh child. With permission discoverable/included and the same startup
+   conditions, expect `No permission rule matches command - no UI for
+   confirmation`. Restore the exclusion and repeat with another fresh child
+   if continuing the rollout. If the parent never prompts, the rollback child
+   still succeeds, or bash is unavailable, the test is inconclusive: investigate
+   effective configuration and name matching before relying on exclusion.
+
+To roll back permanently, remove only `permission` from every affected type's
+exclusions, preserving other settings, and restart with fresh children. Existing
+child sessions retain their bound extension set; editing frontmatter or resetting
+the parent does not retrofit them. Restored children return to their own ordinary
+local/headless permission policy, not inherited parent approvals or YOLO.
+
 ## Ollama Usage Extension
 
 Shows Ollama Cloud session and weekly usage in the pi status bar as `ollama: 2.6% / 0.8%` (session / weekly).
