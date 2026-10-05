@@ -72,7 +72,7 @@ Use best judgement when processing input.
 - Only review the changes - do not review pre-existing code that wasn't modified
 - Don't flag something as a bug if you're unsure - investigate first
 - Don't invent hypothetical problems - if an edge case matters, explain the realistic scenario where it breaks
-- If you need more context to be sure, use the tools below to get it
+- If you need more context to be sure, use the tools available to you to get it
 
 **Don't be a zealot about style.** When checking code against conventions:
 
