@@ -20,7 +20,7 @@ before(async () => {
   [readme, agents, glossary] = await Promise.all([
     load("README.md"),
     load("AGENTS.md"),
-    load("CONTEXT.md"),
+    load("GLOSSARY.md"),
   ]);
   finalize = section("OpenSpec finalization flow", "OpenSpec full pipeline");
   pipeline = section("OpenSpec full pipeline", "Development");
