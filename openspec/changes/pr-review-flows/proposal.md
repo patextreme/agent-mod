@@ -7,7 +7,7 @@ The repository has OpenSpec-specific verification flows but no reusable acpx flo
 ## What Changes
 
 - Add two public acpx flows, `review` and `review-fix`, with shared internal review, validation, ledger, and reporting components; do not implement a single mode-switched flow.
-- Review introduced defects and unmet PR requirements, independently validate every raised issue, and retain non-blocking observations without autonomously repairing them.
+- Use the existing `code-review` skill for parallel Standards and Spec review, preserving both axes in findings and reports rather than introducing a separate reviewer policy. Review introduced defects and unmet PR requirements, independently validate every raised issue, and retain non-blocking observations without autonomously repairing them.
 - Persist stable findings and explicit human decisions in a PR-comment ledger across invocations, with only one active flow per PR.
 - Use full initial review, followed by delta review and explicit reconciliation of unresolved findings; fall back to full review when the base changes or history diverges.
 - Keep review-only results advisory. Let the repair controller derive acceptance for a specific head SHA from green repository CI, resolved or explicitly human-accepted review blockers, and no unresolved human-required uncertainty.
@@ -30,6 +30,6 @@ None. Existing OpenSpec verification and permission behavior remains unchanged.
 
 - New entrypoints under `flows/review/` and `flows/review-fix/`, with cohesive PR-specific shared components under `flows/pr-shared/`.
 - Reuse existing acpx flow composition, dependency injection, shared data/steering helpers, and model-free ACP testing patterns; do not inherit OpenSpec target or artifact authorization.
-- Add Git/GitHub command boundaries, worktree management, durable comment state, and required-check inspection. Git, GitHub CLI authentication, acpx, and a configured ACP agent are prerequisites.
+- Add Git/GitHub command boundaries, worktree management, durable comment state, and required-check inspection. Git, GitHub CLI authentication, acpx, a configured ACP agent with the existing `code-review` skill available, and explicit requirements context or confirmed absence of a spec are prerequisites. Document issue-tracker setup when issue retrieval is needed; do not install skills or setup tooling automatically.
 - Add colocated unit/integration tests and README usage documentation. Existing recursive flow test/typecheck discovery should cover new files without dependency changes.
 - Uses GitHub PR metadata, commits, checks, and issue comments. No automatic merge, force push, dependency installation, or changes to caller-owned checkout state.

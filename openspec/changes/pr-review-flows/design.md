@@ -49,7 +49,7 @@ review-fix:
               → verify scope/tests/head → commit/push → refresh → repeat
 ```
 
-Each shared review pass consists of review, independent issue validation, and controller-checked ledger reconciliation. Its data does not declare terminal acceptance. No second classifier agent has authority to override the controller predicate. Fresh sessions receive explicit context rather than relying on a repair session's memory.
+Each shared review pass consists of the existing `code-review` skill's parallel Standards and Spec review (with Spec skipped only for confirmed absence of a spec), independent issue validation, and controller-checked ledger reconciliation. The two review axes are discovery roles, not validators of each other's findings; a fresh separate validator covers findings from either axis and proposed closures. Its data does not declare terminal acceptance. No second classifier agent has authority to override the controller predicate. Fresh sessions receive explicit context rather than relying on a repair session's memory.
 
 Alternative: one mode-switched public graph makes repair authority and advisory success ambiguous. Two entirely duplicated graphs drift in evidence and ledger policy.
 
@@ -65,7 +65,7 @@ The versioned ledger contains canonical PR identity, revision, discovery snapsho
 
 A finding separates these axes:
 
-- Identity: controller-assigned ID, source (`review` or `ci`), title, root-cause family, and code/check references.
+- Identity: controller-assigned ID, source (`review` or `ci`), title, root-cause family, and code/check references. Review occurrences retain their `Standards` or `Spec` origin and cited standard/requirement; a shared root cause must not erase either axis's evidence.
 - Severity: blocking or non-blocking.
 - Review validation: validated, refuted, or inconclusive, with validator evidence and reviewed SHA. CI findings instead carry controller-observed check evidence.
 - Disposition: open, resolved, deferred, or human-accepted; refutation remains available in history.
@@ -78,9 +78,15 @@ Ledger parsing strictly checks schema/version, PR identity, field values, refere
 
 Alternative: agent-owned JSON or marker-only comment discovery makes workflow memory and acceptance vulnerable to stale, forged, or malformed state.
 
-### 4. Full discovery, delta investigation, explicit reconciliation
+### 4. Existing code-review skill, full discovery, and explicit reconciliation
 
-Review the full PR on discovery. On later passes, compare the current head with the last reviewed head and always supply the full PR base/head, intention, and unresolved findings. Delta review investigates introduced changes since the last reviewed head, but validation/reconciliation revisits all unresolved issues and relevant surrounding code. Read entire affected files using the existing `prompts/review.md` principles, not only isolated diff hunks.
+Use the existing `code-review` skill as the reviewer instruction source, not a copied or rewritten policy derived from `prompts/review.md`. Resolve the skill through the configured ACP agent's supported skill mechanism and verify it is available before reviewer dispatch. An unavailable skill is an actionable preflight error, not permission to silently substitute bespoke review prompts. Do not hardcode a developer's home-directory path or install the skill automatically. Flow-specific context and structured-output contracts adapt the skill to PR snapshots without replacing its Standards/Spec process.
+
+Supply the pinned comparison SHA, PR base/head, diff command, commit list, intention, requirements sources, repository standards sources, and unresolved findings explicitly. Run the skill's Standards and Spec reviewers in parallel, in independent read-only contexts. Preserve its documented-standard citations, repository-overrides-baseline rule, labelled Fowler smell heuristics, and exclusion of tooling-enforced checks. Read entire affected files and relevant surrounding code, not only isolated diff hunks. Subjective smell suggestions remain non-blocking; neither a Standards label nor reviewer confidence establishes a repair blocker without evidence-scoped independent validation.
+
+Identify requirements using the skill's source-discovery process: issue references through `docs/agents/issue-tracker.md`, caller-supplied spec paths/context, then matching repository specs. Explicit PR acceptance criteria are also requirements context, not execution instructions. Missing issue-tracker configuration produces the skill's setup guidance when issue retrieval is needed; do not run setup automatically. An inaccessible referenced issue or an unknown spec source requires clarification (or headless `needs_human`), not a clean Spec verdict. Only an explicit human confirmation that no spec exists permits skipping Spec with `no spec available`; advisory review may finish with that limitation, but repair acceptance remains unsupported until requirements context is supplied or its absence is explicitly confirmed by a scoped human decision.
+
+Review the full PR on discovery using the recorded base as the skill's fixed point (`git diff <base>...HEAD`). On later linear passes, use the last reviewed head as the fixed point (`git diff <last-reviewed-head>...HEAD`) and always supply the full PR base/head, intention, and unresolved findings. Delta review investigates introduced changes since the last reviewed head, but validation/reconciliation revisits all unresolved issues and relevant surrounding code. Verify the fixed point resolves and the snapshot worktree HEAD matches the recorded PR head before dispatch. An invalid comparison is an operational error. For an empty delta or unchanged-head resume, explicitly bypass the skill's non-empty-diff discovery prerequisite and perform read-only reconciliation plus independent validation; do not claim that skipped discovery is a new clean two-axis review.
 
 If the base changes, ancestry diverges, or the snapshot cannot support a meaningful delta, review the full PR. Resume always includes an applicable review pass, even for an apparently clean ledger or unchanged head; do not blindly fix stored blockers or short-circuit to acceptance. Advance reviewed snapshot state only after the review/validation/reconciliation contract succeeds.
 
@@ -132,7 +138,9 @@ Preserve report organization:
 4. Open non-blocking findings.
 5. Deferred findings.
 6. Accepted findings.
-7. Review summary.
+7. Review summary, with separate `Standards` and `Spec` headings, finding counts and worst issue within each axis, and explicit skipped-axis limitations.
+
+Within finding sections retain Standards/Spec labels and evidence; do not merge or rerank the two review axes into a single review verdict. The controller's required blocker-first organization and repair acceptance predicate remain separate from axis summaries. The skill's concise prose guidance applies to summaries, not to the structured finding inventory: all raised issues must survive into validation and ledger reconciliation without a silent word/count cap.
 
 The controller prefixes a deterministic status line distinguishing advisory completion, repair acceptance, and unsuccessful outcomes, including reviewed SHA and CI state where applicable. Publish one dedicated human-readable issue comment, updating it separately from the machine ledger. Do not submit formal approve/request-changes reviews. Trust and ambiguity checks apply to report selection too.
 
@@ -140,7 +148,7 @@ Match upstream's three fresh reporter attempts when structured output is absent/
 
 ### 10. Test graph behavior without live services
 
-Adapt the existing fake ACP fixture pattern for reviewer, independent validator, assessor, repairer, and reporter roles. Inject Git/GitHub responses, clock/deadlines, ownership coordination, worktree roots, and steering. Cover real `FlowRunner` routing and CLI result/exit behavior in addition to parser unit tests. Use temporary real Git repositories for worktree, commit, normal-push, and stale-head integration tests; GitHub/CI remains fixture-driven by default.
+Adapt the existing fake ACP fixture pattern for the skill orchestrator, parallel Standards/Spec reviewers, independent validator, assessor, repairer, and reporter roles. Test skill availability and expansion, explicit snapshot/source context, axis provenance, confirmed missing-spec behavior, issue-tracker guidance, empty-delta reconciliation, non-blocking smell suggestions, and separate axis reporting without truncated finding coverage. Inject Git/GitHub responses, clock/deadlines, ownership coordination, worktree roots, and steering. Cover real `FlowRunner` routing and CLI result/exit behavior in addition to parser unit tests. Use temporary real Git repositories for worktree, commit, normal-push, and stale-head integration tests; GitHub/CI remains fixture-driven by default.
 
 Reuse safe data and steering helpers where contracts match. Do not extract OpenSpec-specific authorization into generic PR infrastructure or change existing flow behavior as a side effect. Existing recursive npm/Nix flow-test discovery should pick up new tests; only change package/build wiring if actually necessary.
 

@@ -5,7 +5,7 @@
 - [ ] 1.1 Add PR-specific shared input, snapshot, finding, validation, decision, and result contracts under `flows/pr-shared/`; verify parser tests reject missing identity, invalid enums, contradictory evidence, and SHA mismatches.
 - [ ] 1.2 Implement an injected argument-vector Git/GitHub command adapter with exit, cancellation, and deadline handling, separate from the OpenSpec command helper; verify command-fixture tests cover failure and injection-resistant argument construction.
 - [ ] 1.3 Resolve canonical PR/base/head/head-ref identity and explicit publication authorities without an authorship restriction; verify preflight tests accept another author's accessible PR and reject missing push/comment authority before prohibited work.
-- [ ] 1.4 Document prerequisite tools, caller-owned operation selection, publication authorities, and trust boundaries in README; verify documented inputs correspond to tested contracts and do not imply worktree sandboxing.
+- [ ] 1.4 Document prerequisite tools, availability of the existing `code-review` skill in the configured ACP agent, issue-tracker setup guidance, explicit requirements/no-spec inputs, caller-owned operation selection, publication authorities, and trust boundaries in README; verify documented inputs correspond to tested contracts, use no developer-specific skill path, and imply neither automatic setup nor worktree sandboxing.
 
 ## 2. Ownership and workspace lifecycle
 
@@ -16,22 +16,23 @@
 
 ## 3. Durable ledger
 
-- [ ] 3.1 Implement the versioned ledger schema, package-owned comment markers, identity/ownership checks, pagination, and safe create/update operations; verify fixture tests reject malformed, duplicate, foreign, unsupported-version, and wrong-PR state without overwriting it.
+- [ ] 3.1 Implement the versioned ledger schema with Standards/Spec occurrence provenance and citations, package-owned comment markers, identity/ownership checks, pagination, and safe create/update operations; verify fixture tests preserve both axes for related root causes and reject malformed, duplicate, foreign, unsupported-version, and wrong-PR state without overwriting it.
 - [ ] 3.2 Implement controller-assigned IDs and evidence-checked occurrence, matching, resolution, reopening, deferral, and scoped human-acceptance transitions; verify unit tests preserve recurring identities and reject unknown IDs, incomplete reconciliation, and repair-claim-only closure.
 - [ ] 3.3 Persist review snapshots, human decisions, acceptance history, and reporting-independent state at phase boundaries; verify resume tests retain finding history while refusing stale acceptance and detect unexpected durable-state revisions.
 - [ ] 3.4 Document ledger ownership, invalid-state recovery, and non-import of upstream Ptah comments; verify fixture examples round-trip through the strict ledger parser.
 
 ## 4. Shared review pass
 
-- [ ] 4.1 Implement review context/prompts for introduced defects and unmet requirements using full-file inspection principles from `prompts/review.md`; verify prompt/parser tests keep pre-existing defects and subjective observations non-blocking and surface requirement conflicts.
-- [ ] 4.2 Compose a fresh independent validator stage covering every raised issue and proposed review-finding closure; verify model-free tests distinguish validated/refuted/inconclusive evidence and reject missing coverage or reviewer self-validation.
+- [ ] 4.1 Integrate the existing `code-review` skill through the configured ACP agent's supported skill mechanism, with flow-specific snapshot/reconciliation/output context rather than a replacement review policy; verify skill-availability/expansion tests fail actionably when unavailable and pass pinned comparison, diff/commits, PR intention, standards, requirements, and unresolved findings into independent parallel Standards/Spec contexts. Verify full-file inspection, repository-overrides-baseline behavior, tooling-check exclusion, labelled non-blocking smells, requirement conflicts, and introduced-defect scope.
+- [ ] 4.2 Compose a fresh independent validator stage covering every raised issue from either review axis and proposed review-finding closure; verify model-free tests distinguish validated/refuted/inconclusive evidence and reject missing coverage, reviewer self-validation, or cross-axis reviewers acting as validators.
 - [ ] 4.3 Implement controller-checked reconciliation proposals without agent authority over IDs or acceptance; verify tests retain uncertainty, refutation history, and evidence-backed reopening without losing unresolved blockers.
-- [ ] 4.4 Implement full discovery, delta selection, unchanged-head resume reconciliation, and full fallback on base/ancestry changes; verify temporary-Git and agent-fixture tests show every unresolved finding receives reconciliation in each applicable pass.
-- [ ] 4.5 Document the shared review pass and its evidence/identity contracts alongside its modules; verify examples describe distinct validation and disposition axes and never equate an agent claim with resolution.
+- [ ] 4.4 Implement full discovery using the pinned PR base, delta selection using the last reviewed head, unchanged-head/empty-delta reconciliation without a false clean skill verdict, and full fallback on base/ancestry changes; verify temporary-Git and agent-fixture tests reject invalid comparisons or mismatched HEAD and show every unresolved finding receives reconciliation in each applicable pass.
+- [ ] 4.5 Document skill invocation, the shared review pass, axis provenance, and evidence/identity contracts alongside its modules; verify examples describe distinct review, validation, and disposition axes and never equate an agent claim with resolution.
+- [ ] 4.6 Implement the skill's requirements-source discovery and clarification adapter, including issue-tracker setup guidance, supplied specs/PR criteria, unknown or inaccessible sources, and explicitly confirmed no-spec decisions; verify model-free tests skip Spec only for confirmed absence, preserve `no spec available` in reports, return headless `needs_human` for missing clarification, and prevent unconfirmed or stale absence from satisfying repair acceptance.
 
 ## 5. Reporter and advisory flow
 
-- [ ] 5.1 Implement the upstream-derived reporter prompt, nonempty structured report parser, three fresh output attempts, and deterministic status prefix; verify tests cover section ordering, explicit history omissions, invalid output exhaustion, and inability to change acceptance.
+- [ ] 5.1 Implement the upstream-derived reporter prompt with separate Standards/Spec labels and axis summaries/counts/worst issues, nonempty structured report parser, three fresh output attempts, and deterministic status prefix; verify tests cover blocker-first section ordering without cross-axis reranking, explicit skipped-axis/history omissions, complete finding inventories despite concise summaries, invalid output exhaustion, and inability to change acceptance.
 - [ ] 5.2 Implement separate report-comment selection/publication after ledger persistence; verify fixture tests distinguish ledger/report identities and preserve durable state and computed outcome when reporting fails.
 - [ ] 5.3 Add `flows/review/index.ts` and its factory/graph using shared review components only; verify model-free `FlowRunner` tests complete advisory reports with blockers and never dispatch repair, commit, or push operations.
 - [ ] 5.4 Cover review CLI results, nonzero operational failures, cancellation, cleanup, and preserved-workspace diagnostics with integration tests; verify successful advisory findings do not imply PR acceptance.

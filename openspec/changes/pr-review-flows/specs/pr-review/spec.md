@@ -17,6 +17,39 @@ The system SHALL expose a `review` flow distinct from `review-fix`. It MUST revi
 - **WHEN** the caller selects a technically accessible PR authored by another contributor
 - **THEN** review is not rejected merely because of authorship
 
+### Requirement: Existing two-axis code-review skill
+The shared review pass SHALL use the existing `code-review` skill, running Standards and Spec in parallel independent read-only contexts when a spec is available. An unavailable skill MUST produce an actionable error, not a replacement policy. Flow adapters MAY add snapshot, reconciliation, and output instructions without replacing the skill's policy. Findings SHALL retain their axis provenance and distinguish documented violations from subjective smell heuristics.
+
+#### Scenario: Parallel review axes
+- **WHEN** a PR has documented standards and available requirements context
+- **THEN** separate Standards and Spec reviewers inspect the pinned comparison in parallel and retain their respective citations and axis labels
+
+#### Scenario: Skill unavailable
+- **WHEN** the configured ACP agent cannot load the existing `code-review` skill
+- **THEN** the flow stops before reviewer dispatch with setup guidance and does not substitute a bespoke reviewer prompt
+
+#### Scenario: Subjective code smell
+- **WHEN** Standards flags a baseline smell without demonstrating an introduced defect or unmet authoritative requirement
+- **THEN** the finding remains a labelled non-blocking judgement call and cannot autonomously trigger repair
+
+### Requirement: Pinned skill context
+The flow SHALL supply the skill with a resolvable pinned comparison point, recorded PR base/head, diff command, commit list, PR intention, standards sources, requirements context, and unresolved findings. Review SHALL inspect entire affected files and relevant surrounding code rather than only diff hunks.
+
+#### Scenario: Snapshot context
+- **WHEN** reviewer discovery starts
+- **THEN** both axes receive the same pinned snapshot and applicable sources, and a mismatched worktree HEAD or invalid comparison stops dispatch
+
+### Requirement: Explicit requirements availability
+The flow SHALL use the skill's issue-reference, caller-supplied, and repository-spec discovery process, including explicit PR criteria. Missing issue-tracker configuration SHALL surface setup guidance when needed, without automatic setup. Unknown or inaccessible requirements MUST require clarification. Only explicit human confirmation of no spec SHALL permit skipping Spec with `no spec available`; repair acceptance requires a scoped applicable confirmation.
+
+#### Scenario: Referenced issue unavailable
+- **WHEN** the originating issue cannot be retrieved and no adequate explicit requirements context is available
+- **THEN** the flow seeks clarification or terminates with `needs_human` without reporting Spec success or repair acceptance
+
+#### Scenario: Confirmed absence of spec
+- **WHEN** the caller explicitly confirms that no spec is available
+- **THEN** Standards review may complete with Spec visibly skipped, and repair acceptance requires that confirmation to be recorded as an applicable scoped human decision
+
 ### Requirement: Evidence-scoped review
 Review SHALL target a recorded PR base and head, examining introduced defects and demonstrably unmet PR requirements. Unrelated pre-existing defects and subjective improvements MUST NOT become repair blockers. Conflicting authoritative requirements SHALL require clarification rather than an invented precedence or silent acceptance.
 
@@ -38,6 +71,10 @@ Every agent-raised issue SHALL receive validation from another agent before fina
 #### Scenario: Validation cannot decide
 - **WHEN** validation cannot confirm or refute a reported issue
 - **THEN** the report retains the issue as inconclusive with the missing evidence or decision identified
+
+#### Scenario: Separate validation role
+- **WHEN** either review axis raises findings or proposes closures
+- **THEN** a fresh separate validator covers every finding and proposed closure; Standards and Spec reviewers do not validate their own or each other's findings
 
 ### Requirement: Persistent controller-owned ledger
 The flows SHALL share a versioned PR-comment ledger containing PR identity, review snapshots, stable finding IDs, sources, evidence, dispositions, and human decisions. The controller MUST own IDs and validate transitions. Agents SHALL propose identity matches and dispositions; repair claims MUST NOT establish resolution. Historical acceptance SHALL apply only to its recorded head.
@@ -76,6 +113,10 @@ The first discovery SHALL review the full PR. Subsequent passes SHALL review the
 - **WHEN** an invocation resumes from a ledger with no unresolved blockers
 - **THEN** it checks the current PR snapshot and performs the applicable review rather than assuming the PR is accepted
 
+#### Scenario: Empty comparison
+- **WHEN** the pinned comparison is valid but produces no delta, including unchanged-head resume
+- **THEN** the flow explicitly skips new-finding discovery, performs applicable read-only reconciliation and independent validation, and does not present the skipped skill invocation as a new clean two-axis review
+
 ### Requirement: Single active workflow per PR
 Only one ledger-writing flow SHALL run for a PR at a time, across both public entrypoints. A competing invocation MUST stop before dispatching agents, publishing comments, or editing a repair workspace. Different PRs SHALL remain independently runnable.
 
@@ -97,6 +138,17 @@ A separate reporter agent SHALL render persisted ledger state and the settled co
 #### Scenario: Reporter failure
 - **WHEN** reporter output is unusable or report publication fails
 - **THEN** the flow surfaces reporting failure while retaining the already persisted ledger and computed review outcome
+
+### Requirement: Separate review-axis presentation
+Reports SHALL preserve Standards and Spec provenance with separate axis summaries, counts, and worst issues, without merging or reranking axes into one review verdict. Skipped axes MUST be explicit. Summary brevity MUST NOT truncate the finding inventory supplied to validation or the ledger. Blocker-first report organization SHALL remain distinct from axis summaries and controller acceptance.
+
+#### Scenario: Both axes have findings
+- **WHEN** the report contains Standards and Spec findings
+- **THEN** it retains their labels and separate summaries and validates all raised issues even when the prose summaries are concise
+
+#### Scenario: Spec skipped
+- **WHEN** Spec review was skipped for confirmed absence of a spec
+- **THEN** the report states `no spec available` rather than presenting Spec as passing
 
 ### Requirement: Safe review workspace and observable results
 Review SHALL run in a dedicated snapshot workspace without altering the caller's checkout. Results MUST identify the PR, reviewed base/head, review outcome, findings, and report/publication diagnostics. Successful runs SHALL clean their workspaces; unsuccessful runs SHALL preserve them and identify their paths. PR content MUST NOT expand execution authority.
