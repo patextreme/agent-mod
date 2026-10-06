@@ -69,7 +69,7 @@
           cp -r ${rootNodeModules} node_modules
           chmod -R u+w node_modules
 
-          ./node_modules/.bin/tsx --test extensions/ollama-usage/parse.test.ts
+          ./node_modules/.bin/tsx --test --test-concurrency=2 extensions/ollama-usage/parse.test.ts
         '';
         installPhase = ''
           touch $out
@@ -116,7 +116,7 @@
           cp -r ${rootNodeModules} node_modules
           chmod -R u+w node_modules
 
-          ./node_modules/.bin/tsx --test extensions/permission/rules.test.ts
+          ./node_modules/.bin/tsx --test --test-concurrency=2 extensions/permission/rules.test.ts
         '';
         installPhase = ''
           touch $out
@@ -131,7 +131,23 @@
         buildPhase = ''
           cp -r ${rootNodeModules} node_modules
           chmod -R u+w node_modules
-          ./node_modules/.bin/tsx --test $(find flows -type f -name '*.test.ts' | sort)
+          # Match npm's bounded file concurrency; preserve flow timeouts and assertions.
+          ./node_modules/.bin/tsx --test --test-concurrency=2 $(find flows -type f -name '*.test.ts' | sort)
+        '';
+        installPhase = ''
+          touch $out
+        '';
+      };
+
+      factory-skills-test = pkgs.stdenv.mkDerivation {
+        name = "factory-skills-test";
+        src = ./../..;
+        nativeBuildInputs = [ pkgs.nodejs ];
+        phases = [ "unpackPhase" "buildPhase" "installPhase" ];
+        buildPhase = ''
+          cp -r ${rootNodeModules} node_modules
+          chmod -R u+w node_modules
+          PI_FACTORY_SKILLS_OUTPUT=${pi-skills} node --test --test-concurrency=2 scripts/factory-skills.test.mjs
         '';
         installPhase = ''
           touch $out
@@ -145,7 +161,7 @@
         phases = [ "unpackPhase" "buildPhase" "installPhase" ];
         buildPhase = ''
           # Dependency-free: runs under plain node, no rootNodeModules needed
-          node --test scripts/docs-version.test.mjs
+          node --test --test-concurrency=2 scripts/docs-version.test.mjs
         '';
         installPhase = ''
           touch $out
@@ -159,7 +175,7 @@
 
       checks = {
         inherit pi-permission pi-ollama-usage pi-prompts pi-skills;
-        inherit biome-check tsc-check permission-test ollama-usage-test docs-version-check groom-test;
+        inherit biome-check tsc-check permission-test ollama-usage-test docs-version-check factory-skills-test groom-test;
       };
     };
 }
