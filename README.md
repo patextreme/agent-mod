@@ -49,12 +49,7 @@ its upstream and patch tests.
 
 | Prompt | Description |
 |--------|-------------|
-| [`commit-create-commit`](./prompts/commit-create-commit.md) | Create a git commit with an agreed-upon message |
-| [`commit-create-commit-signoff`](./prompts/commit-create-commit-signoff.md) | Create a git commit with DCO sign-off |
-| [`commit-generate-message`](./prompts/commit-generate-message.md) | Generate a commit message from staged changes |
-| [`commit-generate-message-conventional`](./prompts/commit-generate-message-conventional.md) | Generate a conventional commit message |
 | [`init`](./prompts/init.md) | Create or update `AGENTS.md` for a repository |
-| [`review`](./prompts/review.md) | Review code changes and provide actionable feedback |
 
 ### Skills
 
