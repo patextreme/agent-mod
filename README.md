@@ -233,6 +233,76 @@ The flow emits one structured terminal result containing `changeId`, `outcome`, 
 
 Existing dirty edits are the starting state and are preserved, including on failure. The flow never syncs specs, archives, commits, stashes or rolls back, and writes **no extra report file**. There is no resume/checkpoint support; an explicit restart uses the current working tree and a fresh repair budget. Verification success is not an automatic archive action.
 
+## OpenSpec finalization flow
+
+[`flows/openspec-finalize/index.ts`](./flows/openspec-finalize/index.ts) finalizes an **already-verified active repo-local** change:
+
+```bash
+acpx flow run ./flows/openspec-finalize/index.ts --input-json '{"changeId":"example-change"}'
+```
+
+From another local workspace, use the absolute entrypoint path; the invocation directory selects the workspace. Only `changeId` is accepted. Missing, archived, store-backed, symlinked, escaping targets and unsupported input fields are rejected before writes. Scope is rechecked before archival.
+
+**Standalone invocation asserts prior implementation verification.** It does not require saved verification evidence, invoke `openspec-verify`, rerun implementation gates, judge task completion, or repair code/planning artifacts. Success means synchronization acceptance (or no applicable deltas) and confirmed archival, not implementation verification. If verification has not passed, use the verification flow first or the full pipeline below.
+
+### Unattended synchronization and acceptance
+
+The lifecycle is `preflight → prepare → sync → independent sync assessment → archive`. Invocation authorizes these operations without workflow confirmations, human steering, or repair/reassessment loops. Ambiguity stops finalization rather than requesting input. The ordinary generated sync/archive skills are unchanged and are not invoked by this flow.
+
+Use the same acpx **0.19.4**, OpenSpec, authenticated Pi, `pi-acp`, and explicitly configured acpx `pi` profile described above. Sync and assessment use fresh isolated Pi sessions in the selected workspace, each with a 90-minute timeout. No sync/archive skill discovery is needed: both prompts are flow-owned. **Tool permissions must already permit unattended execution**: configure acpx/adapter and Pi permission policy for the intended tools. Invocation does not approve tools, bypass deny rules, or enable YOLO. The selected-main-spec allowlist and read-only assessor policy are **prompt-level scope, not OS isolation**; fresh-session isolation is not filesystem isolation. Use separate isolation if required. Pi provider retries remain separately controlled.
+
+Every delta in status's `artifactPaths.specs.existingOutputPaths` is selected, including nested capabilities. Corresponding main specs live under the validated local `openspec/specs/` root. Existing ancestors, deltas and destinations must be safe non-symlink paths. Before writing, one valid `openspec instructions specs --change <id> --json` snapshot supplies applicable spec-content rules; command failure or malformed JSON stops before writes. Omitted rules mean no configured rules. Rules cannot expand paths, authorization or workflow. Original main-spec contents or absence are captured in memory, including dirty baseline edits.
+
+Synchronization is a **semantic merge**, not whole-requirement replacement: ADDED, partial MODIFIED, REMOVED and RENAMED effects preserve unaffected requirements/scenarios and existing Purpose text. New capabilities use delta Purpose text or a reported TBD placeholder and main-spec format, not delta-operation headers. Already-applied effects, including already-removed/renamed requirements, are idempotent no-ops. Explicit capability-retirement metadata is considered; an empty result alone does not authorize retirement.
+
+A separate fresh **read-only sync assessor** receives all deltas, the original baseline, current main specs and content rules, without the worker transcript. This is synchronization assessment, **not implementation verification**. Worker success alone cannot authorize archival: a conclusive `accepted` report must cover every capability and operation with intended-effect, Purpose/structure, preservation, rules and retirement evidence. `mismatch`, `inconclusive`, malformed reports, missing/duplicate/extra coverage, invocation errors and unsupported acceptance block archival without repairs or retries. Scope, selection and content fingerprints are refreshed before the move; changed inputs invalidate acceptance rather than trigger automatic reassessment.
+
+If status resolves **no delta specs**, including specs-skipped changes, sync and assessment are `not_applicable`; there is no specs-instruction lookup or main-spec write, and archive may proceed.
+
+### Move-only archival, partial results and recovery
+
+Archival performs no second sync and moves the **whole change directory**, including `.openspec.yaml` and all planning artifacts, into the validated planning home's `changesDir/archive/`. The destination is `YYYY-MM-DD-<changeId>` using the current UTC date; an existing `YYYY-MM-DD-` prefix is preserved, not doubled. Any existing destination entry—file, directory or dangling symlink—is a collision: no overwrite, merge, automatic alternate name or inferred success. Symlinked/escaping archive ancestors are rejected.
+
+Treat finalization as an **exclusive operation**: do not concurrently edit the selected change/main specs or write the archive destination. The flow guards its own move and rechecks inputs/destination, but does not provide a concurrent-writer transaction or atomic multi-file synchronization. Archived success requires confirmed source absence and destination presence. A move followed by failed confirmation is `moved_unconfirmed`, not success or a guarantee that the change is still active; inspect both locations before recovery.
+
+On normal terminal routing, finalization emits one flow-owned JSON result and a concise stderr summary. Fields include `changeId`, `outcome`, `summary`, `phase`, `failedPhase`, `phases`, `sync`, `assessment`, `remaining` issues and `archive` (`destination`, `state`). Phase states are `not_started`, `completed`, `failed` or `not_applicable`; archive states are `not_started`, `moving`, `failed`, `moved_unconfirmed` or `archived`. A completed sync-worker phase is not itself accepted synchronization: consult `assessment`. Only `success` exits zero; `failed` and `cancelled` exit nonzero. acpx may additionally emit its own CLI run envelope; it is not the flow-owned result. Cancellation output has the bounded limits below.
+
+Failure preserves existing and partial edits. A worker that edits one main spec then fails leaves those edits and blocks assessment/archive. Rejected assessment leaves main-spec edits but blocks the move. Archive failure after accepted synchronization preserves that acceptance in the result and does not revert specs. A pre-move failure leaves the active change; an unconfirmed move needs filesystem inspection, not that assumption.
+
+An explicit standalone rerun resolves the **current active tree afresh**, completes remaining sync effects and independently reassesses even already-applied changes before retrying archival. It does not trust previous evidence/transcripts or resume a checkpoint. Resolve the reported ambiguity, unsafe input or collision first. Already-archived targets are rejected, not treated as successful restarts. There is no automatic Git management: no commits, stashes, reset, rollback, separate report files or persistent resume/checkpoints.
+
+## OpenSpec full pipeline
+
+[`flows/openspec-all/index.ts`](./flows/openspec-all/index.ts) runs the same explicitly selected active local change through all four stages:
+
+```bash
+acpx flow run ./flows/openspec-all/index.ts --input-json '{"changeId":"example-change"}'
+```
+
+From another workspace use the absolute entrypoint path. Only `changeId` is accepted, with the same unsupported-input/local-target rejection before writes. Every stage keeps the same change and canonical workspace. Unlike standalone finalization's caller-asserted readiness, this pipeline reaches finalization only after its verification stage succeeds.
+
+### Native composition and transparent steering
+
+This is **one single native acpx graph**, in `groom → implement → verify → finalize` order, not shell chaining, constituent CLI subprocesses or nested runners. A stage-scoping adapter namespaces nodes/edges and projects callback outputs, results, step history and node identifiers back to each constituent's local view. Existing acceptance policies, authorized edit scopes, fresh sessions, per-node timeouts, acpx `pi` profile and supported active-attempt abort signals are preserved. Groom's ten updater dispatches, implement's ten repairs and verify's ten repairs remain **independent budgets**; implementation repairs never consume verification's budget. Internal repairs follow constituent policies, not a new pipeline policy. All existing standalone entrypoints remain available and unchanged.
+
+Each transition requires a validated captured `success` result for the same change/workspace. Missing, malformed, contradictory or unsuccessful results and unexpected execution errors stop later dispatch. Implementation success remains task-and-gate completion only; verification still requires conclusive no-Critical/no-Warning acceptance with required evidence. Finalization then performs its independent sync assessment once, **without duplicate implementation verification**. No-delta finalization retains its standalone behavior. There are **no stage-transition prompts**; finalization itself is unattended.
+
+Use the shared prerequisites and configure skill discovery for **all three** existing native skills: `openspec-review`, `openspec-apply-change` and `openspec-verify-change`. A `--no-skills` wrapper pinning only review or only verification is insufficient for the pipeline; if pinning, include all three trusted absolute skill paths in the adapter's Pi process and inspect loaded-skill diagnostics. Ordinary generated skills retain their behavior. Tool permissions remain separately configured; composition neither expands scope nor provides OS isolation. Do not impose a global timeout shorter than the intended steering wait.
+
+Only constituent terminal emitters are captured, **not the entire stderr stream**. Stage-labelled stderr progress and grooming/implementation/verification steering remain visible on the invocation terminal, including issues, recommendations and scoped questions. Answers reach the originating stage's existing logic. stdin and stderr must be **TTYs**; the **seven-day** steering deadline, cancellation semantics and **complete-answer** authorization rules are retained. Incomplete answers cannot authorize that cycle's edits. Required verification evidence cannot be waived by steering. If steering is unavailable or EOF prevents complete input, `needs_human` stops the pipeline with later stages `not_started`; timeout/malformed input fails as in the originating stage. Nothing silently supplies answers or broadens edit authorization.
+
+### Aggregate outcome and restart
+
+On normal terminal routing there is one **aggregate flow-owned JSON result**, not duplicate constituent terminal JSON. It records `changeId`, canonical `workspace`, overall `outcome`, `summary`, `activeStage`, `failedStage`, ordered `stages` entries (`stage`, `status`, retained child `result`), and known `finalization`/`archive` state. An unsuccessful stage preserves its `limit_reached`, `needs_human`, `cancelled` or `failed` outcome; later stages are explicitly `not_started`. Only success of **all four stages** exits zero. Progress/steering remain separate on stderr. acpx may additionally emit its **CLI run envelope**; do not confuse that runtime output with the aggregate result or assume stdout contains only one JSON object. Cancellation output has the bounded limits below.
+
+No unsuccessful stage is automatically retried/restarted, and no edits are rolled back. A full-pipeline restart begins again at **groom** against the current active tree with fresh stage-local budgets, not at the previously failed stage and not by skipping stages using an earlier report. Use the existing standalone groom/implement/verify/finalize entrypoints for intentional later-stage recovery; standalone finalization still asserts prior verification. Already-archived targets are invalid. Neither new entrypoint performs automatic Git management or writes separate report/checkpoint files.
+
+### Bounded cancellation reporting for both new flows
+
+Both `openspec-finalize` and `openspec-all` attempt **best-effort cancellation emission at most once**, shared with normal terminal emission, only where cancellation is observed through supported **active attempt-scoped abort signals**. Listeners are installed in supported callback contexts, check already-aborted signals and are cleaned up when their scope ends. Observed cancellation—including routing bypass after listener installation—uses only recorded progress, preserves edits and prevents later dispatch. It never fabricates an absent child result, marks an interrupted phase/stage complete or claims unconfirmed archival.
+
+This is **not an exactly-once delivery guarantee**, a public parent-run signal, or whole-invocation cancellation coverage. During **callback gaps**, **node-start persistence**, or **routing bypass before listener installation**, flow-owned JSON and its stderr summary **may be absent**. Forced termination can likewise prevent reporting. The diagnostic fallback is **acpx persisted run history/transcripts** under `~/.acpx/flows/runs/`, not separate flow report files. Inspect current specs and both archive/source paths as needed; missing output does not prove that no writes or move occurred. These limits retain installed acpx and the single native graph architecture, without a runtime/dependency change or a parent-run cancellation bridge.
+
 ## Development
 
 ```bash
