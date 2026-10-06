@@ -38,7 +38,9 @@ nix flake check
 - `flows/openspec-groom/` — Groom entrypoint (`index.ts`), composition (`flow.ts`), artifact validation/authorization (`helpers.ts`), and colocated unit/integration tests
 - `flows/openspec-implement/` — Bounded implementation/repair entrypoint, decision graph, apply/report contracts, and colocated tests; success is task-and-gate completion, not independent verification
 - `flows/openspec-verify/` — Completed-local-change verification entrypoint, read-only verifier/classifier/assessor, bounded scoped repairs, and colocated tests including native skill expansion; owns stricter no-Critical/no-Warning/evidence acceptance without changing the generated verify skill
-- `flows/shared/` — Reusable command/data/local-target helpers, terminal steering, skill-expansion tests, and `fixtures/fake-agent.mjs`
+- `flows/openspec-finalize/` — Already-verified-local-change entrypoint, semantic sync worker, independent read-only sync assessor, guarded whole-directory archival, and colocated tests; invocation asserts prior implementation verification without saved evidence, gates or implementation verification dispatch
+- `flows/openspec-all/` — Single native groom → implement → verify → finalize pipeline, stage-scoping adapter, aggregate results and colocated tests; preserves constituent policies, independent budgets and transparent terminal steering
+- `flows/shared/` — Reusable command/data/local-target helpers, terminal steering, skill-expansion and finalization documentation-contract tests, and `fixtures/fake-agent.mjs`
 - `nix/` — Flake devshell and package build config
 
 `package.json` `"pi"` field declares `extensions`, `prompts`, and `skills` directories. `tsconfig.json` includes `extensions/**/*.ts` and `flows/**/*.ts`. Flow entrypoints live at `flows/<name>/index.ts`, with composition and flow-specific helpers/tests alongside. Package and Nix flow tests discover `*.test.ts` recursively; shared infrastructure must not carry groom's artifact-only edit authorization.
