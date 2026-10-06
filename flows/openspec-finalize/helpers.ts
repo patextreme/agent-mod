@@ -134,31 +134,66 @@ function operations(delta: string): Operation[] {
   let kind: Operation["kind"] | undefined;
   const result: Operation[] = [];
   let from: string | undefined;
-  for (const line of delta.split("\n")) {
-    if (/^##\s/.test(line)) {
+  let fence: { marker: string; length: number } | undefined;
+  const normalizeName = (name: string) =>
+    text(name.replace(/[ \t]+#+[ \t]*$/, "").trim());
+  // Match OpenSpec 1.14.1's delta reader without importing CLI internals.
+  // Fence lines themselves are masked too; only a same-marker, at-least-as-
+  // long fence with no info string closes the block.
+  for (const line of delta
+    .replace(/^\uFEFF/, "")
+    .replace(/\r\n?/g, "\n")
+    .split("\n")) {
+    if (fence) {
+      const close = line.match(/^\s*(`{3,}|~{3,})\s*$/)?.[1];
+      if (close && close[0] === fence.marker && close.length >= fence.length)
+        fence = undefined;
+      continue;
+    }
+    const open = line.match(/^\s*(`{3,}|~{3,})/)?.[1];
+    if (open) {
+      fence = { marker: open[0], length: open.length };
+      continue;
+    }
+    const section = line.match(/^(##)\s+(.+)$/);
+    if (section) {
       if (from) throw new Error("Incomplete rename delta");
-      kind = line.match(
-        /^## (ADDED|MODIFIED|REMOVED|RENAMED) Requirements\s*$/,
-      )?.[1] as Operation["kind"] | undefined;
+      // Only outer whitespace is trimmed: "ADDED  Requirements" is not a
+      // supported section title. Every section boundary ends pending pairs.
+      kind = section[2]
+        .trim()
+        .match(/^(ADDED|MODIFIED|REMOVED|RENAMED) Requirements$/i)?.[1]
+        .toUpperCase() as Operation["kind"] | undefined;
+      continue;
     }
     if (!kind) continue;
     if (kind === "RENAMED") {
       const name = line.match(
-        /^\s*-?\s*(FROM|TO):\s*`?### Requirement:\s*(.*?)`?\s*$/,
+        /^\s*[-*+]?\s*(FROM|TO):\s*`?###\s*Requirement:\s*(.+?)`?\s*$/,
       );
       if (!name) continue;
       if (name[1] === "FROM") {
         if (from) throw new Error("Duplicate rename FROM");
-        from = text(name[2]);
+        from = normalizeName(name[2]);
       } else {
         if (!from) throw new Error("Rename TO without FROM");
-        const to = text(name[2]);
+        const to = normalizeName(name[2]);
         result.push({ id: `RENAMED:${from}->${to}`, kind, name: from, to });
         from = undefined;
       }
     } else {
-      const name = line.match(/^### Requirement:\s*(.+?)\s*$/)?.[1];
-      if (name) result.push({ id: `${kind}:${name}`, kind, name });
+      // Plain requirement headers are case-insensitive for every kind.
+      // Only REMOVED also accepts bullets, whose label remains case-sensitive
+      // in the CLI reader (as do RENAMED's FROM/TO and Requirement labels).
+      const rawName =
+        line.match(/^###\s*Requirement:\s*(.+)\s*$/i)?.[1] ??
+        (kind === "REMOVED"
+          ? line.match(/^\s*[-*+]\s*`?###\s*Requirement:\s*(.+?)`?\s*$/)?.[1]
+          : undefined);
+      if (rawName !== undefined) {
+        const name = normalizeName(rawName);
+        result.push({ id: `${kind}:${name}`, kind, name });
+      }
     }
   }
   if (from) throw new Error("Incomplete rename delta");

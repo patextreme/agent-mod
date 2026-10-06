@@ -128,6 +128,93 @@ test("complete nested selection captures new absence and dirty baseline and oper
   assert.equal(current[f.cap], merged);
   parseAssessment(JSON.stringify(accepted(inputs)), inputs);
 });
+for (const mixed of [false, true])
+  test(`${mixed ? "mixed" : "removal-only"} bullet deltas require complete removal assessment`, async (t) => {
+    const f = await fixture(t);
+    f.status.artifactPaths.specs.existingOutputPaths = [f.deltaPath];
+    const target = await preflight({ changeId: f.id }, f.cwd, f.command);
+    for (const marker of ["-", "*", "+"])
+      for (const backtick of ["", "`"]) {
+        await writeFile(
+          f.deltaPath,
+          (mixed ? "## ADDED Requirements\n\n### Requirement: Fresh\n\n" : "") +
+            `## REMOVED Requirements\n\n${marker} ${backtick}### Requirement: Legacy${backtick}\n`,
+        );
+        const inputs = await prepare(target, f.command);
+        assert.deepEqual(
+          inputs.capabilities[0].operations.map((op) => op.id),
+          [...(mixed ? ["ADDED:Fresh"] : []), "REMOVED:Legacy"],
+        );
+        const complete = accepted(inputs);
+        assert.equal(
+          parseAssessment(JSON.stringify(complete), inputs).verdict,
+          "accepted",
+        );
+        const omitted = accepted(inputs);
+        omitted.coverage[0].operations = omitted.coverage[0].operations.filter(
+          (op) => op.id !== "REMOVED:Legacy",
+        );
+        assert.throws(
+          () => parseAssessment(JSON.stringify(omitted), inputs),
+          /Missing operation coverage/,
+        );
+        const noEvidence = accepted(inputs);
+        const removal = noEvidence.coverage[0].operations.find(
+          (op) => op.id === "REMOVED:Legacy",
+        );
+        assert.ok(removal);
+        removal.evidence = [];
+        assert.throws(
+          () => parseAssessment(JSON.stringify(noEvidence), inputs),
+          /Missing required assessment evidence/,
+        );
+        complete.coverage[0].operations.push(
+          complete.coverage[0].operations[0],
+        );
+        assert.throws(
+          () => parseAssessment(JSON.stringify(complete), inputs),
+          /Extra\/duplicate operation assessment/,
+        );
+      }
+  });
+test("removal grammar normalizes headings and rejects duplicate operations across forms", async (t) => {
+  const f = await fixture(t);
+  f.status.artifactPaths.specs.existingOutputPaths = [f.deltaPath];
+  const target = await preflight({ changeId: f.id }, f.cwd, f.command);
+  for (const entry of [
+    "###Requirement: Legacy ###",
+    "### requirement: Legacy",
+    "  + `###Requirement: Legacy ###`  ",
+  ]) {
+    await writeFile(f.deltaPath, `## REMOVED Requirements\n${entry}\n`);
+    const inputs = await prepare(target, f.command);
+    assert.deepEqual(inputs.capabilities[0].operations, [
+      { id: "REMOVED:Legacy", kind: "REMOVED", name: "Legacy" },
+    ]);
+    await writeFile(
+      f.deltaPath,
+      `## REMOVED Requirements\n${entry}\n- \`### Requirement: Legacy\`\n`,
+    );
+    await assert.rejects(
+      prepare(target, f.command),
+      /duplicate delta operations/,
+    );
+  }
+});
+for (const kind of ["ADDED", "MODIFIED"])
+  test(`${kind} does not accept removal-only bullet grammar`, async (t) => {
+    const f = await fixture(t);
+    f.status.artifactPaths.specs.existingOutputPaths = [f.deltaPath];
+    await writeFile(
+      f.deltaPath,
+      `## ${kind} Requirements\n- \`### Requirement: Fresh\`\n`,
+    );
+    const target = await preflight({ changeId: f.id }, f.cwd, f.command);
+    await assert.rejects(
+      prepare(target, f.command),
+      /Missing\/duplicate delta operations/,
+    );
+  });
 for (const kind of [
   "delta",
   "delta-ancestor",

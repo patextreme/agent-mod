@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { lstat, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { type FlowNodeContext, FlowRunner } from "acpx/flows";
 import { createFinalizeFlow, type FinalizeResult } from "./flow.js";
@@ -258,6 +258,118 @@ for (const drift of [
     await f.unchanged();
     if (drift === "main")
       assert.match(await readFile(f.mainPath, "utf8"), /New dirty edit/);
+  });
+
+for (const scenario of [
+  {
+    label: "star rename",
+    delta:
+      "## RENAMED Requirements\n* FROM: `### Requirement: Old name`\n* TO: `### Requirement: New name`\n",
+    missing: "RENAMED:Old name->New name",
+  },
+  {
+    label: "plus rename with normalized names",
+    delta:
+      "## renamed requirements\n+ FROM: `###Requirement: Old name ###`\n+ TO: `###Requirement: New name ###`\n",
+    missing: "RENAMED:Old name->New name",
+  },
+  {
+    label: "lowercase removal section",
+    delta: "## Removed Requirements\n### Requirement: Legacy\n",
+    missing: "REMOVED:Legacy",
+  },
+  {
+    label: "lowercase addition header",
+    delta:
+      "## ADDED Requirements\n### requirement: Missing\nThe system SHALL add missing behavior.\n",
+    missing: "ADDED:Missing",
+  },
+  {
+    label: "lowercase modification section/header",
+    delta:
+      "## modified requirements\n###requirement: Login ###\nThe system SHALL update login.\n",
+    missing: "MODIFIED:Login",
+  },
+  {
+    label: "rename without evidence",
+    delta:
+      "## Renamed Requirements\nFROM: ###Requirement: Old name\nTO: ###Requirement: New name\n",
+    missing: "RENAMED:Old name->New name",
+    noEvidence: true,
+  },
+])
+  test(`native runner rejects addition-only sync/assessment with ${scenario.label} before archive`, async (t) => {
+    const f = await fixture(t);
+    f.status.artifactPaths.specs.existingOutputPaths = [f.deltaPath];
+    await writeFile(
+      f.deltaPath,
+      "## ADDED Requirements\n### Requirement: Fresh\nThe system SHALL add fresh behavior.\n" +
+        scenario.delta,
+    );
+    const partial =
+      original +
+      "\n### Requirement: Fresh\nThe system SHALL add fresh behavior.\n";
+    const results: FinalizeResult[] = [];
+    const flow = createFinalizeFlow({
+      cwd: f.cwd,
+      command: f.command,
+      emit: (r) => results.push(r),
+      now: () => new Date("2026-10-05Z"),
+      move: async () =>
+        assert.fail("Incomplete assessment must not move the change"),
+    });
+    let assessments = 0;
+    flow.nodes.sync = {
+      nodeType: "compute",
+      run: async (c) => {
+        const inputs = c.outputs.prepare as SyncInputs;
+        assert.deepEqual(
+          inputs.capabilities[0].operations.map((op) => op.id),
+          ["ADDED:Fresh", scenario.missing],
+        );
+        await writeFile(f.mainPath, partial);
+        return f.sync;
+      },
+    };
+    flow.nodes.assess = {
+      nodeType: "compute",
+      run: (c) => {
+        assessments++;
+        const inputs = c.outputs.prepare as SyncInputs;
+        const report = accepted(inputs);
+        if (scenario.noEvidence) report.coverage[0].operations[1].evidence = [];
+        else
+          report.coverage[0].operations = report.coverage[0].operations.filter(
+            (op) => op.id === "ADDED:Fresh",
+          );
+        return parseAssessment(JSON.stringify(report), inputs);
+      },
+    };
+    const runner = new FlowRunner({
+      resolveAgent: () => ({
+        agentName: "unused",
+        agentCommand: "false",
+        cwd: f.cwd,
+      }),
+      permissionMode: "approve-reads",
+      outputRoot: `${f.base}/runs`,
+    });
+    await assert.rejects(
+      runner.run(flow, { changeId: f.id }),
+      /Finalization unsuccessful/,
+    );
+    assert.equal(assessments, 1);
+    assert.equal(results.length, 1);
+    assert.equal(results[0].failedPhase, "assessment");
+    assert.equal(results[0].archive.state, "not_started");
+    assert.equal(results[0].phases.archive, "not_started");
+    assert.ok(await lstat(f.changeRoot));
+    await assert.rejects(
+      lstat(join(f.changesDir, "archive/2026-10-05-fixture-change")),
+      { code: "ENOENT" },
+    );
+    assert.equal(await readFile(f.mainPath, "utf8"), partial);
+    await f.unchanged();
   });
 
 // Semantic workers are agents, not a deterministic merge implementation. This

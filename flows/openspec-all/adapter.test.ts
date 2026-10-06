@@ -25,7 +25,7 @@ import {
 import { createGroomFlow } from "../openspec-groom/flow.js";
 import { createImplementFlow } from "../openspec-implement/flow.js";
 import { createVerifyFlow } from "../openspec-verify/flow.js";
-import { scopeGraph, type ScopedCallback } from "./adapter.js";
+import { type ScopedCallback, scopeGraph } from "./adapter.js";
 
 const timestamp = "2026-06-01T00:00:00.000Z";
 const input = { changeId: "example" };
