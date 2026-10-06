@@ -2,7 +2,7 @@
 
 ## Context
 
-See `proposal.md` for motivation and the interview at `docs/design/issue-to-pr-grilling.md` for decisions. The committed baseline has `openspec-all` and its four constituent factories, but not the implementation currently in flight for `pr-review-flows`. That change is an integration prerequisite for reusing its neutral Git/GitHub/CI and pending-decision mechanics; do not restructure files underneath ongoing work or pretend absent helpers already exist on this branch.
+See `proposal.md` for motivation; decisions and technical defaults are recorded below and in the capability delta specs. The committed baseline has `openspec-all` and its four constituent factories, but not the implementation currently in flight for `pr-review-flows`. That change is an integration prerequisite for reusing its neutral Git/GitHub/CI and pending-decision mechanics; do not restructure files underneath ongoing work or pretend absent helpers already exist on this branch.
 
 The factories accept a fixed `cwd` dependency but evaluate it inside runtime preflight. Agents and deterministic operations then use the resolved target. `openspec-all/adapter.ts` projects namespaced constituent outputs and deliberately hides parent outputs. Pipeline progress is already keyed by run ID. These are adequate seams for native preparation; no external launcher or nested runner is required.
 
