@@ -41,7 +41,12 @@ const factorySkills = {
     "references/finalization-receipts.md",
   ],
   "cleanup-merged-issues": [],
+  "openspec-propose-issue": [],
 };
+const humanOnlySkills = new Set([
+  "cleanup-merged-issues",
+  "openspec-propose-issue",
+]);
 const externalSkills = [
   "code-review",
   "openspec-apply-change",
@@ -108,7 +113,7 @@ function checkInstalledSkill(installedRoot, name, references) {
   }
   assert.equal(
     frontmatter["disable-model-invocation"] === true,
-    name === "cleanup-merged-issues",
+    humanOnlySkills.has(name),
   );
 
   for (const reference of references) {
@@ -536,7 +541,7 @@ test("factory skills are self-contained, packaged, and discoverable without defa
     }
 
     await t.test(
-      "npm dry-run includes all six definitions and every bundled file",
+      "npm dry-run includes every packaged definition and bundled file",
       () => {
         for (const [name, references] of Object.entries(factorySkills)) {
           for (const path of ["SKILL.md", ...references]) {
@@ -655,7 +660,7 @@ test("factory skills are self-contained, packaged, and discoverable without defa
     }
 
     await t.test(
-      "Pi SDK loads only explicit installed skills, including human-only cleanup",
+      "Pi SDK loads only explicit installed skills, including human-only skills",
       () => {
         const cwd = join(tempRoot, "project");
         const agentDir = join(tempRoot, "agent");
@@ -691,10 +696,7 @@ test("factory skills are self-contained, packaged, and discoverable without defa
           );
           assert.equal(skill.baseDir, dirname(skill.filePath));
           assertWithin(installedRoot, realpathSync(skill.filePath));
-          assert.equal(
-            skill.disableModelInvocation,
-            name === "cleanup-merged-issues",
-          );
+          assert.equal(skill.disableModelInvocation, humanOnlySkills.has(name));
           for (const reference of references) {
             assert.ok(lstatSync(join(skill.baseDir, reference)).isFile());
           }
@@ -712,11 +714,12 @@ test("factory skills are self-contained, packaged, and discoverable without defa
         for (const skill of skills)
           assertWithin(installedRoot, realpathSync(skill.filePath));
         const advertised = formatSkillsForPrompt(skills);
-        assert.ok(!advertised.includes("<name>cleanup-merged-issues</name>"));
-        for (const name of Object.keys(factorySkills).filter(
-          (name) => name !== "cleanup-merged-issues",
-        )) {
-          assert.ok(advertised.includes(`<name>${name}</name>`));
+        for (const name of Object.keys(factorySkills)) {
+          assert.equal(
+            advertised.includes(`<name>${name}</name>`),
+            !humanOnlySkills.has(name),
+            `${name} advertisement must match its human-only status`,
+          );
         }
       },
     );
