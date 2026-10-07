@@ -8,7 +8,7 @@
         src = ./../..;
         # Update via: set to pkgs.lib.fakeHash, run `nix build .#checks.x86_64-linux.pi-root-node-modules`
         # (or any check), copy the `got:` hash back.
-        npmDepsHash = "sha256-jRvcqFwfMiGPIwC7aHPfeJ/W7+3XsfAzWH0VI17fkrU=";
+        npmDepsHash = "sha256-3HxKYsp+pvva2HccUOYxwuN0BI2yq14uumkgdXXsW9M=";
         makeCacheWritable = true;
         dontNpmBuild = true;
         installPhase = ''
@@ -123,22 +123,6 @@
         '';
       };
 
-      groom-test = pkgs.stdenv.mkDerivation {
-        name = "groom-test";
-        src = ./../..;
-        nativeBuildInputs = [ pkgs.nodejs pkgs.git ];
-        phases = [ "unpackPhase" "buildPhase" "installPhase" ];
-        buildPhase = ''
-          cp -r ${rootNodeModules} node_modules
-          chmod -R u+w node_modules
-          # Match npm's bounded file concurrency; preserve flow timeouts and assertions.
-          ./node_modules/.bin/tsx --test --test-concurrency=2 $(find flows -type f -name '*.test.ts' | sort)
-        '';
-        installPhase = ''
-          touch $out
-        '';
-      };
-
       factory-skills-test = pkgs.stdenv.mkDerivation {
         name = "factory-skills-test";
         src = ./../..;
@@ -175,7 +159,7 @@
 
       checks = {
         inherit pi-permission pi-ollama-usage pi-prompts pi-skills;
-        inherit biome-check tsc-check permission-test ollama-usage-test docs-version-check factory-skills-test groom-test;
+        inherit biome-check tsc-check permission-test ollama-usage-test docs-version-check factory-skills-test;
       };
     };
 }

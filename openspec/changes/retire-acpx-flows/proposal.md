@@ -24,8 +24,8 @@ None.
 - `openspec-groom`: Retire the acpx grooming capability; the separately migrated `orc-openspec-groom` has source-defined behavior.
 - `openspec-implement`: Retire the acpx implementation capability; use the separately migrated task-group orchestration skill.
 - `openspec-verify`: Retire the acpx verification capability; use the separately migrated verification/repair skill.
-- `openspec-finalize`: Retire the acpx finalization capability without an equivalent skill in this change; follow-up #47 tracks that gap.
-- `openspec-all`: Retire the single native acpx pipeline without an equivalent skill in this change; follow-up #48 tracks that gap.
+- `openspec-finalize`: Retire the acpx finalization contract; skill-based finalization is delivered in `orc-issue-to-pr` per #49, superseding the standalone-finalizer approach tracked by #47 (closed as not planned).
+- `openspec-all`: Retire the single native acpx pipeline; no packaged full-lifecycle orchestrator exists (pipeline tracking #48 closed without delivering one), so the delivered stage skills are invoked explicitly.
 
 ## Impact
 

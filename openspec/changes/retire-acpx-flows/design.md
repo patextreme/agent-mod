@@ -22,7 +22,7 @@ Alternative: retain parallel implementations or only disable entrypoints. Reject
 
 Remove recursive `find flows` test arguments from `package.json`, the flow include from `tsconfig.json`, and the `groom-test` derivation/check from `nix/modules/pi-package.nix`. Preserve extension/docs tests, any new factory-skill packaging tests, biome/tsc checks and retained package builds. Keep the recursive `pi-skills` derivation so imported skill references still ship. Search current source/docs/config for flow/acpx references to avoid broken links and empty test commands.
 
-Replace README flow sections and acpx skill row with the actual toolkit boundary; update AGENTS layout/conventions and current flow-specific glossary language without losing useful domain distinctions. Historical `openspec/changes/archive` and `openspec/superseded` records intentionally retain old paths/policies; do not make historical artifacts describe the new implementation. Current retirement artifacts can also mention removed surfaces. Historical references are not residual runtime dependencies.
+Replace README flow sections and acpx skill row with the actual toolkit boundary; update AGENTS layout/conventions and current flow-specific glossary language without losing useful domain distinctions. Historical `openspec/changes/archive` records intentionally retain old paths/policies; do not make historical artifacts describe the new implementation. Current retirement artifacts can also mention removed surfaces. Historical references are not residual runtime dependencies.
 
 Alternative: delete all textual mentions of acpx or ACP. That would erase provenance and inadvertently remove the separately retained ACP integration.
 
@@ -30,7 +30,7 @@ Alternative: delete all textual mentions of acpx or ACP. That would erase proven
 
 Each of `openspec-groom`, `openspec-implement`, `openspec-verify`, `openspec-finalize` and `openspec-all` has a REMOVED block for every current requirement, with reason and migration guidance. `.openspec.yaml` declares `retire_capabilities: true` so ordinary spec synchronization/archival can retire their empty main specs. Implementation must not manually delete `openspec/specs/<capability>/spec.md` as a shortcut or invent replacement obligations in those legacy capabilities.
 
-The imported stages are distinct new skill capabilities with source behavior, not MODIFIED versions preserving the old runtime contract. Finalization/all have no equivalent new capability until #47/#48 are implemented. No special acpx finalizer is required to retire this change: an explicitly requested ordinary external OpenSpec sync/archive procedure can be used, with its own prerequisites and scope. Do not execute spec sync/archive as part of this planning work.
+The imported stages are distinct new skill capabilities with source behavior, not MODIFIED versions preserving the old runtime contract. Skill-based finalization is delivered in `orc-issue-to-pr` per #49; no packaged full-lifecycle orchestrator exists (pipeline tracking #48 closed without delivering one). No special acpx finalizer is required to retire this change: an explicitly requested ordinary external OpenSpec sync/archive procedure can be used, with its own prerequisites and scope. Do not execute spec sync/archive as part of this planning work.
 
 Alternative: silently remove code while leaving old requirements authoritative, or directly delete specs by hand. Both conceal the breaking behavior and violate capability-retirement convention.
 
@@ -40,13 +40,13 @@ After removing acpx, regenerate the lockfile, inspect it for missing integrity e
 
 ### 5. Publish an honest migration and issue disposition
 
-Document the lack of deterministic acpx guards, explicit CLI result/exit contracts, per-stage flow budgets and persisted runtime traces. Source skills keep their own thresholds and progress behavior; ordinary user conversations/tool traces are not advertised as equivalent persisted flow state. The deliberate finalize/all gap is accepted, with #47 and #48 linked before removal; external sync/archive skills are separate operations, not parity.
+Document the lack of deterministic acpx guards, explicit CLI result/exit contracts, per-stage flow budgets and persisted runtime traces. Source skills keep their own thresholds and progress behavior; ordinary user conversations/tool traces are not advertised as equivalent persisted flow state. Finalization itself is delivered via `orc-issue-to-pr` (#49); the packaged full-lifecycle pipeline remains absent (#48 closed without delivery), and external sync/archive skills are separate operations, not parity.
 
 Keep #32, #36 and #42–44 open until actual flow removal lands, then close as not planned/obsolete with the removal receipt. #34 is separately superseded by the migration plan and can close before removal. Do not close #39 wholesale: `openspec-review` remains, its flow-only scope can be reconciled with a focused note/edit without claiming the retained skill work is completed.
 
 ## Risks / Trade-offs
 
-- [Removal leaves missing lifecycle automation] → Explicit #47/#48 tracking and current README limitation; removal does not wait for parity because the user accepted the gap.
+- [Removal leaves missing lifecycle automation] → Finalization is delivered via `orc-issue-to-pr` (#49); the absent packaged pipeline is a recorded limitation (#48 closed without delivery); removal does not wait for parity because the user accepted the gap.
 - [Broad cleanup could remove retained ACP or unrelated tests] → Enumerate retained package/check/test outputs and verify them through Nix and JS gates.
 - [Stale lockfile/hash breaks reproducible builds] → Recompute npm dependency hash and run all Nix checks after manifest changes.
 - [Historical references appear to contradict current docs] → Preserve them as marked superseded/archived records, excluding them from current runtime-reference checks.
@@ -54,7 +54,7 @@ Keep #32, #36 and #42–44 open until actual flow removal lands, then close as n
 
 ## Migration Plan
 
-1. Confirm migration is delivered and follow-ups #47/#48 exist.
+1. Confirm migration and delivered skill-based finalization (#49); reconcile the closed pipeline tracking (#48).
 2. Remove flows/acpx authoring/dependency and update package/test/typecheck/Nix consumers, retaining ACP and unrelated resources.
 3. Refresh lockfile/hash, current docs and useful glossary language; make lifecycle and assurance gaps explicit.
 4. Run format → lint → typecheck → test → nix flake check and strict OpenSpec validation; inspect retained package discovery and retirement coverage.

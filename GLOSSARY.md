@@ -26,13 +26,13 @@ An issue identified when checking an implemented change against its OpenSpec art
 A conclusive verification result with no CRITICAL or WARNING findings and no missing required evidence. SUGGESTION findings may remain; acceptance does not mean the change has been synced or archived.
 
 **Change finalization**:
-Synchronizing an already-verified change's applicable delta specs into the main specs, accepting that synchronization independently, then archiving the change. Finalization does not perform implementation verification or repairs.
+Synchronizing an already-verified change's applicable delta specs into the main specs, accepting the synchronization assessment, then archiving the change. Finalization does not perform implementation verification or repairs.
 
 **Spec synchronization**:
 Applying a change's delta requirements to the main specs while preserving unaffected requirements and scenarios. Synchronization alone does not archive the change.
 
 **Synchronization acceptance**:
-A conclusive independent assessment that every applicable delta's intended effects are represented and unaffected main-spec content is preserved. It is distinct from implementation verification acceptance and does not by itself mean the change has been archived.
+A conclusive assessment that every applicable delta's intended effects are represented and unaffected main-spec content is preserved — accepted from the built-in archive procedure's post-sync comparison rather than a separate assessor. It is distinct from implementation verification acceptance and does not by itself mean the change has been archived.
 
 **Change archival**:
 Moving an active change into the archive while retaining its planning artifacts. Archival is distinct from spec synchronization.
@@ -59,7 +59,7 @@ _Avoid_: Live issue state
 
 **Issue attempt**:
 One effort to implement an issue request from a selected baseline, including any clarification or repair continuations that preserve that request and baseline's validity.
-_Avoid_: Flow run (a single execution, not necessarily the whole attempt)
+_Avoid_: Single invocation (one execution, not necessarily the whole attempt)
 
 **Escalation**:
 A request for explicit human direction when an issue attempt cannot safely proceed autonomously.
