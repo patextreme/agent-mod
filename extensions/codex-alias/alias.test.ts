@@ -7,8 +7,8 @@ import { registerCodexAlias } from "./alias.js";
 const API = "openai-codex-responses" as const;
 type CodexModel = Model<typeof API>;
 
-const ALIAS_ID = "openai-codex-work";
-const ALIAS_NAME = "OpenAI Codex — Work";
+const ALIAS_ID = "openai-codex-secondary";
+const ALIAS_NAME = "OpenAI Codex — Secondary";
 
 function makeModel(overrides: Partial<CodexModel> = {}): CodexModel {
   return {

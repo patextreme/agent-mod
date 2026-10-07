@@ -1,10 +1,11 @@
 /**
- * pi-codex-alias — register `openai-codex-work` as an independently
+ * pi-codex-alias — register `openai-codex-secondary` as an independently
  * authenticated alias of Pi's built-in `openai-codex` provider.
  *
- * Use case: two OpenAI Codex subscription accounts (personal and work) in one
- * Pi agent directory, selected through `/model` as `openai-codex/<model>` and
- * `openai-codex-work/<model>`. Credentials are stored and refreshed under
+ * Use case: two OpenAI Codex subscription accounts (personal and secondary)
+ * in one Pi agent directory, selected through `/model` as
+ * `openai-codex/<model>` and `openai-codex-secondary/<model>`. Credentials are
+ * stored and refreshed under
  * separate `auth.json` keys, so logging in or out of one account never touches
  * the other. The built-in provider is left exactly as it ships.
  *
@@ -21,11 +22,11 @@ import { registerCodexAlias } from "./alias.js";
 /** Built-in provider to alias. */
 const SOURCE_PROVIDER_ID = "openai-codex";
 
-/** Provider id registered for the second (work) account. */
-const ALIAS_PROVIDER_ID = "openai-codex-work";
+/** Provider id registered for the second (secondary) account. */
+const ALIAS_PROVIDER_ID = "openai-codex-secondary";
 
 /** Display name shown for the alias in `/login`, `/logout`, and `/model`. */
-const ALIAS_PROVIDER_NAME = "OpenAI Codex — Work";
+const ALIAS_PROVIDER_NAME = "OpenAI Codex — Secondary";
 
 export default function codexAliasExtension(pi: ExtensionAPI): void {
   const source = builtinProviders().find((p) => p.id === SOURCE_PROVIDER_ID);

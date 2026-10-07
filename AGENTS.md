@@ -33,7 +33,7 @@ nix flake check
 - `extensions/permission/index.ts` — Permission extension (imports from `./rules.js`). Registers the `/permission-list-always-allow`, `/permission-reset`, and `/permission-yolo` commands
 - `extensions/permission/rules.ts` — Permission rules and `findMatchingRule` logic (dependency-free, testable)
 - `extensions/permission/rules.test.ts` — Permission rules test suite (65 tests)
-- `extensions/codex-alias/` — Codex provider alias (`index.ts` imports `./alias.js`). Registers `openai-codex-work` ("OpenAI Codex — Work") as an independently authenticated alias of the built-in `openai-codex` provider, reusing its OAuth flow and catalog so two Codex accounts share one agent directory; unit-tested in `alias.test.ts`
+- `extensions/codex-alias/` — Codex provider alias (`index.ts` imports `./alias.js`). Registers `openai-codex-secondary` ("OpenAI Codex — Secondary") as an independently authenticated alias of the built-in `openai-codex` provider, reusing its OAuth flow and catalog so two Codex accounts share one agent directory; unit-tested in `alias.test.ts`
 - `prompts/` — Pi prompt templates (Markdown + YAML frontmatter). Naming convention: `category-name.md`
 - `skills/` — Pi skills (`<name>/SKILL.md` with YAML frontmatter), packaged via the `pi` field and the `pi-skills` flake output
 - `nix/` — Flake devshell and package build config
