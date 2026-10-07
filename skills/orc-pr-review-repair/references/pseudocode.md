@@ -1,6 +1,6 @@
 # PR review and repair control flow
 
-Use this loop as the control-flow source of truth. `SKILL.md` defines preparation, shared guards, thresholds, and stage contracts; `report-contracts.md` defines findings and durable PR records. Delegate each stage and boundary check to subagents; the orchestrator accepts evidence and decides transitions.
+Use this loop as the control-flow source of truth. `SKILL.md` defines preparation, shared guards, thresholds, and stage contracts; `report-contracts.md` defines findings, the durable PR records' visible summary plus collapsed audit layers, and the concise final user response. Delegate each stage and boundary check to subagents; the orchestrator accepts evidence and decides transitions. Concise reporting never removes the underlying evidence: complete reports, ledger, receipts, and exact operation state stay in the PR records and accepted evidence.
 
 ```text
 contract = PREPARE requested PR; load paginated history and report contracts
@@ -50,7 +50,8 @@ ESCALATE:
   PRESERVE safe work, ledger, reserved count, and exact operation state
   POST and VERIFY escalation record when possible
   REPORT missing receipts/history directly if recording fails
-  REPORT evidence and specific human input/recovery action; PAUSE
+  REPORT a concise escalation summary, the posted record link, and the
+    specific human input/recovery action; PAUSE
 ```
 
 Resume explicitly with the user's answer and reconciled state. Retries complete the same reserved attempt; a new review/repair cycle consumes a new reservation. The final review after attempt ten can establish success or escalation, never authorize repair eleven.

@@ -21,8 +21,11 @@ import {
   parseFrontmatter,
 } from "@earendil-works/pi-coding-agent";
 
-// Distribution coverage only: no sessions, model calls, workflow dispatch,
-// GitHub access, signing, or cleanup execution.
+// Model-free checks only: packaging/distribution/discovery plus documented
+// report-presentation contracts. No sessions, model calls, workflow dispatch,
+// GitHub access, signing, or cleanup execution. The contract tests assert the
+// text of skill documentation and examples; they do not establish live model
+// adherence or how GitHub renders collapsed details.
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const factorySkills = {
   "orc-openspec-groom": ["references/pseudocode.md"],
@@ -162,6 +165,323 @@ test(
   { skip: !process.env.PI_FACTORY_SKILLS_OUTPUT },
   () => checkFactoryNotice(process.env.PI_FACTORY_SKILLS_OUTPUT),
 );
+
+// --- orc-pr-review-repair report-presentation documentation contract ------
+
+const reportContracts = readFileSync(
+  join(repoRoot, "skills/orc-pr-review-repair/references/report-contracts.md"),
+  "utf8",
+);
+const prReviewSkill = readFileSync(
+  join(repoRoot, "skills/orc-pr-review-repair/SKILL.md"),
+  "utf8",
+);
+const prReviewPseudocode = readFileSync(
+  join(repoRoot, "skills/orc-pr-review-repair/references/pseudocode.md"),
+  "utf8",
+);
+const issueToPrSkill = readFileSync(
+  join(repoRoot, "skills/orc-issue-to-pr/SKILL.md"),
+  "utf8",
+);
+
+function recordExample(name) {
+  const heading = `### Example: ${name}`;
+  const start = reportContracts.indexOf(heading);
+  assert.ok(start !== -1, `report contracts must define ${name} example`);
+  // Scan fence-aware: example records contain "### " headings inside their
+  // collapsed audit blocks, so the section must not end at the first one.
+  const lines = reportContracts.slice(start).split("\n");
+  let end = lines.length;
+  let inFence = false;
+  for (let i = 1; i < lines.length; i++) {
+    if (lines[i].startsWith("```")) inFence = !inFence;
+    else if (!inFence && lines[i].startsWith("### ")) {
+      end = i;
+      break;
+    }
+  }
+  const section = lines.slice(0, end).join("\n");
+  const fenced = section.match(/```markdown\n([\s\S]*?)\n```/);
+  assert.ok(fenced, `${name} example must include a markdown code block`);
+  const record = fenced[1];
+  const detailsAt = record.indexOf("<details>");
+  assert.ok(detailsAt !== -1, `${name} example must collapse audit details`);
+  return {
+    record,
+    visible: record.slice(0, detailsAt),
+    audit: record.slice(detailsAt),
+  };
+}
+
+function visibleWords(record) {
+  return record.visible
+    .replace(/<!--[\s\S]*?-->/g, " ")
+    .split(/\s+/)
+    .filter(Boolean).length;
+}
+
+const recordMarker =
+  /<!-- orc-pr-review-repair run=\S+ round=\d+ kind=(?:summary|escalation) -->/;
+
+const auditPreservations = [
+  "Complete original Standards report",
+  "Complete original Spec report",
+  "Complete ledger",
+];
+
+for (const [name, kind] of [
+  ["clean round", "summary"],
+  ["repaired round", "summary"],
+  ["escalated round", "escalation"],
+]) {
+  test(`${name} example preserves identity, audit, and bookkeeping`, () => {
+    const example = recordExample(name);
+    assert.match(example.record, recordMarker);
+    assert.ok(
+      example.record.includes(`kind=${kind} -->`),
+      `${name} example marker must use kind=${kind}`,
+    );
+    assert.ok(
+      example.record.trimEnd().endsWith("</details>"),
+      `${name} example must close the collapsed audit in the same comment`,
+    );
+    for (const preserved of auditPreservations) {
+      assert.ok(
+        example.audit.includes(preserved),
+        `${name} collapsed audit must preserve: ${preserved}`,
+      );
+    }
+    assert.ok(
+      /repair-start|Audit record/.test(example.audit),
+      `${name} collapsed audit must retain repair links/bookkeeping`,
+    );
+    assert.doesNotMatch(
+      example.visible,
+      /\/tmp\/|\/home\//,
+      `${name} visible summary must not expose local paths`,
+    );
+    assert.match(example.visible, /\b\d+\/10\b/, `${name} must show budget`);
+  });
+}
+
+test("clean-round example is outcome-first, near 150 words, without repeated reports", () => {
+  const example = recordExample("clean round");
+  const outcome = example.visible.indexOf("## Review complete");
+  assert.ok(outcome !== -1, "clean round must state its outcome in a heading");
+  assert.ok(
+    outcome < example.visible.indexOf("**Validation:"),
+    "outcome must precede validation details",
+  );
+  const words = visibleWords(example);
+  assert.ok(
+    words >= 40 && words <= 160,
+    `clean-round visible summary must stay near 150 words, got ${words}`,
+  );
+  assert.doesNotMatch(
+    example.visible,
+    /### Standards|### Spec|Judge ledger|Pinned base|merge-base|Tested HEAD tree/,
+    "visible summary must not repeat axis reports or audit plumbing",
+  );
+  assert.ok(
+    example.visible.includes("cached") &&
+      example.visible.includes("not a fresh run"),
+    "clean round must distinguish cached evidence from fresh execution",
+  );
+  assert.ok(
+    example.visible.includes("**Scope:"),
+    "material scope limitations must stay visible",
+  );
+  assert.ok(
+    example.visible.includes("**No findings or unresolved investigations.**"),
+    "clean round must report finding counts including investigations",
+  );
+});
+
+test("repaired example uses stable IDs, commits, and truthful validation", () => {
+  const example = recordExample("repaired round");
+  assert.ok(
+    (example.visible.match(/\bF-\d{3}\b/g) ?? []).length >= 2,
+    "repaired round must reference stable finding IDs",
+  );
+  assert.match(example.visible, /`abc1234`/);
+  assert.match(example.visible, /`def5678`/);
+  assert.match(example.visible, /regression test/);
+  assert.ok(
+    example.visible.includes("cached evidence"),
+    "repaired round must attribute cached validation truthfully",
+  );
+  assert.ok(
+    example.visible.includes(
+      "remained unavailable and is not counted as passing",
+    ),
+    "unavailable checks must not be labeled green",
+  );
+  const reviewed = example.visible.indexOf("**Reviewed:** `abc1234`");
+  const delivered = example.visible.indexOf("**Delivered:** `def5678`");
+  assert.ok(reviewed !== -1 && delivered !== -1);
+  assert.ok(
+    reviewed < delivered,
+    "delivered head must be shown when it differs from the reviewed head",
+  );
+  assert.ok(
+    example.audit.includes("repair-start link") ||
+      example.audit.includes("Repair-start link"),
+    "repaired round audit must link its repair-start record",
+  );
+});
+
+test("escalated example places blockers and recovery before routine details", () => {
+  const example = recordExample("escalated round");
+  const decision = example.visible.indexOf("**Needs decision:**");
+  const validation = example.visible.indexOf("**Validation:**");
+  assert.ok(decision !== -1, "escalation must name the required decision");
+  assert.ok(
+    decision < validation,
+    "blockers and required decisions must precede routine details",
+  );
+  assert.match(
+    example.visible,
+    /recovery action/,
+    "escalation must state the specific recovery action",
+  );
+  assert.ok(
+    example.audit.includes("awaiting human input"),
+    "escalated ledger must retain the awaiting-input disposition",
+  );
+  assert.ok(
+    example.audit.includes("incomplete-operation state") &&
+      example.audit.includes("recovery input"),
+    "escalated audit must retain exact operation state and recovery input",
+  );
+});
+
+test("report contracts require complete collapsed audits without new storage", () => {
+  for (const required of [
+    "Collapsed audit details",
+    "Complete original Standards and Spec reports",
+    "full finding ledger",
+    "Run identity, pinned refs",
+    "repair-start record link",
+    "delivery state and receipts",
+    "incomplete-operation/recovery state",
+  ]) {
+    assert.ok(
+      reportContracts.includes(required),
+      `collapsed audit contract must require: ${required}`,
+    );
+  }
+  assert.ok(
+    reportContracts.includes(
+      "Nothing is replaced by a digest, external storage, or local-file links",
+    ),
+    "contract must forbid digest/external/local-file substitutes",
+  );
+  assert.ok(
+    reportContracts.includes("only as non-public audit references"),
+    "local paths must be confined to non-public audit references",
+  );
+  assert.ok(
+    reportContracts.includes(
+      "never label unknown or unavailable checks as green",
+    ),
+    "check truthfulness requirement must be explicit",
+  );
+  assert.ok(
+    reportContracts.includes("never move them into collapsed details"),
+    "material limitations must stay out of collapsed details",
+  );
+  assert.ok(
+    reportContracts.includes("readability target, not a hard cap"),
+    "word target must remain a soft readability goal",
+  );
+  assert.ok(
+    reportContracts.includes("kind=<repair-start|summary|escalation>"),
+    "record identity marker template must be retained",
+  );
+  for (const reservationField of [
+    "- PR / run / round:",
+    "- Pinned base / merge-base:",
+    "- Expected local and remote head:",
+    "- Repairs used:",
+    "- Authorized actionable IDs:",
+    "- Intended scope:",
+    "- State: repair reserved; no delivery confirmed",
+  ]) {
+    assert.ok(
+      reportContracts.includes(reservationField),
+      `repair-start reservation field must be retained: ${reservationField}`,
+    );
+  }
+  assert.ok(
+    reportContracts.includes("reservation sequencing is unchanged"),
+    "repair reservation contract must remain unchanged",
+  );
+  assert.ok(
+    reportContracts.includes(
+      "report the unrecorded state directly to the user",
+    ),
+    "publication failure must still be disclosed",
+  );
+  assert.ok(
+    reportContracts.includes("never invent a receipt or link"),
+    "fabricated receipts must stay forbidden",
+  );
+});
+
+test("skills keep concise user responses with complete internal handoffs", () => {
+  assert.ok(
+    prReviewSkill.includes("never discards internal stage outputs"),
+    "pr-review skill must retain complete stage outputs",
+  );
+  assert.ok(
+    prReviewSkill.includes("full ledger remains in PR history"),
+    "ledger must stay in PR history, not the user response",
+  );
+  assert.ok(
+    prReviewSkill.includes("verified PR comment link") &&
+      prReviewSkill.includes("concise final response"),
+    "user response must be concise with the verified PR record link",
+  );
+  assert.ok(
+    prReviewSkill.includes("complete internal handoff"),
+    "callers must still receive complete orchestration evidence",
+  );
+  assert.ok(
+    !prReviewSkill.includes(
+      "Return the final user report from Report contracts with counts, ledger",
+    ),
+    "skill must no longer return the full ledger to the user",
+  );
+  assert.ok(
+    prReviewPseudocode.includes("visible summary plus collapsed audit layers"),
+    "pseudocode must reference the two record layers",
+  );
+  assert.ok(
+    prReviewPseudocode.includes(
+      "POST and VERIFY escalation record when possible",
+    ) &&
+      prReviewPseudocode.includes(
+        "REPORT missing receipts/history directly if recording fails",
+      ),
+    "pseudocode publication gates must be preserved",
+  );
+  assert.ok(
+    prReviewPseudocode.includes("concise escalation summary"),
+    "escalation reporting must be concise",
+  );
+  assert.ok(
+    issueToPrSkill.includes("complete final orchestration report") &&
+      issueToPrSkill.includes(
+        "does not replace this internal handoff evidence",
+      ),
+    "caller must retain complete internal review handoff evidence",
+  );
+  assert.ok(
+    issueToPrSkill.includes("verified PR record link"),
+    "caller finish report must link the verified PR record",
+  );
+});
 
 function seedDefaultSkill(dir, name) {
   mkdirSync(join(dir, name), { recursive: true });
