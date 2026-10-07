@@ -69,6 +69,7 @@ These ship only as Nix flake outputs (`pi-permission`, `pi-ollama-usage`) and ar
 | Skill | Description |
 |-------|-------------|
 | [`openspec-review`](./skills/openspec-review/SKILL.md) | Review an OpenSpec change for semantic soundness before implementation |
+| [`openspec-propose-issue`](./skills/openspec-propose-issue/SKILL.md) | Propose the OpenSpec change for a settled GitHub issue on its `issue-<n>` branch, then commit, push, and link it |
 | [`orc-openspec-groom`](./skills/orc-openspec-groom/SKILL.md) | Delegate semantic review and Critical-only planning repairs |
 | [`orc-openspec-implement`](./skills/orc-openspec-implement/SKILL.md) | Implement whole task groups sequentially with independent checks |
 | [`orc-openspec-verify`](./skills/orc-openspec-verify/SKILL.md) | Verify and repair until Critical and Warning findings are clear |
@@ -78,9 +79,10 @@ These ship only as Nix flake outputs (`pi-permission`, `pi-ollama-usage`) and ar
 
 ## Factory skill toolkit
 
-Installation exposes instructions and bundled references, not an orchestration runtime or credentials. These six skills require an **enhanced Pi host**; stock Pi alone is not sufficient. Read the selected skill and prepare its prerequisites before invocation, for example:
+Installation exposes instructions and bundled references, not an orchestration runtime or credentials. These skills require an **enhanced Pi host**, except the human-only proposal and cleanup skills, which need only their listed CLIs; stock Pi alone is not sufficient. Read the selected skill and prepare its prerequisites before invocation, for example:
 
 ```text
+/skill:openspec-propose-issue <issue-number>
 /skill:orc-openspec-groom <existing-change>
 /skill:orc-openspec-implement <existing-change>
 /skill:orc-openspec-verify <existing-change>
@@ -96,6 +98,7 @@ Installation exposes instructions and bundled references, not an orchestration r
 | Orchestrators | `Agent` with `general-purpose` agents, nested delegation/tool access, and `codemode`; delegated orchestrators must retain the tools their stages require. |
 | Implementation / nested composition | `SubagentWorkflow` for sequential whole task-group dispatch and repair. Follow the host's explicit workflow opt-in and depth rules; loading a skill does not bypass them. Outer issue-to-PR coordinates through Agent/codemode, **not** an outer SubagentWorkflow wrapping nested orchestrators. Pause if required nested tooling or depth is unavailable. |
 | OpenSpec stages / OpenSpec issue route | OpenSpec CLI, an existing selected change, and unambiguous repository/store context. Discover registered stores with `openspec store list --json` and retain `--store <id>` on applicable commands when using a store. |
+| Issue OpenSpec proposal (human-only) | The external `openspec-propose` procedure, OpenSpec CLI, authenticated `gh` issue-write access, and commit signing/DCO. Runs before `orc-issue-to-pr` on the issue's `issue-<n>` worktree; human-only invocation (`disable-model-invocation: true`). |
 | Skill dependencies | `openspec-review` is **packaged here**. Supply `openspec-apply-change`, `openspec-verify-change`, `openspec-archive-change`, `openspec-sync-specs`, and `code-review` externally where required; the OpenSpec issue route additionally requires the archive/sync pair for finalization. Generated OpenSpec procedures and code-review are not bundled. Resolve their actual available-skill locations and pass absolute paths plus repository/worktree/change/store context to delegates, including new worktrees. |
 | PR review / delivery | Git and authenticated `gh` access to PRs, issues, paginated comments/history, checks, pushes, and required records; configure the issue tracker and access required by the external `code-review` procedure. Configure commit signing and DCO sign-off for delivery; do not weaken target-project signing policy. |
 | Issue-to-PR | Establishes the run's base before provisioning — request-supplied, user-confirmed, or derived from existing worktree/PR state — and keeps it sticky for the run; worktree basename and branch `issue-<n>`, PR base `<base>`, and the **exact** `openspec` routing label (other labels select direct edits). Reuse only verified matching worktree/PR state. Signed/DCO commits and normal pushes, never force pushes. |
@@ -165,6 +168,7 @@ The five acpx flow entrypoints — `openspec-groom`, `openspec-implement`, `open
 
 | Task | Use |
 |------|-----|
+| Propose an OpenSpec change for a settled issue | `/skill:openspec-propose-issue <issue-number>` |
 | Groom an existing change | `/skill:orc-openspec-groom <existing-change>` |
 | Implement an existing change | `/skill:orc-openspec-implement <existing-change>` |
 | Verify an implemented change | `/skill:orc-openspec-verify <existing-change>` |
