@@ -1,6 +1,6 @@
 # Agent Mod
 
-Pi coding agent package: extensions and prompt templates.
+Pi coding agent package: prompt templates and skills, plus extensions distributed as Nix flake outputs.
 
 ## Dev Commands
 
@@ -43,7 +43,7 @@ nix flake check
 - `flows/shared/` — Reusable command/data/local-target helpers, terminal steering, skill-expansion and finalization documentation-contract tests, and `fixtures/fake-agent.mjs`
 - `nix/` — Flake devshell and package build config
 
-`package.json` `"pi"` field declares `extensions`, `prompts`, and `skills` directories. `tsconfig.json` includes `extensions/**/*.ts` and `flows/**/*.ts`. Flow entrypoints live at `flows/<name>/index.ts`, with composition and flow-specific helpers/tests alongside. Package and Nix flow tests discover `*.test.ts` recursively; shared infrastructure must not carry groom's artifact-only edit authorization.
+`package.json` `"pi"` field declares only the `prompts` and `skills` directories; extensions ship exclusively as Nix flake outputs and are intentionally omitted from `pi install`. `tsconfig.json` includes `extensions/**/*.ts` and `flows/**/*.ts`. Flow entrypoints live at `flows/<name>/index.ts`, with composition and flow-specific helpers/tests alongside. Package and Nix flow tests discover `*.test.ts` recursively; shared infrastructure must not carry groom's artifact-only edit authorization.
 
 ## Agent skills
 
