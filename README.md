@@ -116,7 +116,7 @@ Package installation does not install the external skills or guarantee their ava
 
 Frontmatter, bundled-reference, package-content, and isolated discovery checks provide **static distribution assurance only**, not live operational safety, model obedience, external-prerequisite availability, or stock-Pi runtime support. They do not execute delivery or deletion. These prompt contracts do not inherit the deterministic acpx flows' policies or guarantees.
 
-Source and MIT redistribution permission cover all twelve imported files: see [Factory provenance](./skills/FACTORY-PROVENANCE.md). Skill-based finalization is tracked in [#47](https://github.com/patextreme/agent-mod/issues/47), full lifecycle composition in [#48](https://github.com/patextreme/agent-mod/issues/48). Existing acpx flows remain unchanged here; their removal belongs to the separate [`retire-acpx-flows`](./openspec/changes/retire-acpx-flows/) change, not this migration.
+The toolkit ships the complete [MIT notice](./skills/LICENSE) covering all twelve imported files; the pinned source commit and author-confirmed redistribution grant remain recorded in the [archived migration design](./openspec/changes/archive/2026-10-07-migrate-factory-skills/design.md). Skill-based finalization is tracked in [#47](https://github.com/patextreme/agent-mod/issues/47), full lifecycle composition in [#48](https://github.com/patextreme/agent-mod/issues/48). Existing acpx flows remain unchanged here; their removal belongs to the separate [`retire-acpx-flows`](./openspec/changes/retire-acpx-flows/) change, not this migration.
 
 ## Permission Extension
 
@@ -376,4 +376,4 @@ Before committing changes that touch `package*.json` or `nix/`, also run `nix fl
 
 ## License
 
-MIT — see [LICENSE](./LICENSE). Imported factory skills and references: [source provenance and redistribution grant](./skills/FACTORY-PROVENANCE.md).
+MIT — see [LICENSE](./LICENSE). Imported factory skills and references bundle their own complete copy: [skills/LICENSE](./skills/LICENSE).
