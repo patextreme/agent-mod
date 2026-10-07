@@ -1,10 +1,11 @@
 /**
  * pi-ollama-usage — Ollama Cloud session/weekly usage in the pi status bar
  *
- * Polls ollama.com's undocumented `GET /api/usage` endpoint (the one backing
- * the ollama.com dashboard; it may change or disappear without notice) and
- * shows the consumed fraction of the ~5h session limit and the weekly limit
- * as a footer status slot: `ollama: 2.6% / 0.8%` (session / weekly).
+ * Polls ollama.com's undocumented `GET /api/balance` endpoint (the account
+ * balance behind the ollama.com dashboard; it may change or disappear without
+ * notice) and shows the consumed fraction of the ~5h session limit and the
+ * weekly limit as a footer status slot: `ollama: 2.6% / 0.8%` (session /
+ * weekly).
  *
  * Refreshes whenever an ollama-cloud model is selected — `model_select` fires
  * on /model, Ctrl+P cycling, and session restore, which covers new sessions
@@ -36,8 +37,8 @@ const STATUS_KEY = "ollama-usage";
 /** Exact pi provider id for Ollama Cloud. No fuzzy matching. */
 const PROVIDER_ID = "ollama-cloud";
 
-/** Undocumented account-usage endpoint backing the ollama.com dashboard. */
-const USAGE_API_URL = "https://ollama.com/api/usage";
+/** Undocumented account-balance endpoint backing the ollama.com dashboard. */
+const BALANCE_API_URL = "https://ollama.com/api/balance";
 
 /** Abort a hung fetch after this many milliseconds (don't block selection). */
 const FETCH_TIMEOUT_MS = 8_000;
@@ -69,7 +70,7 @@ async function fetchUsage(ctx: ExtensionContext): Promise<FetchResult> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
-    const response = await fetch(USAGE_API_URL, {
+    const response = await fetch(BALANCE_API_URL, {
       headers: { Authorization: `Bearer ${key}` },
       signal: controller.signal,
     });
