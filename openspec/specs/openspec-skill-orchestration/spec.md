@@ -31,23 +31,34 @@ Grooming SHALL restrict repairs to Critical findings in the selected planning ar
 - **WHEN** fresh semantic review establishes zero Critical findings
 - **THEN** the report includes rounds, edited files, remaining severity counts and separate structural-validation guidance without claiming structural validity
 
-### Requirement: Dependency-aware task-group implementation
-Implementation SHALL prepare exact task groups, dependencies and file ownership from current apply instructions and context. Each worker SHALL implement only its assigned group. Dependent or overlapping work SHALL be serialized; only safely independent, disjoint ownership SHALL run concurrently. Ownership expansion SHALL pause the affected group for rescheduling.
+### Requirement: Sequential whole-group implementation
+Implementation SHALL prepare exact task groups and their dependencies from current apply instructions and context. Workers SHALL receive task-scoped repository access within the selected action context rather than file-ownership whitelists, and MAY edit whatever their assigned tasks require while preserving unrelated work. Task groups SHALL run one at a time, each released only after the preceding group's completion is independently verified and bookkept.
+
+#### Scenario: Worker needs an unlisted file
+- **WHEN** a worker's assigned tasks require editing a file outside any pre-listed set
+- **THEN** the worker edits it within the selected action context instead of pausing for ownership reassignment, while preserving unrelated work and recorded intent
 
 #### Scenario: Shared task artifact
-- **WHEN** independent implementation workers finish their groups
-- **THEN** delegated actual-diff/check validation precedes serialized task-checkbox bookkeeping, preventing parallel edits to shared task state
-
-#### Scenario: Ownership expands
-- **WHEN** a worker needs a file owned by another active group
-- **THEN** affected work pauses and is rescheduled before overlapping edits proceed
+- **WHEN** an implementation worker finishes a group
+- **THEN** delegated actual-diff/check validation precedes serialized task-checkbox bookkeeping, preventing unverified edits to shared task state
 
 ### Requirement: Evidence-backed implementation completion
-Implementation SHALL claim completion only after assigned tasks are implemented and independently checked, integrated required checks pass, and apply status is refreshed. Summaries alone MUST NOT establish completion. Failed checks, added scope, ambiguity or agent failures SHALL pause affected work and dependents. Sync and archive SHALL remain separate requests.
+Implementation SHALL claim completion only after assigned tasks are implemented, a fresh read-only verifier inspects the actual changes and checks, and apply status is refreshed. Summaries alone MUST NOT establish completion. Sync and archive SHALL remain separate requests.
 
 #### Scenario: Worker reports completion without evidence
 - **WHEN** a worker claims its group is complete but diff/check inspection does not support it
 - **THEN** the orchestrator does not accept completion or mark those tasks finished
+
+### Requirement: Autonomous technical repair
+Implementation SHALL return fixable technical failures within recorded intent to an implementation worker with the exact findings and reproduction, then re-verify the actual changes without a human approval round. Design, product, architecture or authorization decisions SHALL pause affected work and dependents. Recurring findings without edits or new evidence SHALL pause for human input rather than redispatch unchanged work.
+
+#### Scenario: Technical check failure
+- **WHEN** verification reports a fixable technical failure within existing intent
+- **THEN** an implementation worker repairs it and a fresh verifier re-inspects the actual changes
+
+#### Scenario: Recurring findings without progress
+- **WHEN** the same findings recur with no edits and no new evidence
+- **THEN** implementation reports the impediment and asks the user instead of redispatching unchanged work
 
 ### Requirement: Critical-and-Warning verification acceptance
 Verification SHALL use a fresh read-only agent following the externally supplied verification procedure. Success SHALL require complete verification with zero Critical and zero Warning findings and applicable required evidence. Suggestions SHALL remain report-only. Skipped optional scope SHALL be disclosed; interrupted review, unread available artifacts or blocked required checks MUST NOT establish success.
