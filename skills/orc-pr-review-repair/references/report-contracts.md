@@ -12,7 +12,8 @@ Give each finding a stable ID within the run (for example, `F-001`). Match recur
 | Category | blocker, significant bug, report-only, refuted, or needs investigation. |
 | Evidence | File/line or code path, reproduction/test where available, established requirement or mandatory rule. |
 | Impact | Concrete trigger, consequence, supported scenario, and significance rationale. |
-| Correction | Proposed scope, dependencies, risk, and whether human input is needed. |
+| Correction | Proposed scope, dependencies, risk, and whether human input is needed; for archived sources, code-only / approved behavior-affecting / new consequential intent with authorization citations. |
+| Archived alignment (if applicable) | Code evidence, archived requirement/design/task citations, relevant main specs; each affected document changed with rationale or unchanged with evidence; preservation and validation results at the current SHA. |
 | Disposition | open, repaired-and-verified, recurring, refuted, or awaiting human input. |
 | Resolution evidence | Current code/test evidence; reviewed SHA; earlier occurrence/comment links. |
 
@@ -40,6 +41,7 @@ Post and verify this before dispatching a repair:
 - Repairs used: <incremented count>/10
 - Authorized actionable IDs:
 - Intended scope:
+- Archived sources / correction class / authorized document scope: <if applicable>
 - State: repair reserved; no delivery confirmed
 ```
 
@@ -55,6 +57,7 @@ An unfinished start reserves the attempt across interruptions. Link subsequent s
 - Delivered SHA(s): <values or no repair>
 - Repairs used: <count>/10
 - Repair-start record: <link or not applicable>
+- Continuation state: <same recovered run/count; completed and remaining attempt operations>
 
 ### Standards
 <Complete review report, or a durable link to its complete PR record.>
@@ -70,17 +73,22 @@ An unfinished start reserves the attempt across interruptions. Link subsequent s
 - Per-finding results:
 - Check commands and results at the reviewed/delivered SHA:
 - Skipped checks and coverage limitations:
+- Archived alignment (if applicable): confirmed archive path/inventory and relevant main specs; code/requirement evidence; affected document changes or unchanged rationale; preservation evidence:
+- Affected document/spec validation (if applicable): actual source paths, direct comparison or disposable-fixture mapping, commands/results and SHA:
 
 ### Delivery
 - Commit / signing result:
 - Push result / confirmed remote SHA:
+- Original sync acceptance / confirmed archive path and complete current inventory (if applicable):
+- Authorized code/test/archive/main-spec inclusion evidence (if applicable):
+- Fresh review / affected validation / required final-gate SHA after fixes:
 
 ### Decision
 <Review again, nothing repair-worthy, partial delivery, or human intervention.>
 <Exact blocker and required human input, when applicable.>
 ```
 
-The comment receipt URL/ID is returned by the delivery Agent after posting; it need not reference itself. For a no-repair round, explicitly mark repair and commit/push fields as not applicable. For partial delivery, state which operations completed and the next recovery action. When commenting fails, report the unrecorded state directly to the user.
+The comment receipt URL/ID is returned by the delivery Agent after posting; it need not reference itself. For a no-repair round, explicitly mark repair and commit/push fields as not applicable. For archived-source repairs, use the existing ledger/summary rather than a parallel history protocol. New consequential intent needs an escalation containing the finding, investigation/attempted fixes, proposed intent, affected documents, options/consequences and scoped question before edits. For partial delivery, state which operations completed and the next recovery action, with actual expected/local/remote SHAs and commit/push/comment receipts. Follow [Continuation](./continuation.md) for interrupted attempts; link the same reservation rather than create another record protocol or budget. When commenting fails, report the unrecorded state directly to the user.
 
 ## Final report to the user
 
@@ -91,9 +99,13 @@ The comment receipt URL/ID is returned by the delivery Agent after posting; it n
 - Reviews / repair attempts: <counts>; repairs <count>/10
 - Findings: <blockers>, <significant bugs>, <report-only>, <unresolved investigations>
 - Delivered commits:
+- Recovered run / reserved count / completed and remaining operations:
 - PR history links:
 - Checks and results:
 - Skipped scope:
+- Sync acceptance / confirmed archive path and complete current inventory: <if applicable>
+- Archived alignment / affected document validation / delivered inclusion evidence: <if applicable>
+- Final reviewed / delivered / required-gate SHA:
 - Human input / recovery action: <specific request or none>
 ```
 
