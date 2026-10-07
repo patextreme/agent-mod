@@ -1,9 +1,9 @@
-// ─── ollama.com /api/usage parsing ──────────────────────────────────────────
+// ─── ollama.com /api/balance parsing ────────────────────────────────────────
 //
 // Pure helpers split out for unit testing (see parse.test.ts). The extension
 // (index.ts) is the only intended runtime consumer.
 
-/** Session/weekly usage fractions extracted from a `/api/usage` response. */
+/** Session/weekly usage fractions extracted from an `/api/balance` response. */
 export interface Usage {
   /** Fraction (0..1) of the ~5h session limit consumed, or null if unknown. */
   session: number | null;
@@ -32,14 +32,18 @@ function formatFraction(fraction: number | null): string {
 }
 
 /**
- * Parse an ollama.com `GET /api/usage` response body (raw JSON text) and
- * extract the session/weekly usage fractions. Each value independently
- * becomes null when absent or not a finite number, so callers can treat every
- * parse failure uniformly as "unknown for this window" and render `?`.
+ * Parse an ollama.com `GET /api/balance` response body (raw JSON text) and
+ * extract the session/weekly usage fractions. The endpoint reports each
+ * window's `remaining_percent` (0..100); the status slot shows consumed
+ * usage, so each value is converted to `(100 - remaining_percent) / 100` and
+ * clamped to 0..1. Each window independently becomes null when absent or not
+ * a finite number, so callers can treat every parse failure uniformly as
+ * "unknown for this window" and render `?`.
  *
  * Example payload:
- *   {"limits": {"session": {"usage": 0.026, "models": [...]},
- *               "weekly":  {"usage": 0.008, "models": [...]}}}
+ *   {"included": {"session": {"remaining_percent": 96.68, "resets_at": "..."},
+ *                 "weekly":  {"remaining_percent": 96.37, "resets_at": "..."}},
+ *    "purchased": {"balance_usd": 0}}
  *
  * The endpoint is undocumented; anything unexpected degrades to null rather
  * than throwing.
@@ -55,10 +59,10 @@ export function parseUsage(text: string): Usage {
   }
   if (typeof body !== "object" || body === null)
     return { session: null, weekly: null };
-  const limits = (body as { limits?: unknown }).limits;
-  if (typeof limits !== "object" || limits === null)
+  const included = (body as { included?: unknown }).included;
+  if (typeof included !== "object" || included === null)
     return { session: null, weekly: null };
-  const windows = limits as { session?: unknown; weekly?: unknown };
+  const windows = included as { session?: unknown; weekly?: unknown };
   return {
     session: parseWindow(windows.session),
     weekly: parseWindow(windows.weekly),
@@ -67,7 +71,11 @@ export function parseUsage(text: string): Usage {
 
 function parseWindow(window: unknown): number | null {
   if (typeof window !== "object" || window === null) return null;
-  const usage = (window as { usage?: unknown }).usage;
-  if (typeof usage !== "number" || !Number.isFinite(usage)) return null;
-  return usage;
+  const remaining = (window as { remaining_percent?: unknown })
+    .remaining_percent;
+  if (typeof remaining !== "number" || !Number.isFinite(remaining)) {
+    return null;
+  }
+  const consumed = (100 - remaining) / 100;
+  return Math.min(1, Math.max(0, consumed));
 }

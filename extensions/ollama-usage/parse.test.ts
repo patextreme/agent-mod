@@ -3,118 +3,134 @@ import { describe, it } from "node:test";
 import { formatUsage, parseUsage } from "./parse.js";
 
 const FULL_BODY = JSON.stringify({
-  activity: { cost: "0.00000", period: {}, models: [] },
-  limits: {
+  included: {
     session: {
-      usage: 0.026,
-      models: [
-        { name: "glm-5.3-flash", request_count: 97 },
-        { name: "gpt-oss:20b", request_count: 8 },
-      ],
+      remaining_percent: 97.5,
+      resets_at: "2026-10-07T08:00:00Z",
     },
     weekly: {
-      usage: 0.008,
-      models: [{ name: "glm-5.3-flash", request_count: 198 }],
+      remaining_percent: 99.5,
+      resets_at: "2026-10-12T00:00:00Z",
     },
   },
+  purchased: { balance_usd: 0 },
 });
 
 describe("parseUsage", () => {
-  it("extracts session and weekly fractions", () => {
+  it("converts remaining percentages into consumed fractions", () => {
     assert.deepStrictEqual(parseUsage(FULL_BODY), {
-      session: 0.026,
-      weekly: 0.008,
+      session: 0.025,
+      weekly: 0.005,
     });
   });
 
-  it("ignores unrelated fields (activity, models, request counts)", () => {
+  it("ignores unrelated fields (resets_at, purchased balance)", () => {
     assert.deepStrictEqual(parseUsage(FULL_BODY), {
-      session: 0.026,
-      weekly: 0.008,
+      session: 0.025,
+      weekly: 0.005,
     });
   });
 
-  it("accepts zero usage", () => {
+  it("accepts zero consumption (nothing used, fully remaining)", () => {
     assert.deepStrictEqual(
-      parseUsage('{"limits":{"session":{"usage":0},"weekly":{"usage":0}}}'),
+      parseUsage(
+        '{"included":{"session":{"remaining_percent":100},"weekly":{"remaining_percent":100}}}',
+      ),
       { session: 0, weekly: 0 },
     );
   });
 
-  it("accepts full consumption", () => {
+  it("accepts full consumption (nothing remaining)", () => {
     assert.deepStrictEqual(
-      parseUsage('{"limits":{"session":{"usage":1},"weekly":{"usage":1}}}'),
+      parseUsage(
+        '{"included":{"session":{"remaining_percent":0},"weekly":{"remaining_percent":0}}}',
+      ),
       { session: 1, weekly: 1 },
     );
   });
 
+  it("clamps a remaining percentage above 100 to zero consumption", () => {
+    assert.deepStrictEqual(
+      parseUsage('{"included":{"session":{"remaining_percent":120}}}'),
+      { session: 0, weekly: null },
+    );
+  });
+
+  it("clamps a negative remaining percentage to full consumption", () => {
+    assert.deepStrictEqual(
+      parseUsage('{"included":{"session":{"remaining_percent":-20}}}'),
+      { session: 1, weekly: null },
+    );
+  });
+
   it("returns null per window when a window is missing", () => {
-    assert.deepStrictEqual(parseUsage('{"limits":{"session":{"usage":0.5}}}'), {
-      session: 0.5,
-      weekly: null,
-    });
-  });
-
-  it("returns null per window when usage is missing", () => {
     assert.deepStrictEqual(
-      parseUsage('{"limits":{"session":{},"weekly":{"usage":0.1}}}'),
-      {
-        session: null,
-        weekly: 0.1,
-      },
+      parseUsage('{"included":{"session":{"remaining_percent":50}}}'),
+      { session: 0.5, weekly: null },
     );
   });
 
-  it("returns null when usage is a string", () => {
+  it("returns null per window when remaining_percent is missing", () => {
     assert.deepStrictEqual(
       parseUsage(
-        '{"limits":{"session":{"usage":"0.5"},"weekly":{"usage":0.1}}}',
+        '{"included":{"session":{},"weekly":{"remaining_percent":90}}}',
       ),
       { session: null, weekly: 0.1 },
     );
   });
 
-  it("returns null when usage is an object", () => {
-    assert.deepStrictEqual(
-      parseUsage('{"limits":{"session":{"usage":{}},"weekly":{"usage":0.1}}}'),
-      { session: null, weekly: 0.1 },
-    );
-  });
-
-  it("returns null when usage is non-finite (1e999 overflows to Infinity)", () => {
+  it("returns null when remaining_percent is a string", () => {
     assert.deepStrictEqual(
       parseUsage(
-        '{"limits":{"session":{"usage":1e999},"weekly":{"usage":0.1}}}',
+        '{"included":{"session":{"remaining_percent":"0.5"},"weekly":{"remaining_percent":90}}}',
       ),
       { session: null, weekly: 0.1 },
     );
   });
 
-  it("returns null when usage is null", () => {
+  it("returns null when remaining_percent is an object", () => {
     assert.deepStrictEqual(
       parseUsage(
-        '{"limits":{"session":{"usage":null},"weekly":{"usage":0.1}}}',
+        '{"included":{"session":{"remaining_percent":{}},"weekly":{"remaining_percent":90}}}',
       ),
       { session: null, weekly: 0.1 },
     );
   });
 
-  it("returns both null when limits is missing", () => {
-    assert.deepStrictEqual(parseUsage('{"activity": {}}'), {
+  it("returns null when remaining_percent is non-finite (1e999 overflows to Infinity)", () => {
+    assert.deepStrictEqual(
+      parseUsage(
+        '{"included":{"session":{"remaining_percent":1e999},"weekly":{"remaining_percent":90}}}',
+      ),
+      { session: null, weekly: 0.1 },
+    );
+  });
+
+  it("returns null when remaining_percent is null", () => {
+    assert.deepStrictEqual(
+      parseUsage(
+        '{"included":{"session":{"remaining_percent":null},"weekly":{"remaining_percent":90}}}',
+      ),
+      { session: null, weekly: 0.1 },
+    );
+  });
+
+  it("returns both null when included is missing", () => {
+    assert.deepStrictEqual(parseUsage('{"purchased": {"balance_usd": 0}}'), {
       session: null,
       weekly: null,
     });
   });
 
-  it("returns both null when limits is not an object", () => {
-    assert.deepStrictEqual(parseUsage('{"limits": []}'), {
+  it("returns both null when included is not an object", () => {
+    assert.deepStrictEqual(parseUsage('{"included": []}'), {
       session: null,
       weekly: null,
     });
   });
 
-  it("returns both null when limits is null", () => {
-    assert.deepStrictEqual(parseUsage('{"limits": null}'), {
+  it("returns both null when included is null", () => {
+    assert.deepStrictEqual(parseUsage('{"included": null}'), {
       session: null,
       weekly: null,
     });
