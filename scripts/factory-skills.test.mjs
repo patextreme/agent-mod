@@ -333,3 +333,61 @@ test("factory skills are self-contained, packaged, and discoverable without defa
     rmSync(tempRoot, { recursive: true, force: true });
   }
 });
+
+function implementationInstructions() {
+  const dir = join(repoRoot, "skills", "orc-openspec-implement");
+  return {
+    skill: readFileSync(join(dir, "SKILL.md"), "utf8"),
+    pseudocode: readFileSync(join(dir, "references", "pseudocode.md"), "utf8"),
+  };
+}
+
+test("implementation instructions retain sequential task-scoped delegation", () => {
+  const { skill, pseudocode } = implementationInstructions();
+  assert.match(skill, /Run one task group at a time/);
+  assert.match(skill, /task-scoped repository access[^\n]*not file whitelists/);
+  assert.match(
+    skill,
+    /Resolve `openspec-apply-change` from the invoking environment/,
+  );
+  assert.match(
+    skill,
+    /immediate checkbox updates, and pause-on-technical-error rules/,
+  );
+  assert.match(
+    pseudocode,
+    /RELEASE a group only after its prerequisites are verified and bookkept/,
+  );
+  assert.doesNotMatch(
+    pseudocode,
+    /file-ownership plan|RUN independent groups concurrently|IF ownership expands/,
+  );
+});
+
+test("implementation recovery and final acceptance guards remain explicit", () => {
+  const { pseudocode } = implementationInstructions();
+  const recovery = pseudocode.split("preparation = DELEGATE")[0];
+  assert.match(
+    recovery,
+    /genuine design\/product\/architecture decision or external authorization/,
+  );
+  assert.match(recovery, /findings recur without edits or new evidence/);
+  assert.match(
+    recovery,
+    /RETURN control and saved evidence to the main orchestrator/,
+  );
+  assert.match(recovery, /REQUIRE a revised brief supported by new evidence/);
+  assert.match(recovery, /STOP instead of redispatching unchanged work/);
+  const final = pseudocode.split("\nFinish:\n")[1];
+  assert.ok(final, "final acceptance flow must be documented");
+  assert.match(final, /INVALIDATE affected prior evidence/);
+  assert.match(
+    final,
+    /IF verification failed, is incomplete, or has unresolved findings:[\s\S]*CONTINUE with repair, then fresh independent verification/,
+  );
+  assert.match(
+    final,
+    /ACCEPT replacement evidence only after complete independent verification/,
+  );
+  assert.match(final, /CONFIRM bookkeeping before leaving this repair loop/);
+});

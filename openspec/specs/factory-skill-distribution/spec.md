@@ -29,11 +29,18 @@ References to bundled material SHALL resolve relative to the installed skill dir
 - **THEN** the orchestration instructions use that resolved procedure rather than a broken source-relative link or an invented replacement
 
 ### Requirement: Licensed source fidelity
-The toolkit SHALL record Lace wallet-sync commit `480e7d565e63469055caf7da75c98efb00d3b415` and the author's confirmed MIT redistribution permission. Changes made for packaging SHALL preserve source behavioral contracts rather than substitute acpx policy or introduce repository configuration.
+The toolkit SHALL record Lace wallet-sync commit `480e7d565e63469055caf7da75c98efb00d3b415` and the author's confirmed MIT redistribution permission as the initial import's provenance. Packaging-only changes SHALL preserve source behavioral contracts rather than substitute acpx policy or introduce repository configuration.
 
 #### Scenario: Migration is reviewed against source
 - **WHEN** the packaged skills and references are compared with the pinned source
-- **THEN** differences are attributable to distribution, dependency lookup, license/provenance or explanatory documentation, not changed acceptance, accounting or authorization
+- **THEN** differences are attributable to distribution, dependency lookup, license/provenance, explanatory documentation or explicitly documented subsequent skill revisions
+
+### Requirement: Documented subsequent skill revisions
+Subsequent explicitly authorized skill revisions SHALL document their behavioral changes while retaining the historical source and licensing attribution. They MUST NOT present those revisions as packaging-only differences or silently change the separate native acpx flows.
+
+#### Scenario: Implementation retrospective is applied
+- **WHEN** the implementation skill adopts authorized sequential task-scoped delegation and autonomous technical repair with independent verification
+- **THEN** its docs and orchestration specification describe those behavioral changes, portable dependency lookup and historical attribution remain intact, and native acpx flow policies remain unchanged
 
 ### Requirement: Packaging validation boundary
 Migration validation SHALL cover frontmatter, bundled links, package inclusion and isolated discovery. It MUST NOT require a live workflow, external-skill installation or access to GitHub/signing credentials, and MUST NOT present packaging checks as evidence of model obedience or operational safety.
