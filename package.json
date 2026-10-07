@@ -16,6 +16,7 @@
     "@earendil-works/pi-coding-agent": "^0.99.1"
   },
   "devDependencies": {
+    "@earendil-works/pi-ai": "0.99.1",
     "@earendil-works/pi-coding-agent": "^0.99.1",
     "tsx": "^4.21.0",
     "typescript": "^6.0.3"
@@ -25,6 +26,6 @@
     "lint": "biome lint .",
     "check": "biome check .",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test --test-concurrency=2 extensions/permission/rules.test.ts extensions/ollama-usage/parse.test.ts scripts/docs-version.test.mjs scripts/factory-skills.test.mjs"
+    "test": "tsx --test --test-concurrency=2 extensions/permission/rules.test.ts extensions/ollama-usage/parse.test.ts extensions/codex-alias/alias.test.ts scripts/docs-version.test.mjs scripts/factory-skills.test.mjs"
   }
 }
