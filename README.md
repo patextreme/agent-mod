@@ -12,7 +12,7 @@ Extensions ship as Nix flake outputs, while prompt templates and skills install 
 
 ## Requirements
 
-- Pi `^0.99.1` (declared as a peer dependency in [`package.json`](./package.json)).
+- Pi `^1.0.4` (declared as a peer dependency in [`package.json`](./package.json)).
 
 ## Installation
 

@@ -8,7 +8,7 @@
         src = ./../..;
         # Update via: set to pkgs.lib.fakeHash, run `nix build .#checks.x86_64-linux.pi-root-node-modules`
         # (or any check), copy the `got:` hash back.
-        npmDepsHash = "sha256-OkLAUFIgbaUlO4crFVeajUvFe+/+ZCEP4cfxOj2uUzA=";
+        npmDepsHash = "sha256-n3HrsBWoeYTRYoCgu1SXEU9i40QBG1vxJvjOqwH0hzo=";
         makeCacheWritable = true;
         dontNpmBuild = true;
         installPhase = ''
