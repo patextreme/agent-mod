@@ -1,6 +1,6 @@
 # Implementation control flow
 
-Adapt this pseudocode into a `SubagentWorkflow` script for task-group dispatch and dependency-aware progression. Codemode may coordinate surrounding stages, following the Execution guidance in `SKILL.md`. `SKILL.md` defines the stage contracts and reporting requirements.
+Adapt this pseudocode into a `SubagentWorkflow` script. Codemode may coordinate surrounding stages. `SKILL.md` defines the stage contracts and reporting requirements; the main orchestrator owns scheduling and evidence acceptance.
 
 ## Pseudocode
 
@@ -12,48 +12,48 @@ DELEGATE(contract, brief):
 preparation = DELEGATE(Prepare, repository and requested change/store)
 IF selection is ambiguous:
   ASK for selection; SAVE and PAUSE; repeat preparation after reply
-IF preparation failed, is incomplete, or is blocked:
-  REPORT impediment and ASK for input
-KEEP resolved change/store fixed unless the user changes it
+IF CLI state is blocked:
+  REPORT missing prerequisites; ASK; SAVE and PAUSE
+IF preparation failed or is incomplete:
+  DELEGATE missing investigation; revise the brief; repeat preparation
+KEEP the resolved change/store fixed unless the user changes it
 IF CLI state is all-done:
   PROCEED to Finish; do not dispatch implementation workers
 
-BUILD dependency graph and file-ownership plan under Schedule
-IF dependencies or ownership cannot be resolved safely:
-  DELEGATE missing investigation or ASK for input
+ORDER whole task groups by dependency
 
-DISPATCH through SubagentWorkflow:
-  RELEASE a group only after prerequisites are verified complete
-  RUN independent groups concurrently only with disjoint safe ownership
-  SERIALIZE shared files, uncertain boundaries, and shared build/generated outputs
-  LET ready groups progress without a barrier on unrelated groups
+FOR EACH group, one at a time:
+  RELEASE the group only after the preceding group is verified and bookkept
+  brief = selection, assigned task ids, prerequisite evidence, skill path,
+          and task-scoped repository access
+          (edit whatever the tasks require; preserve unrelated work;
+           repair technical failures yourself)
 
-  FOR EACH released group:
-    implementation = DELEGATE(Implement, exact selection, assigned tasks,
-                              owned files, prerequisite evidence, and skill path)
-    KEEP shared task-checkbox updates pending
-    IF ownership expands:
-      PAUSE affected group before overlapping edits
-      RESCHEDULE ownership before continuing
-    IF ambiguity, new design/scope, failed checks, or agent failure occurs:
-      PAUSE affected group and its dependents
-      REPORT partial work and ASK for input
+  LOOP:
+    implementation = DELEGATE(Implement and repair, brief)
+    KEEP task-checkbox updates pending for bookkeeping
 
-    verification = DELEGATE(Verify and continue, actual group diff and checks)
-    IF verification fails, is incomplete, or reveals a blocker:
-      PAUSE affected group and its dependents
-      REPORT evidence and ASK for input
-    SERIALIZE bookkeeping through a separate agent:
-      MARK only fully implemented, verified tasks complete
-    ACCEPT verified prerequisite completion; release eligible dependents
+    verification = DELEGATE(Verify, actual changes, assigned requirements,
+                            checks, prerequisite regressions)
+    IF verification is verified:
+      BREAK
+    IF the same findings recur with no edits and no new evidence:
+      REPORT the impediment and ASK   # do not redispatch unchanged work
+    brief = brief with the exact findings and reproduction added  # technical repair
 
-IF groups remain blocked or scheduling makes no progress:
-  REPORT completed/remaining tasks and ASK for input
-ELSE:
+  DELEGATE(Bookkeeping, only the verified task ids and their evidence)
+  MARK only fully implemented, verified tasks complete
+  CONFIRM fresh apply progress before releasing the next group
+  RETAIN the confirmed state and evidence for subsequent groups
+
+Finish:
   final = DELEGATE(Finish, integrated checks and fresh apply-status read)
-  VALIDATE all specified tasks complete and required checks pass
-  REPORT complete only if that evidence establishes completion
-  OTHERWISE REPORT partial/blocked outcome and required input
+  IF all specified tasks are complete AND required checks pass:
+    REPORT verified completion; STOP
+  OTHERWISE route technical failures through the repair/verify loop, then rerun Finish
+  PAUSE for genuine design/product/architecture decisions or external authorization
 ```
 
-Each `ASK` pauses the affected execution path. Preserve safe completed work and the exact selection; after input, reconcile actual edits, task state, dependencies, and ownership before resuming. Leave archiving and spec syncing to separate requests.
+A finding is progress only when edits or new investigation/check evidence justify a different next step. An empty result, a repeated summary, or a redispatch of an unchanged brief is not progress.
+
+Human-input branches save state and resume only after the user's answer, reconciled against actual edits, task state and prerequisite evidence. Workers return evidence to the orchestrator; committing, pushing, archiving and spec syncing remain separate authorized requests.
