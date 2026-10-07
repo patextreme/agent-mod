@@ -6,7 +6,7 @@ The package needs a distributable skill-based toolkit for explicit OpenSpec stag
 
 ## What Changes
 
-- Import `orc-openspec-groom`, `orc-openspec-implement`, `orc-openspec-verify`, `orc-pr-review-repair`, `orc-issue-to-pr`, and `cleanup-merged-issues`, including all bundled references, from `input-output-hk/lace-id-portal` wallet-sync commit `480e7d565e63469055caf7da75c98efb00d3b415`.
+- Import `orc-openspec-groom`, `orc-openspec-implement`, `orc-openspec-verify`, `orc-pr-review-repair`, `orc-issue-to-pr`, and `cleanup-merged-issues`, including all bundled references, from wallet-sync commit `480e7d565e63469055caf7da75c98efb00d3b415`.
 - Preserve source orchestration, thresholds, budgets, escalation, publication and cleanup contracts. Do not transplant the stricter acpx flow policy.
 - Repair checkout-specific dependency links and export the skills through the existing Pi manifest and Nix skills package. Keep `origin/develop`, `issue-<n>`, exact `openspec` routing label and signing/DCO conventions rather than adding configuration.
 - Document Agent/nested delegation, codemode/SubagentWorkflow, Git/GitHub, signing, OpenSpec CLI and externally supplied skill prerequisites. Keep the existing packaged `openspec-review`; do not bundle generated OpenSpec skills or `code-review`.

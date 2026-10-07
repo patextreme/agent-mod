@@ -4,7 +4,7 @@
 
 See `proposal.md` for motivation and the five capability deltas for observable contracts. The repository already exports `./skills` in its Pi manifest and copies that directory recursively into `pi-skills`. It currently packages `openspec-review` and `acpx-flow`; generated OpenSpec procedures live under `.pi/skills` but are not manifest resources. No extension here supplies Agent, codemode or SubagentWorkflow.
 
-The source is `input-output-hk/lace-id-portal`, wallet-sync commit `480e7d565e63469055caf7da75c98efb00d3b415`. Six `.pi/skills/<name>` directories contain six SKILL.md files and six references: one pseudocode file for each of the five orchestrators, plus PR report contracts. Cleanup has no script or bundled reference. The author confirmed personal authorship and permission for MIT redistribution during planning; record this grant with the pinned origin.
+The source is wallet-sync commit `480e7d565e63469055caf7da75c98efb00d3b415`. Six `.pi/skills/<name>` directories contain six SKILL.md files and six references: one pseudocode file for each of the five orchestrators, plus PR report contracts. Cleanup has no script or bundled reference. The author confirmed personal authorship and permission for MIT redistribution during planning; record this grant with the pinned origin.
 
 ## Goals / Non-Goals
 
