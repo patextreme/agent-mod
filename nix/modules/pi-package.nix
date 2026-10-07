@@ -8,7 +8,7 @@
         src = ./../..;
         # Update via: set to pkgs.lib.fakeHash, run `nix build .#checks.x86_64-linux.pi-root-node-modules`
         # (or any check), copy the `got:` hash back.
-        npmDepsHash = "sha256-3HxKYsp+pvva2HccUOYxwuN0BI2yq14uumkgdXXsW9M=";
+        npmDepsHash = "sha256-OkLAUFIgbaUlO4crFVeajUvFe+/+ZCEP4cfxOj2uUzA=";
         makeCacheWritable = true;
         dontNpmBuild = true;
         installPhase = ''
@@ -36,6 +36,17 @@
           mkdir -p $out
           cp $src/index.ts $out/index.ts
           cp $src/parse.ts $out/parse.ts
+        '';
+      };
+
+      pi-codex-alias = pkgs.stdenv.mkDerivation {
+        name = "pi-codex-alias";
+        src = ./../../extensions/codex-alias;
+        phases = [ "installPhase" ];
+        installPhase = ''
+          mkdir -p $out
+          cp $src/index.ts $out/index.ts
+          cp $src/alias.ts $out/alias.ts
         '';
       };
 
@@ -70,6 +81,23 @@
           chmod -R u+w node_modules
 
           ./node_modules/.bin/tsx --test --test-concurrency=2 extensions/ollama-usage/parse.test.ts
+        '';
+        installPhase = ''
+          touch $out
+        '';
+      };
+
+      codex-alias-test = pkgs.stdenv.mkDerivation {
+        name = "codex-alias-test";
+        src = ./../..;
+        nativeBuildInputs = [ pkgs.nodejs ];
+        phases = [ "unpackPhase" "buildPhase" "installPhase" ];
+        buildPhase = ''
+          # Provide root node_modules for tsx and typescript
+          cp -r ${rootNodeModules} node_modules
+          chmod -R u+w node_modules
+
+          ./node_modules/.bin/tsx --test --test-concurrency=2 extensions/codex-alias/alias.test.ts
         '';
         installPhase = ''
           touch $out
@@ -154,12 +182,12 @@
     in
     {
       packages = {
-        inherit pi-permission pi-ollama-usage pi-prompts pi-skills;
+        inherit pi-permission pi-ollama-usage pi-codex-alias pi-prompts pi-skills;
       };
 
       checks = {
-        inherit pi-permission pi-ollama-usage pi-prompts pi-skills;
-        inherit biome-check tsc-check permission-test ollama-usage-test docs-version-check factory-skills-test;
+        inherit pi-permission pi-ollama-usage pi-codex-alias pi-prompts pi-skills;
+        inherit biome-check tsc-check permission-test ollama-usage-test codex-alias-test docs-version-check factory-skills-test;
       };
     };
 }
