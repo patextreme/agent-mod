@@ -35,7 +35,11 @@ const factorySkills = {
     "references/pseudocode.md",
     "references/report-contracts.md",
   ],
-  "orc-issue-to-pr": ["references/pseudocode.md"],
+  "orc-issue-to-pr": [
+    "references/pseudocode.md",
+    "references/finalization.md",
+    "references/finalization-receipts.md",
+  ],
   "cleanup-merged-issues": [],
 };
 const externalSkills = [
@@ -565,6 +569,79 @@ test("factory skills are self-contained, packaged, and discoverable without defa
         );
         assert.ok(!packedPaths.has("skills/FACTORY-PROVENANCE.md"));
         checkFactoryNotice(join(installedRoot, "skills"));
+      },
+    );
+
+    await t.test(
+      "finalization contract text covers the required scenarios without execution",
+      () => {
+        const read = (...parts) =>
+          readFileSync(join(installedRoot, "skills", ...parts), "utf8");
+        const routeSkill = read("orc-issue-to-pr", "SKILL.md");
+        const routePseudocode = read(
+          "orc-issue-to-pr",
+          "references",
+          "pseudocode.md",
+        );
+        const finalization = read(
+          "orc-issue-to-pr",
+          "references",
+          "finalization.md",
+        );
+        const receipts = read(
+          "orc-issue-to-pr",
+          "references",
+          "finalization-receipts.md",
+        );
+        const reviewSkill = read("orc-pr-review-repair", "SKILL.md");
+        const reviewPseudocode = read(
+          "orc-pr-review-repair",
+          "references",
+          "pseudocode.md",
+        );
+
+        // Successful finalization: delegated built-in procedure, accepted
+        // post-sync comparison, confirmed archival gating delivery.
+        assert.match(routeSkill, /openspec-archive-change/);
+        assert.match(routeSkill, /openspec-sync-specs/);
+        assert.match(routeSkill, /post-sync comparison/);
+        assert.match(routeSkill, /Confirm actual archival/);
+        assert.match(
+          finalization,
+          /No separate finalizer skill and no fresh independent sync assessor/,
+        );
+        assert.match(routePseudocode, /CONFIRM actual archival/);
+        assert.match(routePseudocode, /DO NOT dispatch delivery/);
+
+        // No-delta changes archive without synchronization.
+        assert.match(routeSkill, /no-delta path/);
+        assert.match(finalization, /no-delta path/);
+        assert.match(routePseudocode, /no-delta path/);
+
+        // Rejected synchronization and archive failures pause with preserved work.
+        assert.match(finalization, /synchronization conflicts/);
+        assert.match(
+          finalization,
+          /Archive failure after completed synchronization preserves/,
+        );
+        assert.match(routePseudocode, /sync conflict/);
+        assert.match(routePseudocode, /preserve safe work and receipts/);
+
+        // Resume reconciles already-finalized, partial sync/archive, and
+        // partially completed delivery without duplicate moves or replay.
+        assert.match(receipts, /Already-finalized change/);
+        assert.match(receipts, /Partial synchronization/);
+        assert.match(receipts, /Partial archival/);
+        assert.match(receipts, /Partially completed delivery/);
+        assert.match(receipts, /duplicate archive/);
+        assert.match(routePseudocode, /without moving it again/);
+
+        // Post-archive PR repairs keep archived intent under authorization.
+        assert.match(reviewSkill, /archived-intent rules/);
+        assert.match(reviewSkill, /keep the change archived/);
+        assert.match(reviewSkill, /require user authorization/);
+        assert.match(reviewPseudocode, /archived artifacts/);
+        assert.match(reviewPseudocode, /ESCALATE for user authorization/);
       },
     );
 
