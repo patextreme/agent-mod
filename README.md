@@ -8,7 +8,7 @@ Pi is a terminal coding agent. This package augments it with:
 - **Usage visibility** — an ollama-usage extension that shows Ollama Cloud session and weekly usage in the status bar.
 - **Factory skills** — explicit OpenSpec stages, single-issue PR delivery, review/repair, and human-confirmed cleanup; see the [toolkit prerequisites](#factory-skill-toolkit).
 
-Install it once and every Pi session in the project gets permission prompts and Ollama Cloud usage in its status bar automatically.
+Extensions ship as Nix flake outputs, while prompt templates and skills install through `pi install`.
 
 ## Requirements
 
@@ -20,9 +20,19 @@ Install it once and every Pi session in the project gets permission prompts and 
 pi install git:github.com/patextreme/agent-mod
 ```
 
-This registers all extensions, prompts, and skills declared in [`package.json`](./package.json).
+This registers the prompt templates and skills declared in [`package.json`](./package.json). The extensions are not part of the `pi install` package; build them from the flake outputs instead (see [Nix Packages](#nix-packages)).
 
 ## Nix Packages
+
+Extensions are distributed as flake outputs rather than through `pi install`:
+
+```bash
+nix build .#pi-permission
+nix build .#pi-ollama-usage
+```
+
+Each output is a directory containing the extension, ready to load with Pi's
+extension path option.
 
 The flake also exposes [`pi-acp`](./nix/packages/pi-acp/README.md), an ACP stdio
 adapter for Pi, ported from Ptah with its MCP-support patch:
@@ -40,6 +50,8 @@ its upstream and patch tests.
 ## Contents
 
 ### Extensions
+
+These ship only as Nix flake outputs (`pi-permission`, `pi-ollama-usage`) and are not installed by `pi install`.
 
 | Extension | Description |
 |-----------|-------------|
