@@ -41,17 +41,34 @@ FOR each unfinished stage in the selected flow:
   ACCEPT completion only after delegated evidence establishes it
 
 GUARD expected worktree/refs and authorized changes through delegation
+IF flow = OpenSpec:
+  finalize = DELEGATE the built-in openspec-archive-change procedure with its
+             openspec-sync-specs dependency (same worktree, change, and store identity;
+             invocation's explicit sync/archive preauthorization passed to the procedure,
+             not used to bypass its prompts)
+  IF a prerequisite skill is missing:
+    REPORT the missing prerequisite; PAUSE
+  IF incomplete artifacts/unchecked tasks, sync conflict, or finalization failure:
+    preserve safe work and receipts; REPORT exact blocker; PAUSE
+  ACCEPT the procedure's post-sync comparison with no separate finalizer or assessor
+  PRESERVE the procedure's built-in no-delta path (no applicable deltas: archive without sync)
+  CONFIRM actual archival: source absence + archived presence for the selected target
+  IF archival is unconfirmed, failed, ambiguous, or partial:
+    surface evidence and blockers; DO NOT dispatch delivery
+
 DELEGATE required validation and merge-base guard against current origin/<base>
 IF intended merge base no longer matches current origin/<base>:
   DELEGATE safe reconciliation and rerun affected validation before accepting delivery
 delivery = DELEGATE Deliver with PR base <base>, reconciling any partial operation before retries
 ACCEPT verified signed commits, push, PR identity/body, and remote head
 
-review = DELEGATE orc-pr-review-repair(exact PR, worktree, issue/change)
+review = DELEGATE orc-pr-review-repair(exact PR, worktree, issue/change,
+         archived change location and relevant main specs when flow = OpenSpec)
 ACCEPT complete review/repair outcome, final head, and history receipts
 final = DELEGATE final-head delivery gates and state verification
 REQUIRE reviewed head = delivered head = final gate head
-FINISH with issue/flow/worktree/change/PR, checks, findings, and receipts
+FINISH with issue/flow/worktree/change/PR, checks, findings,
+      finalization receipts (sync results, archived location, delivered contents), and blockers
 
 ON any missing evidence, blocked stage, or human-input request:
   DELEGATE safe missing investigation when existing intent determines it
@@ -61,4 +78,4 @@ ON any missing evidence, blocked stage, or human-input request:
   Retain nested skill histories and repair budgets; do not replay completed delivery
 ```
 
-On resume, completion must be re-established against actual issue, artifact, git, and PR state. A partial or blocked run never reaches the success report.
+On resume, completion must be re-established against actual issue, artifact, git, PR, and finalization state. A partial or blocked run never reaches the success report. When flow = OpenSpec, reconcile finalization before any re-run: an already-archived change is checked against its archived artifacts and receipts without moving it again or creating a duplicate archive; partially applied synchronization is completed without replaying applied effects; a partially completed delivery is finished from existing receipts instead of repeating completed operations.

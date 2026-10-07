@@ -3,7 +3,9 @@
 Use this loop as the control-flow source of truth. `SKILL.md` defines preparation, shared guards, thresholds, and stage contracts; `report-contracts.md` defines findings, the durable PR records' visible summary plus collapsed audit layers, and the concise final user response. Delegate each stage and boundary check to subagents; the orchestrator accepts evidence and decides transitions. Concise reporting never removes the underlying evidence: complete reports, ledger, receipts, and exact operation state stay in the PR records and accepted evidence.
 
 ```text
-contract = PREPARE requested PR; load paginated history and report contracts
+contract = PREPARE requested PR; load paginated history and report contracts;
+          load archived change artifacts and relevant main specs when the invocation
+          supplies them after finalization (requirements evidence beside the issue)
 IF preparation is blocked:
   PAUSE with exact required input
 IF an authorized attempt is incomplete:
@@ -21,6 +23,8 @@ LOOP:
   INVESTIGATE uncertain classifications
   ACCEPT evidence and confirm every prior actionable ID is accounted for
   IF judgment is incomplete or uncertainty remains: ESCALATE
+  IF a finding implies new requirements or a consequential design change:
+    ESCALATE for user authorization instead of editing the change's intent
 
   IF no repair-worthy findings:
     VERIFY completion gates from SKILL.md
@@ -37,6 +41,10 @@ LOOP:
   IF reservation is unverified: ESCALATE before edits
   INCREMENT repairs used
   repair = REPAIR authorized findings and run checks
+           (when the change is archived: keep it archived; behavior-changing repairs
+           check code, archived artifacts, and main specs together, update affected
+           documents, and rerun affected validation; code-only corrections never
+           reopen, rearchive, or rerun the lifecycle)
   VALIDATE actual changes independently and complete required checks
   IF repair or validation is blocked/incomplete: ESCALATE
 
