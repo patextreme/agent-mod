@@ -1,11 +1,12 @@
 # Agent Mod
 
-Extensions and prompt templates for the [Pi coding agent](https://github.com/badlogic/pi-mono).
+Extensions, prompt templates, and skills for the [Pi coding agent](https://github.com/badlogic/pi-mono).
 
 Pi is a terminal coding agent. This package augments it with:
 
 - **Guardrails** — a permission extension that intercepts shell commands and asks before running anything destructive (`git push`, `git rebase`, unknown `gh` calls, …), while auto-allowing safe read-only commands.
 - **Usage visibility** — an ollama-usage extension that shows Ollama Cloud session and weekly usage in the status bar.
+- **Factory skills** — explicit OpenSpec stages, single-issue PR delivery, review/repair, and human-confirmed cleanup; see the [toolkit prerequisites](#factory-skill-toolkit).
 
 Install it once and every Pi session in the project gets permission prompts and Ollama Cloud usage in its status bar automatically.
 
@@ -49,12 +50,7 @@ its upstream and patch tests.
 
 | Prompt | Description |
 |--------|-------------|
-| [`commit-create-commit`](./prompts/commit-create-commit.md) | Create a git commit with an agreed-upon message |
-| [`commit-create-commit-signoff`](./prompts/commit-create-commit-signoff.md) | Create a git commit with DCO sign-off |
-| [`commit-generate-message`](./prompts/commit-generate-message.md) | Generate a commit message from staged changes |
-| [`commit-generate-message-conventional`](./prompts/commit-generate-message-conventional.md) | Generate a conventional commit message |
 | [`init`](./prompts/init.md) | Create or update `AGENTS.md` for a repository |
-| [`review`](./prompts/review.md) | Review code changes and provide actionable feedback |
 
 ### Skills
 
@@ -62,6 +58,53 @@ its upstream and patch tests.
 |-------|-------------|
 | [`acpx-flow`](./skills/acpx-flow/SKILL.md) | Create, modify, and debug acpx flows using the official capability documentation |
 | [`openspec-review`](./skills/openspec-review/SKILL.md) | Review an OpenSpec change for semantic soundness before implementation |
+| [`orc-openspec-groom`](./skills/orc-openspec-groom/SKILL.md) | Delegate semantic review and Critical-only planning repairs |
+| [`orc-openspec-implement`](./skills/orc-openspec-implement/SKILL.md) | Implement dependency-aware task groups with independent checks |
+| [`orc-openspec-verify`](./skills/orc-openspec-verify/SKILL.md) | Verify and repair until Critical and Warning findings are clear |
+| [`orc-pr-review-repair`](./skills/orc-pr-review-repair/SKILL.md) | Coordinate fresh two-axis PR review, history-aware judgment, repair, and publication |
+| [`orc-issue-to-pr`](./skills/orc-issue-to-pr/SKILL.md) | Deliver one explicitly selected GitHub issue to a reviewed PR |
+| [`cleanup-merged-issues`](./skills/cleanup-merged-issues/SKILL.md) | Preview and explicitly confirm cleanup of safely matched merged issue work |
+
+## Factory skill toolkit
+
+Installation exposes instructions and bundled references, not an orchestration runtime or credentials. These six skills require an **enhanced Pi host**; stock Pi alone is not sufficient. Read the selected skill and prepare its prerequisites before invocation, for example:
+
+```text
+/skill:orc-openspec-groom <existing-change>
+/skill:orc-openspec-implement <existing-change>
+/skill:orc-openspec-verify <existing-change>
+/skill:orc-pr-review-repair <PR-number-or-URL>
+/skill:orc-issue-to-pr <issue-number-or-URL>
+/skill:cleanup-merged-issues
+```
+
+### Prerequisites and retained conventions
+
+| Applies to | Operator-managed prerequisite / convention |
+|------------|--------------------------------------------|
+| Orchestrators | `Agent` with `general-purpose` agents, nested delegation/tool access, and `codemode`; delegated orchestrators must retain the tools their stages require. |
+| Implementation / nested composition | `SubagentWorkflow` for dependency-aware task-group dispatch. Follow the host's explicit workflow opt-in and depth rules; loading a skill does not bypass them. Outer issue-to-PR coordinates through Agent/codemode, **not** an outer SubagentWorkflow wrapping nested orchestrators. Pause if required nested tooling or depth is unavailable. |
+| OpenSpec stages / OpenSpec issue route | OpenSpec CLI, an existing selected change, and unambiguous repository/store context. Discover registered stores with `openspec store list --json` and retain `--store <id>` on applicable commands when using a store. |
+| Skill dependencies | `openspec-review` is **packaged here**. Supply `openspec-apply-change`, `openspec-verify-change`, and `code-review` externally where required; generated OpenSpec procedures and code-review are not bundled. Resolve their actual available-skill locations and pass absolute paths plus repository/worktree/change/store context to delegates, including new worktrees. |
+| PR review / delivery | Git and authenticated `gh` access to PRs, issues, paginated comments/history, checks, pushes, and required records; configure the issue tracker and access required by the external `code-review` procedure. Configure commit signing and DCO sign-off for delivery; do not weaken target-project signing policy. |
+| Issue-to-PR | Retains freshly fetched `origin/develop`, worktree basename and branch `issue-<n>`, PR base `develop`, and the **exact** `openspec` routing label (other labels select direct edits). Reuse only verified matching worktree/PR state. Signed/DCO commits and normal pushes, never force pushes. |
+| Target-project policy | Project instructions and mandatory checks/delivery gates remain controlling. Re-establish head-bound gates on the final delivered/reviewed head, including a **current-head Claude gate only if the project requires it**. Incompatible conventions or missing access are blockers, not permission to relax policy. |
+| Cleanup | Git/gh evidence and a verified repository/remote; cleanup does not assume `origin`. Human-only invocation (`disable-model-invocation: true`) plus explicit confirmation **after the preview**; invocation alone approves no deletion or pruning. |
+
+Package installation does not install the external skills or guarantee their availability. Delivery is reusable only in repositories compatible with the retained conventions. PR review/repair and issue-to-PR invocation authorize their qualifying edits/publication (commits, normal pushes, and verified PR history comments), not merges or a tool-permission bypass; read-only delegation is not an OS sandbox.
+
+### Stage and lifecycle boundaries
+
+- **Groom:** fresh complete semantic review with zero **Critical** findings; Major/Minor findings, readiness blockers, or a NEEDS REVISION label can remain. Grooming neither performs structural validation nor establishes implementation readiness. The issue orchestrator separately validates structure and assesses readiness before implementation.
+- **Implement:** dependency-aware, disjoint task groups; independent actual-diff/check validation precedes serialized task bookkeeping. Completion needs implemented tasks, integrated required checks, and refreshed apply status, not worker summaries alone. This does not replace the separate verification stage.
+- **Verify:** fresh complete verification with zero **Critical and Warning** findings and applicable required evidence; Suggestions are report-only, and skipped optional scope is disclosed. Groom/verify have no arbitrary round cap but pause on blockers or stalled progress.
+- **PR review/repair:** fresh Standards and Spec axes followed by separate history-aware judgment. Only evidenced material findings drive repair; verified start reservations consume a cumulative **ten-attempt** budget across continuations. Delivery/check/history evidence must match the reviewed head.
+- **Issue-to-PR:** one explicitly selected issue, **no queue selection**. The OpenSpec route needs an existing unambiguous change; it does not create one. Completion is verified delivery, review/repair, and required final-head gates. **Merge, spec sync, archive, and cleanup are separate requests**; issue-to-PR never invokes cleanup automatically.
+- **Cleanup:** preview only safely matched `issue-<n>` branches/worktrees with exact merged PR/head evidence; preserve dirty, divergent, or uncertain work. Snapshot-bound approval and rechecks precede guarded local removal and restricted stale remote-tracking-ref pruning. **No remote branch/tag deletion** or general filesystem cleanup; prune-only work also needs separate confirmation.
+
+Frontmatter, bundled-reference, package-content, and isolated discovery checks provide **static distribution assurance only**, not live operational safety, model obedience, external-prerequisite availability, or stock-Pi runtime support. They do not execute delivery or deletion. These prompt contracts do not inherit the deterministic acpx flows' policies or guarantees.
+
+Source and MIT redistribution permission cover all twelve imported files: see [Factory provenance](./skills/FACTORY-PROVENANCE.md). Skill-based finalization is tracked in [#47](https://github.com/patextreme/agent-mod/issues/47), full lifecycle composition in [#48](https://github.com/patextreme/agent-mod/issues/48). Existing acpx flows remain unchanged here; their removal belongs to the separate [`retire-acpx-flows`](./openspec/changes/retire-acpx-flows/) change, not this migration.
 
 ## Permission Extension
 
@@ -321,4 +364,4 @@ Before committing changes that touch `package*.json` or `nix/`, also run `nix fl
 
 ## License
 
-MIT — see [LICENSE](./LICENSE).
+MIT — see [LICENSE](./LICENSE). Imported factory skills and references: [source provenance and redistribution grant](./skills/FACTORY-PROVENANCE.md).

@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-10-06
+# All requirements in the five legacy flow capabilities are explicitly removed.
+retire_capabilities: true

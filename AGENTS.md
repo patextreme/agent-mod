@@ -45,6 +45,12 @@ nix flake check
 
 `package.json` `"pi"` field declares `extensions`, `prompts`, and `skills` directories. `tsconfig.json` includes `extensions/**/*.ts` and `flows/**/*.ts`. Flow entrypoints live at `flows/<name>/index.ts`, with composition and flow-specific helpers/tests alongside. Package and Nix flow tests discover `*.test.ts` recursively; shared infrastructure must not carry groom's artifact-only edit authorization.
 
+## Agent skills
+
+### Issue tracker
+
+For issue operations and code-review spec discovery, read [the GitHub tracker workflow](docs/agents/issue-tracker.md), including pagination and non-issue spec sources.
+
 ## Key Conventions
 
 - **Biome** for formatting and linting — `biome.json` configures 2-space indentation only; lint rules use defaults
