@@ -115,7 +115,7 @@ Package installation does not install the external skills or guarantee their ava
 
 Frontmatter, bundled-reference, package-content, and isolated discovery checks provide **static distribution assurance only**, not live operational safety, model obedience, external-prerequisite availability, or stock-Pi runtime support. They do not execute delivery or deletion. These prompt contracts replace the retired deterministic acpx flows and do not inherit their policies or guarantees.
 
-The toolkit ships the complete [MIT notice](./skills/LICENSE) covering all twelve imported files; the pinned source commit and author-confirmed redistribution grant remain recorded in the [archived migration design](./openspec/changes/archive/2026-10-07-migrate-factory-skills/design.md). Skill-based finalization lands in `orc-issue-to-pr` per [#49](https://github.com/patextreme/agent-mod/issues/49), superseding the standalone-finalizer approach tracked in [#47](https://github.com/patextreme/agent-mod/issues/47); no packaged full-lifecycle orchestrator is shipped ([#48](https://github.com/patextreme/agent-mod/issues/48) closed without delivery). The retired acpx flows were removed by the [`retire-acpx-flows`](./openspec/changes/retire-acpx-flows/) change.
+The toolkit ships the complete [MIT notice](./skills/LICENSE) covering all twelve imported files; the pinned source commit and author-confirmed redistribution grant remain recorded in the [archived migration design](./openspec/changes/archive/2026-10-07-migrate-factory-skills/design.md). Skill-based finalization lands in `orc-issue-to-pr` per [#49](https://github.com/patextreme/agent-mod/issues/49), superseding the standalone-finalizer approach tracked in [#47](https://github.com/patextreme/agent-mod/issues/47); no packaged full-lifecycle orchestrator is shipped ([#48](https://github.com/patextreme/agent-mod/issues/48) closed without delivery). The retired acpx flows were removed by the [`retire-acpx-flows`](./openspec/changes/archive/2026-10-07-retire-acpx-flows/) change.
 
 ## Permission Extension
 
@@ -161,7 +161,7 @@ Shows Ollama Cloud session and weekly usage in the pi status bar as `ollama: 2.6
 
 ## Retired OpenSpec flows
 
-The five acpx flow entrypoints — `openspec-groom`, `openspec-implement`, `openspec-verify`, `openspec-finalize` and `openspec-all` — plus the `acpx-flow` authoring skill were removed as a breaking change by the [`retire-acpx-flows`](./openspec/changes/retire-acpx-flows/) change. Use the migrated skill toolkit above instead; its stage skills define their own acceptance, repair and human-input contracts and do not preserve acpx's deterministic guards, budgets, structured CLI results or persisted run traces.
+The five acpx flow entrypoints — `openspec-groom`, `openspec-implement`, `openspec-verify`, `openspec-finalize` and `openspec-all` — plus the `acpx-flow` authoring skill were removed as a breaking change by the [`retire-acpx-flows`](./openspec/changes/archive/2026-10-07-retire-acpx-flows/) change. Use the migrated skill toolkit above instead; its stage skills define their own acceptance, repair and human-input contracts and do not preserve acpx's deterministic guards, budgets, structured CLI results or persisted run traces.
 
 | Task | Use |
 |------|-----|
