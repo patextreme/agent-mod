@@ -140,17 +140,9 @@ function checkInstalledSkill(installedRoot, name, references) {
 }
 
 function checkFactoryNotice(skillsRoot) {
-  const provenancePath = join(skillsRoot, "FACTORY-PROVENANCE.md");
-  const provenance = readFileSync(provenancePath, "utf8");
-  const licenseLinks = [...provenance.matchAll(/\[LICENSE\]\(([^)]+)\)/g)];
-  assert.equal(
-    licenseLinks.length,
-    1,
-    "provenance must link the bundled notice",
-  );
-  const target = licenseLinks[0][1];
-  assert.ok(!isAbsolute(target), "license link must be relative");
-  const licensePath = resolve(dirname(provenancePath), target);
+  // The migrated toolkit retains the standalone MIT notice; historical
+  // provenance was retired, so no provenance document is expected.
+  const licensePath = join(skillsRoot, "LICENSE");
   assertWithin(skillsRoot, licensePath);
   assertWithin(skillsRoot, realpathSync(licensePath));
   assert.equal(
@@ -161,7 +153,7 @@ function checkFactoryNotice(skillsRoot) {
 }
 
 test(
-  "standalone Nix skills output contains the complete linked MIT notice",
+  "standalone Nix skills output contains the complete MIT notice",
   { skip: !process.env.PI_FACTORY_SKILLS_OUTPUT },
   () => checkFactoryNotice(process.env.PI_FACTORY_SKILLS_OUTPUT),
 );
@@ -565,11 +557,13 @@ test("factory skills are self-contained, packaged, and discoverable without defa
     );
 
     await t.test(
-      "npm ships the complete MIT notice with a resolving provenance link",
+      "npm ships the complete MIT notice without retired provenance",
       () => {
-        for (const path of ["skills/FACTORY-PROVENANCE.md", "skills/LICENSE"]) {
-          assert.ok(packedPaths.has(path), `not packed: ${path}`);
-        }
+        assert.ok(
+          packedPaths.has("skills/LICENSE"),
+          "not packed: skills/LICENSE",
+        );
+        assert.ok(!packedPaths.has("skills/FACTORY-PROVENANCE.md"));
         checkFactoryNotice(join(installedRoot, "skills"));
       },
     );
