@@ -1,10 +1,10 @@
-# Spec Delta
+# notify-me Specification
 
 ## Purpose
 
 Let users explicitly request a single Discord notification when Pi finally returns control, with useful context and bounded, credential-safe delivery.
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: Explicit one-shot arming
 The extension SHALL accept `/notify-me <message>` to arm one notification for the current session's next final handback. A subsequent valid message SHALL replace the pending notification and restart its elapsed-time measurement. `/notify-me cancel` SHALL clear pending state without sending. Empty input SHALL display usage without changing pending state.
@@ -36,11 +36,17 @@ Pending notifications SHALL clear on session changes and process restart. They S
 - **THEN** no notification is restored
 
 ### Requirement: Final handback notification
-An armed notification SHALL be consumed and dispatched once when Pi returns control after all automatic continuation settles, including completed and errored outcomes. Intermediate runs, retries, recovery, compaction, and queued automatic continuation SHALL NOT dispatch it. Ordinary tool failures that Pi handles before continuing SHALL NOT alone constitute an errored handback.
+An armed notification SHALL be consumed and dispatched once at final handback after all automatic continuation settles, including completed and errored outcomes. Intermediate runs, retries, recovery, compaction, and queued automatic continuation SHALL NOT dispatch it. Tool failures handled before continuing SHALL NOT alone constitute errored handback. Missing-model/auth preflight failures before any run starts SHALL leave it armed without dispatch or consumption.
 
 #### Scenario: Automatic continuation remains
 - **WHEN** an intermediate agent run ends but Pi automatically continues
 - **THEN** the notification stays armed and no delivery starts
+
+#### Scenario: Preflight failure before a run starts
+- **WHEN** a missing-model or missing-auth preflight failure prevents any run from starting while a notification is armed
+- **THEN** no notification is sent and pending state remains armed unchanged
+- **WHEN** a later run starts and reaches actual final settlement without cancellation, session reset, or deliberate abort
+- **THEN** the notification is consumed once and delivery starts with that settled run's final status, not the earlier preflight failure
 
 #### Scenario: Complete or fail terminally
 - **WHEN** Pi finally settles after completion or a terminal error with a notification armed
@@ -138,8 +144,8 @@ Delivery SHALL use at most five total attempts. It SHALL retry network failures,
 - **THEN** no further attempt occurs and a secret-safe local warning reports final delivery failure
 
 ### Requirement: Extension distribution and documentation
-The extension SHALL ship as the `pi-notify-me` Nix package with its automated test check wired into flake checks and the root test command. It SHALL remain excluded from the package's `pi install` extension resources. Documentation SHALL explain setup, command behavior, shared context, retry limits, duplicate risk, and credential protection.
+The extension SHALL ship as `pi-notify-me`, wired into flake packages and checks. Co-located `extensions/notify-me/*.test.ts` tests SHALL run via `tests/run.mjs` discovery and the shared `node-tests` flake check, with no per-extension test derivation or root registration edit. It SHALL remain excluded from `pi install` extension resources. Documentation SHALL cover setup, commands, shared context, retry limits, duplicate risk, and credential protection.
 
 #### Scenario: Install and test the extension
 - **WHEN** users build `pi-notify-me` and run the configured extension tests
-- **THEN** the packaged extension includes its runtime files and its test check exercises the notification contract
+- **THEN** the packaged extension includes its runtime files and the shared gate runner and `node-tests` check discover its co-located tests to exercise the notification contract

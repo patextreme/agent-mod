@@ -24,7 +24,7 @@ Pending state holds a generation/session identity, message, arm timestamp, and v
 
 Capture candidate terminal outcome from `agent_before_settle` and sanitized terminal assistant error information from message events. Treat these as observations only: intermediate runs and recoverable failures cannot themselves dispatch. Dispatch exclusively on `agent_settled`; its aborted flag takes precedence and clears pending state without delivery. Reset outcome tracking at the start of new work and on session boundaries so a prior error cannot contaminate later completion. Avoid treating tool failures or assistant prose as terminal errors.
 
-At final settlement, atomically detach the pending state and snapshot cwd, available session name, elapsed time, timestamp, final outcome, and concise error reason. Repeated events then find no pending notification. If a reason is missing, use an honest unavailable-reason fallback. Missing model/auth preflight failures that occur before any run/settlement are not represented by the settled-run boundary; document this limitation rather than treating arbitrary UI errors as completion.
+At final settlement, atomically detach the pending state and snapshot cwd, available session name, elapsed time, timestamp, final outcome, and concise error reason. Repeated events then find no pending notification. If a reason is missing, use an honest unavailable-reason fallback. Missing-model/auth preflight failures before any run starts send nothing and leave the one-shot armed; they neither consume pending state nor constitute an errored handback. A later actual final settlement consumes it under the normal outcome and abort rules. Do not treat arbitrary UI errors as completion. Cover both missing-model and missing-auth failures followed by a later settled run in adapter tests, and document this behavior explicitly.
 
 Use the real runtime event contract to cover abort paths that bypass `agent_before_settle`, queued continuation, retries, and compaction. If the locked API cannot establish this boundary, resolve SDK compatibility before implementation rather than weakening the spec.
 
@@ -48,7 +48,7 @@ Retries improve reachability but cannot guarantee exactly-once remote delivery. 
 
 ### 6. Package with existing extension conventions
 
-Add `pi-notify-me` and `notify-me-test` derivations in `nix/modules/pi-package.nix`, wire package and check entries, and copy all runtime helpers into the package. Add tests to the root test script while keeping extensions excluded from package.json's `pi` resources. Update README and AGENTS.md. Dependency/lockfile changes are needed only if the compatibility check demands them; follow the project's integrity and npmDepsHash policy whenever dependency content changes.
+Add the `pi-notify-me` derivation in `nix/modules/pi-package.nix`, wire it into both `packages` and `checks`, and copy all runtime helpers into the package. Place unit and adapter tests as co-located `*.test.ts` files under `extensions/notify-me/` for automatic discovery by `tests/run.mjs` and the shared `node-tests` flake check; no per-extension test derivation or root registration edit is needed. Keep extensions excluded from package.json's `pi` resources. Update README and AGENTS.md. Dependency/lockfile changes are needed only if the compatibility check demands them; follow the project's integrity and npmDepsHash policy whenever dependency content changes.
 
 ## Risks / Trade-offs
 
