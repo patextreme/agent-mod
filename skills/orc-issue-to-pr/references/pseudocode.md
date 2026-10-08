@@ -1,6 +1,6 @@
 # Issue-to-PR control flow
 
-`SKILL.md` defines stage contracts and completion gates. Execute each delegated stage in a separate Agent; nested `orc-*` agents orchestrate their own workers.
+`SKILL.md` defines stage contracts and completion gates. The main session executes downstream `orc-*` coordination and runs each delegated worker stage in a separate Agent. Call required SubagentWorkflow scripts from the main session, sequentially rather than inside an outer workflow; child Agents perform worker contracts, not workflow-owning orchestration.
 
 ```text
 issue = DELEGATE Read and route(requested issue, repository)
@@ -34,7 +34,11 @@ FOR each unfinished stage in the selected flow:
     result = DELEGATE research, plan, implement, and relevant checks
     validation = DELEGATE independent actual-diff and acceptance-criteria checks
   ELSE:
-    result = DELEGATE the stage's named orc-* skill
+    READ the stage's named orc-* skill and its pseudocode
+    result = EXECUTE its coordination in the main session:
+      DELEGATE its worker stages under their original contracts
+      CALL SubagentWorkflow here where required
+      RETAIN stage reports, histories, budgets, and human-input branches
     IF stage = Groom:
       validation = DELEGATE structural validation and readiness assessment
     REQUIRE the stage's completion gates and full evidence
@@ -62,8 +66,12 @@ IF intended merge base no longer matches current origin/<base>:
 delivery = DELEGATE Deliver with PR base <base>, reconciling any partial operation before retries
 ACCEPT verified signed commits, push, PR identity/body, and remote head
 
-review = DELEGATE orc-pr-review-repair(exact PR, worktree, issue/change,
-         archived change location and relevant main specs when flow = OpenSpec)
+READ orc-pr-review-repair and its pseudocode
+review = EXECUTE its coordination in the main session(exact PR, worktree, issue/change,
+         archived change location and relevant main specs when flow = OpenSpec):
+  DELEGATE preparation, fresh review, judgment, repair, checks, and publication
+  GIVE code-review workers nested Agent access for Standards and Spec axes
+  RETAIN run history, thresholds, repair count, and completion gates
 ACCEPT complete review/repair outcome, final head, and history receipts
 final = DELEGATE final-head delivery gates and state verification
 REQUIRE reviewed head = delivered head = final gate head
@@ -75,7 +83,7 @@ ON any missing evidence, blocked stage, or human-input request:
   OTHERWISE preserve work, sticky identities, reports, and operation receipts
   REPORT exact blocker and question/options/recommendation; PAUSE
   AFTER user reply, DELEGATE state reconciliation and resume the blocked stage
-  Retain nested skill histories and repair budgets; do not replay completed delivery
+  Retain downstream skill histories and repair budgets; do not replay completed delivery
 ```
 
 On resume, completion must be re-established against actual issue, artifact, git, PR, and finalization state. A partial or blocked run never reaches the success report. When flow = OpenSpec, reconcile finalization before any re-run: an already-archived change is checked against its archived artifacts and receipts without moving it again or creating a duplicate archive; partially applied synchronization is completed without replaying applied effects; a partially completed delivery is finished from existing receipts instead of repeating completed operations.
