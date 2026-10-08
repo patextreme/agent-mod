@@ -5,6 +5,7 @@ Extensions, prompt templates, and skills for the [Pi coding agent](https://githu
 Pi is a terminal coding agent. This package augments it with:
 
 - **Guardrails** — a permission extension that intercepts shell commands and asks before running anything destructive (`git push`, `git rebase`, unknown `gh` calls, …), while auto-allowing safe read-only commands.
+- **One-shot reminders** — a notify-me extension that sends your message and session context to Discord only after Pi finally hands control back.
 - **Usage visibility** — an ollama-usage extension that shows Ollama Cloud session and weekly usage in the status bar.
 - **Factory skills** — explicit OpenSpec stages, single-issue PR delivery, review/repair, and human-confirmed cleanup; see the [toolkit prerequisites](#factory-skill-toolkit).
 
@@ -12,7 +13,7 @@ Extensions ship as Nix flake outputs, while prompt templates and skills install 
 
 ## Requirements
 
-- Pi `^1.0.4` (declared as a peer dependency in [`package.json`](./package.json)).
+- Pi `^1.1.0` (declared as a peer dependency in [`package.json`](./package.json)); notify-me requires the final-settlement abort flag added in 1.1.0. See the [locked SDK compatibility evidence](./docs/notify-me-sdk-compatibility.md).
 
 ## Installation
 
@@ -30,6 +31,7 @@ Extensions are distributed as flake outputs rather than through `pi install`:
 nix build .#pi-permission
 nix build .#pi-ollama-usage
 nix build .#pi-codex-alias
+nix build .#pi-notify-me
 ```
 
 Each output is a directory containing the extension, ready to load with Pi's
@@ -52,13 +54,14 @@ its upstream and patch tests.
 
 ### Extensions
 
-These ship only as Nix flake outputs (`pi-permission`, `pi-ollama-usage`, `pi-codex-alias`) and are not installed by `pi install`.
+These ship only as Nix flake outputs (`pi-permission`, `pi-ollama-usage`, `pi-codex-alias`, `pi-notify-me`) and are not installed by `pi install`.
 
 | Extension | Description |
 |-----------|-------------|
 | [Permission](./extensions/permission/index.ts) | Intercepts `bash` tool calls and applies regex-based permission rules; plays a bell on prompts and when the agent finishes; opt-in session-scoped `/permission-yolo` full bypass |
 | [Ollama Usage](./extensions/ollama-usage/index.ts) | Shows Ollama Cloud session/weekly usage in the status bar; refreshes on ollama-cloud model selection and via `/ollama-usage-refresh` |
 | [Codex Alias](./extensions/codex-alias/index.ts) | Registers `openai-codex-secondary` as an independently authenticated alias of the built-in `openai-codex` provider, so two Codex accounts can share one agent directory |
+| [Notify Me](./extensions/notify-me/index.ts) | Arms a session-scoped, one-shot Discord reminder for final handback via `/notify-me <message>`; `/notify-me cancel` clears pending work |
 
 ### Prompt Templates
 
@@ -183,6 +186,175 @@ Credentials are stored under separate `auth.json` keys (`openai-codex` and `open
 **Cross-provider sessions.** Pi's Responses converter keeps reasoning and tool-call ids intact only when provider, API, and model all match. `openai-codex-secondary` is not in Pi's Codex tool-call provider allowlist (`CODEX_TOOL_CALL_PROVIDERS` is `openai`, `openai-codex`, `opencode`), so switching accounts mid-conversation is treated like switching vendors: encrypted reasoning is replaced with plain text and tool-call ids are normalized consistently, keeping each `function_call` paired with its `function_call_output`. Staying on one provider preserves full fidelity. This is the documented low-risk behavior; a real request after a switch has not been sent.
 
 **Supported Pi versions.** Requires a Pi that bundles the `openai-codex` provider with OAuth (`^0.99.1` in this repo). If the provider or its OAuth flow is unavailable, the extension fails fast with a clear error instead of registering a broken provider.
+
+## Notify Me Extension
+
+Build and load the extension with Pi 1.1.0 or newer:
+
+```bash
+nix build .#pi-notify-me
+pi --extension ./result/index.ts
+```
+
+The output contains the entrypoint and all runtime helpers, not tests or
+credentials. For persistent loading, add the output directory's absolute path
+to the `extensions` array in `~/.pi/agent/settings.json` (or trusted project
+`.pi/settings.json`), then run `/reload`. This extension is **not** installed by
+`pi install`; configuration below is separate from Pi's extension settings.
+
+### Configuration
+
+Notify-me reads the fixed **`~/.pi/notify-me.json`** path when arming a
+notification. This is not `~/.pi/agent/notify-me.json`, a project-local config,
+or a path relocated by `PI_CODING_AGENT_DIR`. The JSON stores only a path to a
+separate private UTF-8 file:
+
+```json
+{ "keyFile": "discord-webhook-url" }
+```
+
+For this example, save the **complete Discord webhook URL** in
+`~/.pi/discord-webhook-url` using your editor. The URL already contains the
+credential; no separate token is needed. Keep that file outside repositories,
+never paste its contents into issues or logs, and restrict access:
+
+```bash
+mkdir -p ~/.pi
+chmod 700 ~/.pi
+# Create ~/.pi/notify-me.json and ~/.pi/discord-webhook-url using your editor.
+chmod 600 ~/.pi/notify-me.json ~/.pi/discord-webhook-url
+```
+
+`keyFile` must be a nonempty string. Surrounding path whitespace is trimmed.
+Paths resolve as follows (independent of Pi's working directory):
+
+| `keyFile` example | Credential file |
+|-------------------|-----------------|
+| `"discord-webhook-url"` | `~/.pi/discord-webhook-url` (relative to `~/.pi`) |
+| `"~/.config/pi/discord-webhook-url"` | Your home directory's `.config/pi/discord-webhook-url` (`~/` expansion) |
+| `"/private/path/discord-webhook-url"` | That absolute path |
+
+The loader trims surrounding whitespace in the credential file. It accepts
+HTTPS webhook endpoints on `discord.com` or legacy `discordapp.com`, with a
+numeric webhook ID and token at `/api/webhooks/<id>/<token>` or
+`/api/v10/webhooks/<id>/<token>` (other positive API versions also work).
+Port 443 is allowed; other ports, arbitrary/subdomain hosts, userinfo, query
+strings, fragments, and malformed routes are rejected. Store the endpoint
+itself, not a JSON object or a link with `?wait=true` appended.
+
+Setup errors are controlled guidance, never raw parser/filesystem errors or
+credential contents:
+
+- **Cannot read config:** create `~/.pi/notify-me.json` and check that Pi can read it.
+- **Invalid JSON/configuration:** use the JSON object above with a nonempty string `keyFile`.
+- **Cannot read credential file:** check the resolved file exists and is readable by the Pi process.
+- **Empty/invalid credential:** save the complete supported HTTPS webhook URL in the private file.
+
+Configuration is read anew on each arm attempt; a successful arm retains its
+validated destination. Invalid configuration does not arm a new notification or
+replace an existing valid one. Local diagnostics never echo the supplied path
+or webhook URL. See [configuration tests](./extensions/notify-me/config.test.ts)
+for the schema and path examples.
+
+### One-shot commands and lifecycle
+
+```text
+/notify-me Remember to check the result
+/notify-me A replacement reminder
+/notify-me cancel
+```
+
+- A nonempty message arms **one notification for the current session's next
+  final handback**, whether Pi is idle, streaming, or waiting on a permission
+  prompt. The command itself performs no model work or delivery.
+- A valid replacement changes the pending message/destination and restarts
+  elapsed time when validation succeeds. Invalid configuration preserves the
+  previous arming. Out-of-order configuration reads cannot revive superseded
+  work; cancellation or session reset also invalidates outstanding reads.
+- Bare `/notify-me` shows usage without changing pending state. The exact,
+  trimmed, lower-case argument `cancel` is reserved; `Cancel` or `cancel later`
+  are ordinary messages. Cancel clears pending state, not an already-dispatched
+  notification.
+- Completion and terminal errors consume the one-shot **only at
+  `agent_settled`**, after automatic continuation, retries, recovery, compaction,
+  and queued work finish. Intermediate `agent_end` events do not notify.
+  Recovered errors, tool failures, and assistant prose do not by themselves
+  constitute an errored handback. A finished agent is not proof of task success.
+- Deliberate aborts (including during retry, compaction, or the pre-settle
+  boundary) clear pending state without sending. Permission or other blocking
+  UI prompts leave it armed for eventual settlement.
+- **Missing-model or missing-auth preflight failures before any run starts send
+  nothing and leave the notification armed unchanged.** After configuration or
+  login is fixed, a later actual final settlement consumes it once with that
+  later run's outcome, not the earlier preflight error. Cancellation, session
+  reset, or deliberate abort can still clear it first.
+- Pending state is memory-only and session-scoped: new/resumed/forked sessions,
+  reload, or process restart start unarmed. It is never saved in the transcript.
+
+These semantics are covered by the registered-adapter sequences in
+[`adapter.test.ts`](./extensions/notify-me/adapter.test.ts), including separate
+locked-runtime missing-model and missing-auth preflight checks.
+[`runtime-sequences.test.ts`](./extensions/notify-me/runtime-sequences.test.ts)
+also exercises the locked SDK's outer continuation and settlement loop with
+model-free fixtures. Runtime event ordering and the minimum SDK version are documented in the
+[compatibility evidence](./docs/notify-me-sdk-compatibility.md).
+
+### Discord context, privacy, and delivery
+
+The single embed prominently shows your supplied message and **Agent finished**
+(green) or **Agent errored** (red), not a claim that the task succeeded. It
+includes the **full working-directory path**, an available session name, elapsed
+time, and an ISO final-handback timestamp. Elapsed time runs from successful
+arming/replacement validation to final settlement, including idle time, permission
+pauses, automatic continuation, and recovery; network/retry time is excluded.
+An error includes only a concise first-line reason (no stack trace), or the honest
+fallback **Reason unavailable.** No transcript, generated summary, or automatic
+agent response is included.
+
+**Your message, cwd, session name, and terminal error reason leave this machine
+for Discord.** Consider sensitive paths/names and message contents before arming.
+The known webhook URL/token is redacted from every outgoing text category; this
+is not general-purpose redaction of unrelated secrets. Snapshot capture occurs
+once at handback, before asynchronous delivery. All retries use identical JSON
+and the credential validated when arming, even after files or sessions change.
+
+Discord title/description/field/aggregate limits are enforced with conservative
+UTF-16 budgets that never split a surrogate pair. Oversized text ends with a
+visible **…**; status, cwd, elapsed time, timestamp, and applicable session/error
+categories are retained. The message budget is 3000 units, cwd/session 1024 each,
+and error reason 512, reserving room under the 6000-unit aggregate limit. Missing
+session names are omitted. Mention parsing, explicit user/role mentions, and
+reply mentions are disabled, including `@everyone` and supplied `<@...>` syntax.
+
+Delivery is nonblocking, best-effort, and **in-process only**:
+
+- Each request (including a rate-limit response body) has a **10-second timeout**.
+- There are **at most five total attempts**. Network errors, timeouts, and HTTP
+  5xx retry after **10 seconds**. Any HTTP 2xx ends delivery.
+- HTTP 429 waits at least 10 seconds and the largest valid Discord interval:
+  JSON `retry_after`, `Retry-After` seconds/HTTP date, or rate-limit reset headers.
+  Discord JSON/reset intervals are seconds, including fractions. Invalid metadata
+  falls back to 10 seconds; each rate-limited request counts as an attempt.
+- Other HTTP failures (including credential/webhook/payload 4xx) and redirects
+  stop immediately. Redirects are never followed. Response text and raw transport
+  errors never enter local diagnostics.
+- Final failure produces a controlled warning only while the originating UI is
+  still current; obsolete-session or headless UI warnings are suppressed.
+
+Cancel/replacement affects pending work only. Already-dispatched jobs remain
+independent across new/resumed/forked sessions; changing sessions suppresses their
+obsolete UI warnings, not delivery. Actual quit or extension-runtime reload
+aborts requests and clears retry timers. Timers are unreferenced so retries do
+not keep an otherwise exiting process alive. Nothing is persisted or resumed
+on restart, and no background service or durable queue exists.
+
+**Duplicates are possible:** Discord may accept a request before its response is
+lost or times out, then accept a retry. Bounded retries improve reachability but
+provide neither guaranteed delivery nor exactly-once delivery. See the
+[payload tests](./extensions/notify-me/payload.test.ts),
+[transport tests](./extensions/notify-me/delivery.test.ts), and
+[job lifecycle tests](./extensions/notify-me/jobs.test.ts) for model/network-free
+coverage of these contracts.
 
 ## Retired OpenSpec flows
 

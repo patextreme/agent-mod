@@ -8,7 +8,7 @@
         src = ./../..;
         # Update via: set to pkgs.lib.fakeHash, run `nix build .#checks.x86_64-linux.pi-root-node-modules`
         # (or any check), copy the `got:` hash back.
-        npmDepsHash = "sha256-n3HrsBWoeYTRYoCgu1SXEU9i40QBG1vxJvjOqwH0hzo=";
+        npmDepsHash = "sha256-sl2eWiozBgs8AvobwWg2t6TxYDfv9WUrP9ENSSMlKEI=";
         makeCacheWritable = true;
         dontNpmBuild = true;
         installPhase = ''
@@ -47,6 +47,17 @@
           mkdir -p $out
           cp $src/index.ts $out/index.ts
           cp $src/alias.ts $out/alias.ts
+        '';
+      };
+
+      pi-notify-me = pkgs.stdenv.mkDerivation {
+        name = "pi-notify-me";
+        src = ./../../extensions/notify-me;
+        phases = [ "installPhase" ];
+        installPhase = ''
+          mkdir -p $out
+          cp $src/index.ts $src/adapter.ts $src/config.ts $src/pending.ts \
+            $src/payload.ts $src/delivery.ts $out/
         '';
       };
 
@@ -121,11 +132,11 @@
     in
     {
       packages = {
-        inherit pi-permission pi-ollama-usage pi-codex-alias pi-prompts pi-skills;
+        inherit pi-permission pi-ollama-usage pi-codex-alias pi-notify-me pi-prompts pi-skills;
       };
 
       checks = {
-        inherit pi-permission pi-ollama-usage pi-codex-alias pi-prompts pi-skills;
+        inherit pi-permission pi-ollama-usage pi-codex-alias pi-notify-me pi-prompts pi-skills;
         inherit biome-check tsc-check node-tests;
       };
     };
