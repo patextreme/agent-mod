@@ -3,9 +3,12 @@
 Repository-owned, bounded inputs for a **manual old/new skill comparison**. These are
 not unit tests, groom runs, model mocks, or automatically graded keyword checks.
 
-The [2026-10-05 matched live comparison](./results/2026-10-05/README.md) records
-model/settings, skill hashes, assessed outcomes and limitations, including the
-case-19 fixture correction. Raw run artifacts are kept outside the repository.
+This suite is manual and is never a gate. Runs and their evidence live in the
+operator workspace and are never committed: the repository retains only inputs,
+grading criteria, fixture tooling and this procedure, and a completed run leaves
+no newly tracked files.
+[ADR-0001, semantic evidence stays local](../../../docs/adr/0001-semantic-evidence-stays-local.md),
+is the decision of record.
 
 - `cases.json`: reviewer inputs only; 23 cases (18 artifact reviews, 5 fixed-output
   interpretation probes), four small domain bases plus one inherited base.
