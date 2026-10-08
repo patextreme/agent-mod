@@ -1,28 +1,6 @@
-# merged-issue-cleanup Specification
+# Spec Delta
 
-## Purpose
-
-Safely preview and explicitly confirm cleanup of local issue work whose matching GitHub PR was merged, preserving uncertain work and limiting pruning to stale remote-tracking refs.
-
-## Requirements
-
-### Requirement: Explicit invocation and narrow candidates
-Cleanup SHALL be human-invoked only and inspect local branches matching `^issue-[0-9]+$`, with or without worktrees. It SHALL resolve repository identity, exact corresponding remote and access before cleanup, fetch without pruning, and inventory associated worktrees, local/upstream/remote tips and paginated PR evidence. Ambiguity SHALL block removal.
-
-#### Scenario: Invocation without approval
-- **WHEN** the user invokes cleanup
-- **THEN** the skill inventories and previews candidates without treating invocation as authorization to delete or prune
-
-### Requirement: Exact merged PR evidence
-A candidate SHALL require exactly one matching merged PR, no competing open/ambiguous PR, matching head repository/branch and project-expected base, and local tip equal to the authoritative PR head SHA. An existing remote branch SHALL have that same tip. Missing head evidence, unpublished/divergent/post-merge commits or issue closure alone SHALL not qualify.
-
-#### Scenario: Squash-merged PR has unchanged issue tip
-- **WHEN** the local issue tip and any existing remote tip equal the authoritative merged PR head despite different merge ancestry
-- **THEN** exact PR/head evidence can qualify the candidate without inferring safety from ancestry or patch similarity
-
-#### Scenario: Local commits were added after merge
-- **WHEN** the local issue tip differs from the merged PR's recorded head
-- **THEN** the branch is preserved with an explicit skip reason
+## MODIFIED Requirements
 
 ### Requirement: Worktree preservation
 
@@ -93,13 +71,6 @@ Cleanup SHALL show branch/local SHA, worktree path or absence, PR/time and eligi
 #### Scenario: Writer violates quiescence after Git's check
 - **WHEN** a writer changes worktree content after Git's content check despite the operator's quiescence assertion
 - **THEN** Git's non-atomic removal may delete that content; the preview/confirmation discloses this residual risk rather than promising preservation beyond Git's observation boundary
-
-### Requirement: Guarded local removal
-Approved worktrees SHALL be removed normally from a retained worktree outside the target. Removal failure SHALL preserve the branch. Local branch deletion SHALL occur only after confirming no worktree uses it; normal deletion refusal solely due to squash/rebase ancestry SHALL permit a rechecked forced local-ref deletion for that approved unchanged branch, not blanket force retries.
-
-#### Scenario: Worktree removal fails
-- **WHEN** normal worktree removal refuses an approved candidate
-- **THEN** cleanup reports the blocker without forcing directory removal or deleting its branch
 
 ### Requirement: Restricted pruning and no remote deletion
 
