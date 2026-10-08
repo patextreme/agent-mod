@@ -210,9 +210,20 @@ npm run format         # biome format --write .
 npm run lint           # biome lint .
 npm run check          # biome check . (lint + format check combined)
 npm run typecheck      # tsc --noEmit
-npm test               # tsx --test (extension, docs, and packaging test suites)
-nix flake check        # nix build checks (biome, tsc, tests, package builds)
+npm test               # node tests/run.mjs (discovery-based gate runner)
+npm run test:semantic  # materialize manual semantic-suite fixtures (never a gate)
+nix flake check        # nix build checks (biome, tsc, node-tests, package builds)
 ```
+
+Gate tests are discovered by convention — there are no registration lists to
+update. The two placement rules: unit tests live beside their extension module
+(`extensions/<name>/<name>.test.ts`), and ownerless repository contracts live
+under `tests/gates/*.test.mjs`. A file at either recognized root runs in every
+gate execution, locally and in the hermetic `node-tests` Nix check; a file
+anywhere else does not run. Semantic suites under `tests/semantic/` never run
+as gates: `test:semantic` only materializes fixtures for the manual procedure,
+and run evidence stays in the operator workspace, never committed (see
+[ADR-0001](./docs/adr/0001-semantic-evidence-stays-local.md)).
 
 Requires `biome`, `node`, and `typescript` in PATH. Use `nix develop` (provides all tooling) or install globally.
 

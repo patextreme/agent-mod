@@ -26,6 +26,7 @@
     "lint": "biome lint .",
     "check": "biome check .",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test --test-concurrency=2 extensions/permission/rules.test.ts extensions/ollama-usage/parse.test.ts extensions/codex-alias/alias.test.ts scripts/docs-version.test.mjs scripts/factory-skills.test.mjs"
+    "test": "node tests/run.mjs",
+    "test:semantic": "node tests/semantic/openspec-review/materialize.mjs"
   }
 }

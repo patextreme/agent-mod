@@ -70,40 +70,6 @@
         '';
       };
 
-      ollama-usage-test = pkgs.stdenv.mkDerivation {
-        name = "ollama-usage-test";
-        src = ./../..;
-        nativeBuildInputs = [ pkgs.nodejs ];
-        phases = [ "unpackPhase" "buildPhase" "installPhase" ];
-        buildPhase = ''
-          # Provide root node_modules for tsx and typescript
-          cp -r ${rootNodeModules} node_modules
-          chmod -R u+w node_modules
-
-          ./node_modules/.bin/tsx --test --test-concurrency=2 extensions/ollama-usage/parse.test.ts
-        '';
-        installPhase = ''
-          touch $out
-        '';
-      };
-
-      codex-alias-test = pkgs.stdenv.mkDerivation {
-        name = "codex-alias-test";
-        src = ./../..;
-        nativeBuildInputs = [ pkgs.nodejs ];
-        phases = [ "unpackPhase" "buildPhase" "installPhase" ];
-        buildPhase = ''
-          # Provide root node_modules for tsx and typescript
-          cp -r ${rootNodeModules} node_modules
-          chmod -R u+w node_modules
-
-          ./node_modules/.bin/tsx --test --test-concurrency=2 extensions/codex-alias/alias.test.ts
-        '';
-        installPhase = ''
-          touch $out
-        '';
-      };
-
       biome-check = pkgs.stdenv.mkDerivation {
         name = "biome-check";
         src = ./../..;
@@ -134,46 +100,19 @@
         '';
       };
 
-      permission-test = pkgs.stdenv.mkDerivation {
-        name = "permission-test";
+      node-tests = pkgs.stdenv.mkDerivation {
+        name = "node-tests";
         src = ./../..;
         nativeBuildInputs = [ pkgs.nodejs ];
         phases = [ "unpackPhase" "buildPhase" "installPhase" ];
         buildPhase = ''
-          # Provide root node_modules for tsx and typescript
+          # Provide root node_modules for tsx and the pi SDK, then run the
+          # discovery-based gate runner. PI_FACTORY_SKILLS_OUTPUT supplies the
+          # hermetic-only tier; without it the runner self-skips that tier.
           cp -r ${rootNodeModules} node_modules
           chmod -R u+w node_modules
 
-          ./node_modules/.bin/tsx --test --test-concurrency=2 extensions/permission/rules.test.ts
-        '';
-        installPhase = ''
-          touch $out
-        '';
-      };
-
-      factory-skills-test = pkgs.stdenv.mkDerivation {
-        name = "factory-skills-test";
-        src = ./../..;
-        nativeBuildInputs = [ pkgs.nodejs ];
-        phases = [ "unpackPhase" "buildPhase" "installPhase" ];
-        buildPhase = ''
-          cp -r ${rootNodeModules} node_modules
-          chmod -R u+w node_modules
-          PI_FACTORY_SKILLS_OUTPUT=${pi-skills} node --test --test-concurrency=2 scripts/factory-skills.test.mjs
-        '';
-        installPhase = ''
-          touch $out
-        '';
-      };
-
-      docs-version-check = pkgs.stdenv.mkDerivation {
-        name = "docs-version-check";
-        src = ./../..;
-        nativeBuildInputs = [ pkgs.nodejs ];
-        phases = [ "unpackPhase" "buildPhase" "installPhase" ];
-        buildPhase = ''
-          # Dependency-free: runs under plain node, no rootNodeModules needed
-          node --test --test-concurrency=2 scripts/docs-version.test.mjs
+          PI_FACTORY_SKILLS_OUTPUT=${pi-skills} node tests/run.mjs
         '';
         installPhase = ''
           touch $out
@@ -187,7 +126,7 @@
 
       checks = {
         inherit pi-permission pi-ollama-usage pi-codex-alias pi-prompts pi-skills;
-        inherit biome-check tsc-check permission-test ollama-usage-test codex-alias-test docs-version-check factory-skills-test;
+        inherit biome-check tsc-check node-tests;
       };
     };
 }

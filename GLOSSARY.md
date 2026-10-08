@@ -1,6 +1,6 @@
 # OpenSpec Automation
 
-Language for issue-to-PR automation and the implementation, verification, and finalization of approved OpenSpec changes.
+Language for issue-to-PR automation, the implementation, verification, and finalization of approved OpenSpec changes, and the repository's test suites.
 
 ## Language
 
@@ -64,3 +64,21 @@ _Avoid_: Single invocation (one execution, not necessarily the whole attempt)
 **Escalation**:
 A request for explicit human direction when an issue attempt cannot safely proceed autonomously.
 _Avoid_: Failure (an escalation may allow the attempt to continue)
+
+### Testing
+
+**Quality gate**:
+A check every change must pass before delivery: formatting, lint, typechecking, and the test suites. Quality gates run locally and are mirrored by the hermetic gate.
+_Avoid_: CI check, build step
+
+**Gate test**:
+A model-free, deterministic test that runs as a quality gate on every change. A gate test lives beside its extension module or, when no module owns it, under the shared gates directory.
+_Avoid_: Harness test, smoke test, CI test
+
+**Semantic suite**:
+A manually run live-model evaluation that materializes fixtures, runs fresh reviewer sessions, and grades the outcomes as evidence kept outside version control. A semantic suite never runs as a quality gate.
+_Avoid_: Integration test, eval gate, benchmark
+
+**Hermetic gate**:
+The sandboxed build that rebuilds every package and reruns every quality gate with pinned inputs.
+_Avoid_: CI pipeline, build job

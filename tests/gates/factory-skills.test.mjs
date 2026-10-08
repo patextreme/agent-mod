@@ -26,7 +26,7 @@ import {
 // GitHub access, signing, or cleanup execution. The contract tests assert the
 // text of skill documentation and examples; they do not establish live model
 // adherence or how GitHub renders collapsed details.
-const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
+const repoRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 const factorySkills = {
   "orc-openspec-groom": ["references/pseudocode.md"],
   "orc-openspec-implement": ["references/pseudocode.md"],

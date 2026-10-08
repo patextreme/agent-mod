@@ -10,8 +10,9 @@ npm run format         # biome format --write .
 npm run lint           # biome lint .
 npm run check          # biome check . (lint + format check combined)
 npm run typecheck      # tsc --noEmit
-npm test              # tsx --test (extensions, docs, packaging tests)
-nix flake check        # nix build checks (biome, tsc, permission tests, package builds)
+npm test              # node tests/run.mjs (discovery-based gate runner)
+npm run test:semantic # materialize manual semantic-suite fixtures (never a gate)
+nix flake check        # nix build checks (biome, tsc, node-tests, package builds)
 ```
 
 Quality gates: `format → lint → typecheck → test`.
@@ -36,6 +37,9 @@ nix flake check
 - `extensions/codex-alias/` — Codex provider alias (`index.ts` imports `./alias.js`). Registers `openai-codex-secondary` ("OpenAI Codex — Secondary") as an independently authenticated alias of the built-in `openai-codex` provider, reusing its OAuth flow and catalog so two Codex accounts share one agent directory; unit-tested in `alias.test.ts`
 - `prompts/` — Pi prompt templates (Markdown + YAML frontmatter). Naming convention: `category-name.md`
 - `skills/` — Pi skills (`<name>/SKILL.md` with YAML frontmatter), packaged via the `pi` field and the `pi-skills` flake output
+- `tests/run.mjs` — discovery-based gate runner; the recognized roots are the whole manifest: `extensions/**/*.test.ts` plus `tests/gates/**/*.test.mjs`
+- `tests/gates/` — ownerless contract tests (no owning module), run by every gate execution
+- `tests/semantic/` — manual live-model suites; never gates, evidence never committed (see `docs/adr/0001-semantic-evidence-stays-local.md`)
 - `nix/` — Flake devshell and package build config
 
 `package.json` `"pi"` field declares only the `prompts` and `skills` directories; extensions ship exclusively as Nix flake outputs and are intentionally omitted from `pi install`. `tsconfig.json` includes `extensions/**/*.ts`. The retired acpx `flows/` runtime is gone; orchestration lives in the imported skills under `skills/`.
@@ -51,8 +55,9 @@ For issue operations and code-review spec discovery, read [the GitHub tracker wo
 - **Biome** for formatting and linting — `biome.json` configures 2-space indentation only; lint rules use defaults
 - **No build step** — `tsc --noEmit` only type-checks, no output
 - **Extensions** export a default function `(pi: ExtensionAPI) => void`
-- **Every extension must have a flake output** — each directory under `extensions/` needs a `pi-<name>` package (and a `<name>-test` check if it has tests) in `nix/modules/pi-package.nix`, wired into both `packages` and `checks`
-- **Removing an extension mirrors adding one** — delete the directory and every artifact class that references it: the `pi-<name>` derivation, the `<name>-test` check, and their `packages`/`checks` entries in `nix/modules/pi-package.nix`; its path in the `test` script in `package.json`; any `tsconfig.json` `include`/`exclude` entry; the README extensions-table row and its `## <Name> Extension` section; and this file's Repo Layout bullet. Dependencies only that extension imported come out of `package.json`, which invalidates `package-lock.json` and the `npmDepsHash` (see the lockfile note above). If the extension carried an OpenSpec capability, retire it with a `## REMOVED Requirements` delta and `retire_capabilities: true` rather than deleting the spec by hand.
+- **Every extension must have a flake output** — each directory under `extensions/` needs a `pi-<name>` package in `nix/modules/pi-package.nix`, wired into both `packages` and `checks`. Tests need no Nix entry: a co-located `extensions/<name>/<name>.test.ts` runs via the discovery-based `node-tests` check, which invokes `tests/run.mjs`.
+- **Test placement is two-rule discovery** — unit tests live beside their extension module; ownerless repository contracts live under `tests/gates/*.test.mjs`. A test file at a recognized root runs without any registration edit; nothing elsewhere runs. Semantic suites under `tests/semantic/` are manual only and never gates.
+- **Removing an extension mirrors adding one** — delete the directory and every artifact class that references it: the `pi-<name>` derivation and its `packages`/`checks` entries in `nix/modules/pi-package.nix`; any `tsconfig.json` `include`/`exclude` entry; the README extensions-table row and its `## <Name> Extension` section; and this file's Repo Layout bullet. Its co-located test disappears with the directory — discovery needs no list edit. Dependencies only that extension imported come out of `package.json`, which invalidates `package-lock.json` and the `npmDepsHash` (see the lockfile note above). If the extension carried an OpenSpec capability, retire it with a `## REMOVED Requirements` delta and `retire_capabilities: true` rather than deleting the spec by hand.
 - **Prompts** use `---` YAML frontmatter with a `description` field; `$ARGUMENTS` placeholder for user input
 - **Permission extension**: rules processed in **forward order**; first match wins. Actions: `allow`, `ask`, `deny`. Registers commands `permission-list-always-allow`, `permission-reset`, and `permission-yolo`. Resets always-allowed state on `session_start`. `/permission-yolo` (bare toggle / `on` / `off`) enables a session-scoped mode that bypasses all permission checks — including `deny` rules and prompts — with a persistent status-bar warning; it is an explicit typed opt-in (no dialog) and resets on `session_start` and via `permission-reset`. A `--yolo` CLI flag (registered via `pi.registerFlag`) pins YOLO mode on for the entire process run — including headless runs (`-p`, `--mode json`) where there is no UI to prompt; the pin survives `session_start` and `/permission-reset` and cannot be turned off mid-session.
 - **Permission extension**: when `PI_SANDBOX=true`, unmatched commands are allowed instead of prompting
