@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 // declared in package.json peerDependencies. Fails when the README line is
 // missing, unparseable, or out of sync — so deleting the sentence cannot
 // silently pass. Dependency-free: runs under plain `node --test`.
-const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
+const repoRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 
 const PEER = "@earendil-works/pi-coding-agent";
 const REQUIREMENTS_LINE = /^- Pi `([^`\n]+)` \(declared as a peer dependency/m;
