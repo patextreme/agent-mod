@@ -25,7 +25,7 @@ Orchestration SHALL inspect existing worktrees, `issue-<n>` refs and matching PR
 - **THEN** orchestration re-establishes evidenced completion and resumes remaining work instead of creating a duplicate worktree or PR
 
 ### Requirement: Selected implementation path
-Direct execution SHALL delegate research, planning, scoped implementation and relevant checks, then independent diff/acceptance validation. OpenSpec execution SHALL select an unambiguous existing change/store and delegate groom, implement, verify and finalize sequentially, keeping `orc-openspec-verify` verification-only and owning finalization of the verified change in this skill before delivery. After grooming it SHALL separately validate structure and assess readiness; it MUST NOT create a missing change automatically.
+Direct execution SHALL delegate research, planning, scoped implementation and relevant checks, then independent diff/acceptance validation. OpenSpec execution SHALL select an unambiguous existing change/store, execute groom, implement and verify coordination sequentially in the main session with delegated workers, and delegate finalization, keeping `orc-openspec-verify` verification-only and owning finalization of the verified change in this skill before delivery. After grooming it SHALL separately validate structure and assess readiness; it MUST NOT create a missing change automatically.
 
 #### Scenario: OpenSpec change is missing
 - **WHEN** an OpenSpec-labeled issue lacks an unambiguous existing change
@@ -46,8 +46,15 @@ Delivery SHALL validate authorized contents, commit with signing and DCO, push w
 - **WHEN** the intended merge base no longer matches current `origin/develop`
 - **THEN** delegated safe reconciliation and affected validation occur before delivery is accepted
 
-### Requirement: Nested review and final-head evidence
-After verified delivery, orchestration SHALL delegate `orc-pr-review-repair` to a separate nested-capable orchestrator, retaining its run history, thresholds and budget on resume. Required separate delivery gates SHALL apply to the final delivered/reviewed head, including a project-required current-head Claude gate when applicable. Stale head-bound gates MUST NOT establish completion.
+### Requirement: Main-session coordination
+The main session SHALL execute downstream `orc-*` orchestration skills and own required SubagentWorkflow calls, delegating their worker stages rather than workflow-owning orchestrators. Stage workflows SHALL run sequentially from the main session rather than inside an outer workflow. Review workers following `code-review` SHALL have nested Agent access for the Standards and Spec axes.
+
+#### Scenario: Child sessions lack SubagentWorkflow
+- **WHEN** an OpenSpec implementation stage requires SubagentWorkflow but child Agent sessions do not expose it
+- **THEN** the main session runs the implementation workflow and delegates task-group implementation, independent verification and bookkeeping to workers without requiring child workflow access
+
+### Requirement: Review and final-head evidence
+After verified delivery, orchestration SHALL execute `orc-pr-review-repair` coordination in the main session with separate workers, retaining its run history, thresholds and budget on resume. Required separate delivery gates SHALL apply to the final delivered/reviewed head, including a project-required current-head Claude gate when applicable. Stale head-bound gates MUST NOT establish completion.
 
 #### Scenario: Review produces a fixing commit
 - **WHEN** delegated review/repair changes the delivered head
