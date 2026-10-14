@@ -49,6 +49,8 @@ async function fixture(t: TestContext, request: Request) {
     mode: "tui",
     isIdle: () => !streaming,
     ui: {
+      setStatus: () => {},
+      theme: { fg: (_color: string, text: string) => text },
       notify(message: string, type?: string) {
         notices.push({ message, type });
       },
@@ -98,9 +100,11 @@ async function fixture(t: TestContext, request: Request) {
     await flush();
     assert.equal(clock.active, 0);
   });
-  assert.deepEqual([...commands.keys()], ["notify-me"]);
+  assert.deepEqual([...commands.keys()], ["notify-me", "notify-me-cancel"]);
   const command = commands.get("notify-me");
+  const cancel = commands.get("notify-me-cancel");
   assert.ok(command);
+  assert.ok(cancel);
   assert.ok(!handlers.has("agent_end"));
   return {
     clock,
@@ -112,6 +116,7 @@ async function fixture(t: TestContext, request: Request) {
     configPath,
     keyPath,
     command: (message: string) => command.handler(message, ctx),
+    cancel: (args = "") => cancel.handler(args, ctx),
     observe: (outcome: AgentActivityOutcome) =>
       emit({
         type: "agent_before_settle",
@@ -398,7 +403,11 @@ for (const reason of ["available", "unavailable"] as const) {
 test("validated arming clears without HTTP on cancellation, session replacement, and authoritative abort", async (t) => {
   const h = await fixture(t, async () => new Response(null, { status: 204 }));
   await h.command("Cancel this");
-  await h.command("cancel");
+  await h.cancel();
+  assert.deepEqual(h.notices.at(-1), {
+    message: "Pending notification canceled.",
+    type: "info",
+  });
   await h.settle();
   await h.command("Outgoing pending");
   await h.emit({ type: "session_shutdown", reason: "new" });
@@ -427,9 +436,21 @@ test("real credential changes, later cancellation, and session switching cannot 
   await h.settle();
   assert.equal(h.calls.length, 1);
   const originalBody = h.calls[0].init.body;
+  const dispatchedSignal = h.calls[0].init.signal;
+  await h.cancel();
+  assert.deepEqual(h.notices.at(-1), {
+    message: "No armed notification.",
+    type: "info",
+  });
+  assert.equal(dispatchedSignal?.aborted, false);
   await writeFile(h.keyPath, laterUrl);
   await h.command("Later pending");
-  await h.command("cancel");
+  await h.cancel();
+  assert.deepEqual(h.notices.at(-1), {
+    message: "Pending notification canceled.",
+    type: "info",
+  });
+  assert.equal(dispatchedSignal?.aborted, false);
   await h.emit({ type: "session_shutdown", reason: "resume" });
   await h.emit({ type: "session_start", reason: "resume" });
   h.ctx.cwd = "/other/session/path";

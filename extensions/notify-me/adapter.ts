@@ -51,26 +51,36 @@ export function registerNotifyMe(
   let outcome: AgentActivityOutcome = "completed";
   let errorReason: string | undefined;
 
+  // Derive the footer from pending work only. Idempotent and safe with the
+  // SDK's no-op UI in headless modes; no duplicate adapter-side pending state.
+  function setArmedStatus(ctx: ExtensionContext): void {
+    ctx.ui.setStatus(
+      "notify-me",
+      pending.hasPending()
+        ? ctx.ui.theme.fg("accent", "🔔 notify-me armed")
+        : undefined,
+    );
+  }
+
+  function cancelPending(ctx: ExtensionContext): boolean {
+    const wasPending = pending.hasPending();
+    // Always invalidate outstanding validation, including when still unarmed.
+    pending.clear();
+    setArmedStatus(ctx);
+    return wasPending;
+  }
+
   const resetOutcome = () => {
     outcome = "completed";
     errorReason = undefined;
   };
 
   pi.registerCommand("notify-me", {
-    description:
-      "Arm a one-shot Discord notification: /notify-me <message> or cancel",
+    description: "Arm a one-shot Discord notification: /notify-me <message>",
     handler: async (args, ctx) => {
       const message = args.trim();
       if (!message) {
-        ctx.ui.notify(
-          "Usage: /notify-me <message> | /notify-me cancel",
-          "info",
-        );
-        return;
-      }
-      if (message === "cancel") {
-        pending.clear();
-        ctx.ui.notify("Pending notification canceled.", "info");
+        ctx.ui.notify("Usage: /notify-me <message>", "info");
         return;
       }
       const generation = pending.beginArm();
@@ -91,6 +101,7 @@ export function registerNotifyMe(
         return;
       }
       if (pending.arm(generation, message, configuration.webhookUrl, now())) {
+        setArmedStatus(ctx);
         ctx.ui.notify(
           "Notification armed for the next final handback.",
           "info",
@@ -99,14 +110,33 @@ export function registerNotifyMe(
     },
   });
 
-  pi.on("session_start", () => {
+  pi.registerCommand("notify-me-cancel", {
+    description: "Cancel a pending Discord notification: /notify-me-cancel",
+    handler: async (args, ctx) => {
+      if (args.trim()) {
+        ctx.ui.notify("Usage: /notify-me-cancel", "info");
+        return;
+      }
+      const wasPending = cancelPending(ctx);
+      ctx.ui.notify(
+        wasPending
+          ? "Pending notification canceled."
+          : "No armed notification.",
+        "info",
+      );
+    },
+  });
+
+  pi.on("session_start", (_event, ctx) => {
     pending.resetSession();
+    setArmedStatus(ctx);
     resetOutcome();
   });
-  pi.on("session_shutdown", () => {
+  pi.on("session_shutdown", (_event, ctx) => {
     // Pending work belongs to the outgoing session. Dispatched jobs do not;
     // their shutdown-vs-replacement policy belongs to the delivery integration.
     pending.resetSession();
+    setArmedStatus(ctx);
     resetOutcome();
   });
   pi.on("agent_start", resetOutcome);
@@ -126,6 +156,7 @@ export function registerNotifyMe(
   });
   pi.on("agent_settled", (event, ctx) => {
     const notification = pending.take();
+    setArmedStatus(ctx);
     const settledOutcome = outcome;
     const reason = errorReason;
     resetOutcome();
