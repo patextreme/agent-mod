@@ -61,7 +61,7 @@ These ship only as Nix flake outputs (`pi-permission`, `pi-ollama-usage`, `pi-co
 | [Permission](./extensions/permission/index.ts) | Intercepts `bash` tool calls and applies regex-based permission rules; plays a bell on prompts and when the agent finishes; opt-in session-scoped `/permission-yolo` full bypass |
 | [Ollama Usage](./extensions/ollama-usage/index.ts) | Shows Ollama Cloud session/weekly usage in the status bar; refreshes on ollama-cloud model selection and via `/ollama-usage-refresh` |
 | [Codex Alias](./extensions/codex-alias/index.ts) | Registers `openai-codex-secondary` as an independently authenticated alias of the built-in `openai-codex` provider, so two Codex accounts can share one agent directory |
-| [Notify Me](./extensions/notify-me/index.ts) | Arms a session-scoped, one-shot Discord reminder for final handback via `/notify-me <message>`; `/notify-me cancel` clears pending work |
+| [Notify Me](./extensions/notify-me/index.ts) | Arms a session-scoped, one-shot Discord reminder for final handback via `/notify-me <message>`; `/notify-me-cancel` clears pending work |
 
 ### Prompt Templates
 
@@ -261,7 +261,7 @@ for the schema and path examples.
 ```text
 /notify-me Remember to check the result
 /notify-me A replacement reminder
-/notify-me cancel
+/notify-me-cancel
 ```
 
 - A nonempty message arms **one notification for the current session's next
@@ -271,10 +271,17 @@ for the schema and path examples.
   elapsed time when validation succeeds. Invalid configuration preserves the
   previous arming. Out-of-order configuration reads cannot revive superseded
   work; cancellation or session reset also invalidates outstanding reads.
-- Bare `/notify-me` shows usage without changing pending state. The exact,
-  trimmed, lower-case argument `cancel` is reserved; `Cancel` or `cancel later`
-  are ordinary messages. Cancel clears pending state, not an already-dispatched
-  notification.
+- `/notify-me <message>` is arm-only: every nonempty argument is ordinary
+  reminder text, with no reserved words. Bare `/notify-me` shows
+  `Usage: /notify-me <message>` without changing pending state.
+- Use `/notify-me-cancel` without arguments to clear pending state and invalidate
+  outstanding arm/configuration-validation attempts. This also invalidates a
+  read still in progress when nothing is armed: late success or failure cannot
+  arm a notification or show stale confirmation/diagnostics. It shows
+  `Pending notification canceled.` when armed, or the informational
+  `No armed notification.` otherwise. Nonempty arguments show usage without
+  changing pending state or invalidating outstanding validation.
+  Already-dispatched delivery is unchanged.
 - Completion and terminal errors consume the one-shot **only at
   `agent_settled`**, after automatic continuation, retries, recovery, compaction,
   and queued work finish. Intermediate `agent_end` events do not notify.
@@ -341,9 +348,10 @@ Delivery is nonblocking, best-effort, and **in-process only**:
 - Final failure produces a controlled warning only while the originating UI is
   still current; obsolete-session or headless UI warnings are suppressed.
 
-Cancel/replacement affects pending work only. Already-dispatched jobs remain
-independent across new/resumed/forked sessions; changing sessions suppresses their
-obsolete UI warnings, not delivery. Actual quit or extension-runtime reload
+`/notify-me-cancel` and replacement affect pending work only (cancellation also
+invalidates outstanding validation). Already-dispatched jobs remain independent
+across new/resumed/forked sessions; changing sessions suppresses their obsolete
+UI warnings, not delivery. Actual quit or extension-runtime reload
 aborts requests and clears retry timers. Timers are unreferenced so retries do
 not keep an otherwise exiting process alive. Nothing is persisted or resumed
 on restart, and no background service or durable queue exists.

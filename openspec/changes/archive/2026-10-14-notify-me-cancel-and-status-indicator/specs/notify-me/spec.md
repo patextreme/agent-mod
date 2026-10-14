@@ -34,19 +34,25 @@ Delivery SHALL consume the pending notification before its first attempt and run
 ## ADDED Requirements
 
 ### Requirement: Dedicated cancellation command
-The extension SHALL register a `/notify-me-cancel` slash command that clears the pending notification through the same cancellation path, affecting pending state only and never a notification already dispatched. Nonempty arguments SHALL be rejected with a usage message and no state change. When nothing is armed, the command SHALL show an informational local toast and SHALL NOT alter state.
+The extension SHALL register a `/notify-me-cancel` slash command that clears the pending notification and invalidates outstanding arm/configuration-validation attempts through the same cancellation path, never affecting a notification already dispatched. Nonempty arguments SHALL be rejected with a usage message and no state change, including no generation invalidation. An argument-free cancellation SHALL invalidate outstanding attempts even when nothing is pending. When nothing is armed, the command SHALL show the informational local toast `No armed notification.` and SHALL leave pending notification state empty; this does not prohibit internal generation invalidation.
 
 #### Scenario: Cancel armed notification
 - **WHEN** a notification is pending and the user issues `/notify-me-cancel`
-- **THEN** pending state is cleared without delivery and a local cancellation confirmation is shown
+- **THEN** pending state is cleared without delivery, outstanding arm/configuration-validation attempts are invalidated, and a local cancellation confirmation is shown
 
 #### Scenario: Reject stray arguments
 - **WHEN** the user issues `/notify-me-cancel` with any nonempty argument
-- **THEN** the command shows a usage message and pending state is unchanged
+- **THEN** the command shows a usage message, pending state is unchanged, and outstanding arm/configuration-validation attempts are not invalidated
 
 #### Scenario: Cancel with nothing armed
 - **WHEN** nothing is pending and the user issues `/notify-me-cancel`
-- **THEN** an informational toast indicates no notification is armed and no state changes
+- **THEN** the informational toast `No armed notification.` is shown and pending notification state remains empty
+- **AND** outstanding arm/configuration-validation attempts are invalidated even though no notification was pending
+
+#### Scenario: Cancel while arming with nothing pending
+- **WHEN** an arm/configuration-validation attempt is outstanding, no notification is pending, and the user issues argument-free `/notify-me-cancel`
+- **THEN** the command shows `No armed notification.` and invalidates the outstanding attempt
+- **AND** late completion of that attempt, whether successful or failed, neither arms a notification nor shows stale confirmation/diagnostics or an armed status indicator
 
 ### Requirement: Armed status indicator
 The extension SHALL display a status-bar entry keyed `notify-me` with themed text `🔔 notify-me armed` while a notification is pending. It SHALL clear that entry whenever pending state goes away: consumption at final handback, cancellation, deliberate abort, or session reset. The entry SHALL mirror pending state only, with no separate arming-in-flight or delivering states, and the same pending state SHALL always render the same entry.

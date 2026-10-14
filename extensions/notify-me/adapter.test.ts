@@ -43,6 +43,7 @@ function harness(
     Omit<RegisteredCommand, "name" | "sourceInfo">
   >();
   const notices: { message: string; type?: string }[] = [];
+  const statuses: [string, string | undefined][] = [];
   const handbacks: { pending: PendingNotification; outcome: SettledOutcome }[] =
     [];
   let clock = 1000;
@@ -54,6 +55,12 @@ function harness(
     mode: "tui",
     isIdle: () => !streaming,
     ui: {
+      setStatus: (key: string, text: string | undefined) => {
+        statuses.push([key, text]);
+      },
+      theme: {
+        fg: (color: string, text: string) => `<${color}>${text}</${color}>`,
+      },
       notify: (message: string, type?: string) => {
         notices.push({ message, type });
       },
@@ -94,11 +101,13 @@ function harness(
   const emit = async (event: ExtensionEvent) => {
     return await handlers.get(event.type)?.(event, ctx);
   };
-  const command = (args: string) => {
-    const registered = commands.get("notify-me");
+  const invoke = (name: string, args: string) => {
+    const registered = commands.get(name);
     assert.ok(registered);
     return registered.handler(args, ctx);
   };
+  const command = (args: string) => invoke("notify-me", args);
+  const cancel = (args = "") => invoke("notify-me-cancel", args);
   const boundary = (outcome: AgentActivityOutcome) =>
     emit({
       type: "agent_before_settle",
@@ -147,11 +156,13 @@ function harness(
     handlers,
     commands,
     notices,
+    statuses,
     handbacks,
     ctx,
     pi,
     emit,
     command,
+    cancel,
     boundary,
     assistant,
     start,
@@ -167,9 +178,172 @@ function harness(
   };
 }
 
-test("registers only the command and notification lifecycle observers, never agent_end", () => {
+const armedStatus = "<accent>🔔 notify-me armed</accent>";
+
+test("status calls follow arm, dedicated cancel, re-arm, handback, and session reset exactly", async () => {
+  const h = harness(undefined, () => {
+    // Clear before delivery code can run or re-enter settlement.
+    assert.deepEqual(h.statuses.at(-1), ["notify-me", undefined]);
+  });
+  await h.reset("startup");
+  await h.command("first");
+  assert.deepEqual(h.statuses, [
+    ["notify-me", undefined],
+    ["notify-me", armedStatus],
+  ]);
+  await h.cancel();
+  await h.command("again");
+  await h.start();
+  await h.assistant("stop");
+  await h.boundary("completed");
+  assert.deepEqual(h.statuses, [
+    ["notify-me", undefined],
+    ["notify-me", armedStatus],
+    ["notify-me", undefined],
+    ["notify-me", armedStatus],
+  ]);
+  await h.settle();
+  await h.reset();
+  assert.deepEqual(h.statuses, [
+    ["notify-me", undefined],
+    ["notify-me", armedStatus],
+    ["notify-me", undefined],
+    ["notify-me", armedStatus],
+    ["notify-me", undefined],
+    ["notify-me", undefined],
+  ]);
+  assert.equal(h.handbacks.length, 1);
+  assert.equal(h.handbacks[0].pending.message, "again");
+});
+
+test("replacement redraws the same single status key and nonmutating events leave it alone", async () => {
+  let configuration: ConfigurationResult = valid;
+  const h = harness(async () => configuration);
+  await h.command("first");
+  await h.command("replacement");
+  await h.command(" ");
+  configuration = invalid;
+  await h.command("invalid replacement");
+  await h.start();
+  await h.assistant("error", "recoverable");
+  await h.emit({ type: "agent_end", messages: [] });
+  await h.boundary("error");
+  await h.start();
+  await h.boundary("completed");
+  assert.deepEqual(h.statuses, [
+    ["notify-me", armedStatus],
+    ["notify-me", armedStatus],
+  ]);
+  await h.settle();
+  await h.settle();
+  assert.deepEqual(h.statuses, [
+    ["notify-me", armedStatus],
+    ["notify-me", armedStatus],
+    ["notify-me", undefined],
+    ["notify-me", undefined],
+  ]);
+  assert.equal(h.handbacks.length, 1);
+  assert.equal(h.handbacks[0].pending.message, "replacement");
+});
+
+for (const abortedBy of ["final flag", "assistant", "boundary"] as const) {
+  test(`status clears on deliberate abort via ${abortedBy} without delivery`, async () => {
+    const h = harness();
+    await h.command("aborted");
+    await h.start();
+    if (abortedBy === "assistant") await h.assistant("aborted");
+    if (abortedBy === "boundary") await h.boundary("aborted");
+    await h.settle(abortedBy === "final flag");
+    assert.deepEqual(h.statuses, [
+      ["notify-me", armedStatus],
+      ["notify-me", undefined],
+    ]);
+    assert.equal(h.handbacks.length, 0);
+  });
+}
+
+for (const reason of ["startup", "reload", "new", "resume", "fork"] as const) {
+  test(`session_start ${reason} clears the armed status exactly once`, async () => {
+    const h = harness();
+    await h.command("old session");
+    await h.reset(reason);
+    assert.deepEqual(h.statuses, [
+      ["notify-me", armedStatus],
+      ["notify-me", undefined],
+    ]);
+    await h.settle();
+    assert.equal(h.handbacks.length, 0);
+  });
+}
+
+for (const reason of ["quit", "reload", "new", "resume", "fork"] as const) {
+  test(`session_shutdown ${reason} clears the armed status exactly once`, async () => {
+    const h = harness();
+    await h.command("outgoing session");
+    await h.emit({ type: "session_shutdown", reason });
+    assert.deepEqual(h.statuses, [
+      ["notify-me", armedStatus],
+      ["notify-me", undefined],
+    ]);
+    await h.settle();
+    assert.equal(h.handbacks.length, 0);
+  });
+}
+
+for (const mode of ["print", "json"] as const) {
+  test(`${mode} headless UI stubs make the full status lifecycle a rendering no-op`, async () => {
+    const h = harness();
+    h.ctx.hasUI = false;
+    h.ctx.mode = mode;
+    // Observe the calls without rendering or retaining any footer/UI state,
+    // matching the locked SDK's no-op UI implementation.
+    const calls: [string, string | undefined][] = [];
+    h.ctx.ui.setStatus = (key, text) => {
+      calls.push([key, text]);
+    };
+    h.ctx.ui.notify = () => {};
+    await h.reset("startup");
+    await h.command("first");
+    await h.command("replacement");
+    await h.cancel();
+    await h.command("delivered");
+    await h.settle();
+    await h.command("aborted");
+    await h.settle(true);
+    await h.command("reset");
+    await h.reset();
+    await h.emit({ type: "session_shutdown", reason: "quit" });
+    assert.deepEqual(calls, [
+      ["notify-me", undefined],
+      ["notify-me", armedStatus],
+      ["notify-me", armedStatus],
+      ["notify-me", undefined],
+      ["notify-me", armedStatus],
+      ["notify-me", undefined],
+      ["notify-me", armedStatus],
+      ["notify-me", undefined],
+      ["notify-me", armedStatus],
+      ["notify-me", undefined],
+      ["notify-me", undefined],
+    ]);
+    assert.deepEqual(h.statuses, []);
+    assert.deepEqual(h.notices, []);
+    assert.equal(h.handbacks.length, 1);
+    assert.equal(h.handbacks[0].pending.message, "delivered");
+  });
+}
+
+test("registers the arm/cancel commands and notification lifecycle observers, never agent_end", () => {
   const h = harness();
-  assert.deepEqual([...h.commands.keys()], ["notify-me"]);
+  assert.deepEqual([...h.commands.keys()], ["notify-me", "notify-me-cancel"]);
+  assert.equal(
+    h.commands.get("notify-me")?.description,
+    "Arm a one-shot Discord notification: /notify-me <message>",
+  );
+  assert.match(
+    h.commands.get("notify-me-cancel")?.description ?? "",
+    /cancel/i,
+  );
   assert.deepEqual(
     [...h.handlers.keys()],
     [
@@ -280,30 +454,262 @@ test("invalid first arming and unexpected loader rejection never arm or disclose
   assert.ok(!JSON.stringify(h.notices).includes(webhookUrl));
 });
 
-test("bare usage preserves arming and performs no config read", async () => {
+test("bare usage preserves arming and performs no config read or status redraw", async () => {
   const h = harness();
   await h.command("original");
-  await h.command("   ");
-  assert.equal(h.reads(), 1);
-  assert.match(h.notices.at(-1)?.message ?? "", /Usage/);
+  for (const args of ["", "   "]) {
+    await h.command(args);
+    assert.equal(h.reads(), 1);
+    assert.deepEqual(h.notices.at(-1), {
+      message: "Usage: /notify-me <message>",
+      type: "info",
+    });
+    assert.deepEqual(h.statuses, [["notify-me", armedStatus]]);
+  }
   await h.settle();
   assert.equal(h.handbacks[0].pending.message, "original");
 });
 
-test("only the exact trimmed lower-case cancel argument is reserved", async () => {
+test("every nonempty argument including literal cancel arms as ordinary message text", async () => {
   const h = harness();
-  for (const message of ["Cancel", "cancel later", "please cancel"]) {
+  const messages = [
+    "cancel",
+    " cancel ",
+    "Cancel",
+    "cancel later",
+    "please cancel",
+  ];
+  for (const [index, message] of messages.entries()) {
     await h.command(message);
+    assert.equal(h.reads(), index + 1);
+    assert.equal(h.handbacks.length, index);
+    assert.equal(h.notices.length, index + 1);
+    assert.deepEqual(h.notices.at(-1), {
+      message: "Notification armed for the next final handback.",
+      type: "info",
+    });
+    assert.deepEqual(h.statuses.at(-1), ["notify-me", armedStatus]);
     await h.settle();
-    assert.equal(h.handbacks.at(-1)?.pending.message, message);
+    assert.equal(h.handbacks.length, index + 1);
+    assert.equal(h.handbacks.at(-1)?.pending.message, message.trim());
   }
+});
+
+test("literal cancel replaces pending work only after successful configuration validation", async () => {
+  let configuration: ConfigurationResult = valid;
+  const h = harness(async () => configuration);
   await h.command("original");
+  h.setClock(2000);
   await h.command(" cancel ");
+  assert.equal(h.reads(), 2);
+  assert.deepEqual(h.notices.at(-1), {
+    message: "Notification armed for the next final handback.",
+    type: "info",
+  });
+  assert.deepEqual(h.statuses, [
+    ["notify-me", armedStatus],
+    ["notify-me", armedStatus],
+  ]);
   await h.settle();
-  assert.equal(h.handbacks.length, 3);
-  assert.equal(h.reads(), 4);
+  assert.equal(h.handbacks.length, 1);
+  assert.deepEqual(h.handbacks[0].pending, {
+    message: "cancel",
+    armedAt: 2000,
+    webhookUrl,
+    session: 0,
+  });
+
+  await h.command("preserved");
+  configuration = invalid;
   await h.command("cancel");
-  assert.match(h.notices.at(-1)?.message ?? "", /canceled/);
+  assert.equal(h.reads(), 4);
+  assert.deepEqual(h.notices.at(-1), {
+    message: invalid.diagnostic,
+    type: "warning",
+  });
+  assert.deepEqual(h.statuses.at(-1), ["notify-me", armedStatus]);
+  await h.settle();
+  assert.equal(h.handbacks.length, 2);
+  assert.equal(h.handbacks[1].pending.message, "preserved");
+});
+
+test("dedicated cancel clears pending without reading configuration or dispatching", async () => {
+  const h = harness();
+  await h.command("pending");
+  await h.cancel(" \t ");
+  assert.equal(h.reads(), 1);
+  assert.deepEqual(h.notices, [
+    {
+      message: "Notification armed for the next final handback.",
+      type: "info",
+    },
+    { message: "Pending notification canceled.", type: "info" },
+  ]);
+  assert.deepEqual(h.statuses, [
+    ["notify-me", armedStatus],
+    ["notify-me", undefined],
+  ]);
+  await h.settle();
+  assert.deepEqual(h.handbacks, []);
+});
+
+test("dedicated cancel with nothing armed shows informational toast and never reads configuration", async () => {
+  const h = harness();
+  await h.cancel();
+  await h.cancel();
+  assert.equal(h.reads(), 0);
+  assert.deepEqual(h.notices, [
+    { message: "No armed notification.", type: "info" },
+    { message: "No armed notification.", type: "info" },
+  ]);
+  assert.deepEqual(h.statuses, [
+    ["notify-me", undefined],
+    ["notify-me", undefined],
+  ]);
+  await h.settle();
+  assert.deepEqual(h.handbacks, []);
+});
+
+test("dedicated cancel rejects stray arguments without changing the pending record or status", async () => {
+  const h = harness();
+  await h.command("original");
+  h.setClock(9000);
+  for (const args of ["later", " cancel ", "original"]) {
+    await h.cancel(args);
+    assert.deepEqual(h.notices.at(-1), {
+      message: "Usage: /notify-me-cancel",
+      type: "info",
+    });
+  }
+  assert.equal(h.reads(), 1);
+  assert.deepEqual(h.statuses, [["notify-me", armedStatus]]);
+  await h.settle();
+  assert.deepEqual(h.handbacks[0].pending, {
+    message: "original",
+    armedAt: 1000,
+    webhookUrl,
+    session: 0,
+  });
+});
+
+for (const alreadyPending of [false, true]) {
+  for (const result of ["success", "failure", "rejection"] as const) {
+    test(`dedicated cancel invalidates deferred ${result} with ${alreadyPending ? "a pending record" : "nothing armed"}`, async () => {
+      const read = deferred<ConfigurationResult>();
+      let reads = 0;
+      const h = harness(() =>
+        alreadyPending && ++reads === 1 ? Promise.resolve(valid) : read.promise,
+      );
+      if (alreadyPending) await h.command("existing");
+      const arm = h.command("late");
+      const before = alreadyPending ? [["notify-me", armedStatus]] : [];
+      assert.deepEqual(h.statuses, before);
+      await h.cancel();
+      const expectedNotices = [
+        ...(alreadyPending
+          ? [
+              {
+                message: "Notification armed for the next final handback.",
+                type: "info",
+              },
+            ]
+          : []),
+        {
+          message: alreadyPending
+            ? "Pending notification canceled."
+            : "No armed notification.",
+          type: "info",
+        },
+      ];
+      assert.deepEqual(h.notices, expectedNotices);
+      assert.deepEqual(h.statuses, [...before, ["notify-me", undefined]]);
+      if (result === "rejection") read.reject(new Error(webhookUrl));
+      else read.resolve(result === "success" ? valid : invalid);
+      await arm;
+      assert.deepEqual(h.notices, expectedNotices);
+      assert.deepEqual(h.statuses, [...before, ["notify-me", undefined]]);
+      await h.settle();
+      assert.deepEqual(h.handbacks, []);
+    });
+  }
+}
+
+for (const alreadyPending of [false, true]) {
+  for (const result of ["success", "failure"] as const) {
+    test(`stray cancel arguments preserve deferred ${result} with ${alreadyPending ? "a pending record" : "nothing armed"}`, async () => {
+      const read = deferred<ConfigurationResult>();
+      let reads = 0;
+      const h = harness(() =>
+        alreadyPending && ++reads === 1 ? Promise.resolve(valid) : read.promise,
+      );
+      if (alreadyPending) await h.command("existing");
+      const arm = h.command("replacement");
+      const statusesBefore = [...h.statuses];
+      await h.cancel(" later ");
+      assert.deepEqual(h.notices.at(-1), {
+        message: "Usage: /notify-me-cancel",
+        type: "info",
+      });
+      assert.deepEqual(h.statuses, statusesBefore);
+      h.setClock(8000);
+      read.resolve(result === "success" ? valid : invalid);
+      await arm;
+      assert.deepEqual(
+        h.notices.at(-1),
+        result === "success"
+          ? {
+              message: "Notification armed for the next final handback.",
+              type: "info",
+            }
+          : { message: invalid.diagnostic, type: "warning" },
+      );
+      assert.deepEqual(
+        h.statuses,
+        result === "success"
+          ? [...statusesBefore, ["notify-me", armedStatus]]
+          : statusesBefore,
+      );
+      await h.settle();
+      if (result === "failure" && !alreadyPending) {
+        assert.deepEqual(h.handbacks, []);
+      } else {
+        assert.equal(h.handbacks.length, 1);
+        assert.deepEqual(h.handbacks[0].pending, {
+          message: result === "success" ? "replacement" : "existing",
+          armedAt: result === "success" ? 8000 : 1000,
+          webhookUrl,
+          session: 0,
+        });
+      }
+    });
+  }
+}
+
+test("canceling an outstanding read cannot invalidate a subsequent valid arm", async () => {
+  const read = deferred<ConfigurationResult>();
+  let reads = 0;
+  const h = harness(() =>
+    ++reads === 1 ? read.promise : Promise.resolve(valid),
+  );
+  const old = h.command("old");
+  await h.cancel();
+  await h.command("new");
+  read.resolve(valid);
+  await old;
+  assert.deepEqual(h.notices, [
+    { message: "No armed notification.", type: "info" },
+    {
+      message: "Notification armed for the next final handback.",
+      type: "info",
+    },
+  ]);
+  assert.deepEqual(h.statuses, [
+    ["notify-me", undefined],
+    ["notify-me", armedStatus],
+  ]);
+  await h.settle();
+  assert.equal(h.handbacks.length, 1);
+  assert.equal(h.handbacks[0].pending.message, "new");
 });
 
 test("latest arm attempt wins even when reads finish out of order", async () => {
@@ -355,15 +761,18 @@ for (const interruption of [
     const read = deferred<ConfigurationResult>();
     const h = harness(() => read.promise);
     const arm = h.command("late");
-    if (interruption === "cancel") await h.command("cancel");
+    assert.deepEqual(h.statuses, []);
+    if (interruption === "cancel") await h.cancel();
     else if (interruption === "session_start") await h.reset();
     else if (interruption === "session_shutdown")
       await h.emit({ type: "session_shutdown", reason: "new" });
     else await h.settle(interruption === "abort");
     const noticesBefore = h.notices.length;
+    assert.deepEqual(h.statuses, [["notify-me", undefined]]);
     read.resolve(valid);
     await arm;
     assert.equal(h.notices.length, noticesBefore);
+    assert.deepEqual(h.statuses, [["notify-me", undefined]]);
     await h.settle();
     assert.equal(h.handbacks.length, 0);
   });
@@ -677,7 +1086,7 @@ test("later cancel/session reset cannot mutate detached pending state", async ()
   await h.settle();
   const detached = h.handbacks[0];
   await h.command("next");
-  await h.command("cancel");
+  await h.cancel();
   await h.reset();
   await h.settle();
   assert.equal(h.handbacks.length, 1);
