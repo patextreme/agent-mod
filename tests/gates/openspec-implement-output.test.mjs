@@ -20,6 +20,21 @@ import { fileURLToPath } from "node:url";
 
 // Deterministic storage-admission regressions only. No models, grading or workflow
 // execution: copy tooling/inputs to disposable repositories, never local captures.
+// Every test shells out to git (fixture init plus check-ignore / ls-files
+// assertions) and materialize.mjs shells to git itself, so the whole suite
+// skips where no git binary exists (hermetic nix node-tests). Mirrors the
+// skip-option convention of tests/gates/factory-skills.test.mjs.
+const hasGit = (() => {
+  const result = spawnSync("git", ["--version"], {
+    encoding: "utf8",
+    timeout: 10000,
+  });
+  return (
+    !result.error &&
+    result.status === 0 &&
+    result.stdout.startsWith("git version")
+  );
+})();
 const source = join(
   dirname(dirname(dirname(fileURLToPath(import.meta.url)))),
   "tests/semantic/openspec-implement",
@@ -112,7 +127,9 @@ function rejectedWithoutWrites(run, tempRoot, ...args) {
   return result;
 }
 
-test("default materialization admits ordinary external temp and preserves fixture bytes", (t) => {
+test("default materialization admits ordinary external temp and preserves fixture bytes", {
+  skip: !hasGit,
+}, (t) => {
   const { external, suite, run } = fixture(t);
   const output = materialized(
     run(external, "--case", "case-01"),
@@ -123,19 +140,25 @@ test("default materialization admits ordinary external temp and preserves fixtur
   assert.equal(statSync(output.root).mode & 0o077, 0);
 });
 
-test("nonignored source-tree TMPDIR rejects before creating any output", (t) => {
+test("nonignored source-tree TMPDIR rejects before creating any output", {
+  skip: !hasGit,
+}, (t) => {
   const { repo, run } = fixture(t);
   rejectedWithoutWrites(run, repo, "--case", "case-01");
 });
 
-test("default admission checks the complete name rather than an ignored prefix", (t) => {
+test("default admission checks the complete name rather than an ignored prefix", {
+  skip: !hasGit,
+}, (t) => {
   const { repo, run, git } = fixture(t);
   writeFileSync(join(repo, ".gitignore"), "ospx-implement-\n");
   git("check-ignore", "--quiet", "--", join(repo, "ospx-implement-"));
   rejectedWithoutWrites(run, repo, "--case", "case-01");
 });
 
-test("default materialization admits ignored source-tree temp", (t) => {
+test("default materialization admits ignored source-tree temp", {
+  skip: !hasGit,
+}, (t) => {
   const { repo, suite, run } = fixture(t);
   writeFileSync(join(repo, ".gitignore"), ".local/\n");
   const ignored = join(repo, ".local");
@@ -143,7 +166,9 @@ test("default materialization admits ignored source-tree temp", (t) => {
   materialized(run(ignored, "--case", "case-01"), suite, ignored);
 });
 
-test("symlinked temp and explicit parents cannot bypass physical source admission", (t) => {
+test("symlinked temp and explicit parents cannot bypass physical source admission", {
+  skip: !hasGit,
+}, (t) => {
   const { temp, repo, run } = fixture(t);
   const alias = join(temp, "alias");
   symlinkSync(repo, alias, "dir");
@@ -158,7 +183,9 @@ test("symlinked temp and explicit parents cannot bypass physical source admissio
   );
 });
 
-test("logically ignored temp symlink to nonignored source still rejects", (t) => {
+test("logically ignored temp symlink to nonignored source still rejects", {
+  skip: !hasGit,
+}, (t) => {
   const { repo, run } = fixture(t);
   writeFileSync(join(repo, ".gitignore"), ".local\n");
   const ignoredAlias = join(repo, ".local");
@@ -166,7 +193,9 @@ test("logically ignored temp symlink to nonignored source still rejects", (t) =>
   rejectedWithoutWrites(run, ignoredAlias, "--case", "case-01");
 });
 
-test("symlinked ignored physical parent succeeds and reports canonical output", (t) => {
+test("symlinked ignored physical parent succeeds and reports canonical output", {
+  skip: !hasGit,
+}, (t) => {
   const { temp, repo, suite, run } = fixture(t);
   writeFileSync(join(repo, ".gitignore"), ".local/\n");
   const ignored = join(repo, ".local");
@@ -182,7 +211,9 @@ test("symlinked ignored physical parent succeeds and reports canonical output", 
   assert.equal(explicit.root, join(ignored, "new"));
 });
 
-test("explicit ignored output containing tracked files rejects without overwriting", (t) => {
+test("explicit ignored output containing tracked files rejects without overwriting", {
+  skip: !hasGit,
+}, (t) => {
   const { repo, run, git } = fixture(t);
   writeFileSync(join(repo, ".gitignore"), ".local/\n");
   const out = join(repo, ".local");
@@ -197,7 +228,9 @@ test("explicit ignored output containing tracked files rejects without overwriti
   assert.equal(git("ls-files", "--stage"), before);
 });
 
-test("explicit external output remains exclusive and never overwrites an earlier run", (t) => {
+test("explicit external output remains exclusive and never overwrites an earlier run", {
+  skip: !hasGit,
+}, (t) => {
   const { external, suite, run } = fixture(t);
   const out = join(external, "new");
   materialized(
@@ -215,7 +248,9 @@ test("explicit external output remains exclusive and never overwrites an earlier
   );
 });
 
-test("check and list remain read-only even with unsafe TMPDIR and invalid output parent", (t) => {
+test("check and list remain read-only even with unsafe TMPDIR and invalid output parent", {
+  skip: !hasGit,
+}, (t) => {
   const { repo, run } = fixture(t);
   const before = readdirSync(repo).sort();
   const invalid = join(repo, "missing/unused");
