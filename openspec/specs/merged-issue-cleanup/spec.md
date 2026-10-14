@@ -59,7 +59,7 @@ Associated worktrees SHALL be accessible and unlocked. Removal SHALL use only no
 
 #### Scenario: Quiescence is not established
 - **WHEN** the operator has not explicitly confirmed that all worktree writers have stopped and will remain stopped through removal, or that condition becomes uncertain or lost before removal
-- **THEN** cleanup pauses the affected removal and preserves its branch; resumption requires reconciliation and renewed explicit quiescence confirmation
+- **THEN** cleanup pauses the affected removal and preserves its branch; if the assertion was missing from otherwise unchanged approval before removal began, cleanup SHALL request only the missing assertion; uncertain or lost quiescence SHALL require reconciliation and renewed explicit quiescence confirmation before resumption
 
 ### Requirement: Snapshot-bound confirmation and recheck
 
@@ -67,15 +67,28 @@ Cleanup SHALL show branch/local SHA, worktree path or absence, PR/time and eligi
 
 #### Scenario: Bind explicit approval to the previewed snapshot
 - **WHEN** the operator selects and confirms candidates from the preview
-- **THEN** Explicit selection/confirmation SHALL bind approval to those identities and results and SHALL include the operator's explicit quiescence assertion for approved worktree removals, not infer it from generic deletion consent.
+- **THEN** Explicit selection/confirmation SHALL bind approval to those identities and results, including effective configuration applicability evidence/context, and SHALL record the operator's explicit assertion that all writers to every selected target worktree covered by it are stopped and will remain stopped through completion of removal, not infer it from generic deletion consent.
+
+#### Scenario: Continuing assertion covers uninterrupted multi-target removal
+- **WHEN** the operator explicitly approves the previewed snapshot and asserts continuing stopped writers for every selected target, and execution remains uninterrupted with unchanged approval-bound evidence/configuration and established quiescence
+- **THEN** that single approval and assertion SHALL cover all those targets through completion; routine automated checks, completed pruning, and transitions to another unchanged approved target SHALL NOT alone require another human assertion.
+
+#### Scenario: Generic approval omits the assertion
+- **WHEN** the operator approves an unchanged preview with generic consent such as "go ahead" but has not explicitly asserted continuing stopped writers
+- **THEN** cleanup SHALL preserve the snapshot approval, pause worktree removal and preserve the branch, and request only the missing stopped-writers assertion, not repeat snapshot approval
 
 #### Scenario: Recheck identities and eligibility before each removal
 - **WHEN** cleanup prepares each approved removal
-- **THEN** Each removal SHALL recheck branch/remote tips, PR merge state, worktree path, lock state, and exclusions; changes SHALL invalidate that candidate's approval.
+- **THEN** Each removal SHALL recheck repository/remote identity, branch/remote tips, PR merge/head state, worktree paths/associations, lock state, and exclusions; changes SHALL invalidate that candidate's approval, skip it, and be reported; only reconciliation that establishes eligibility SHALL permit a fresh preview and applicable confirmation.
 
 #### Scenario: Recheck configuration and quiescence immediately before removal
 - **WHEN** cleanup is about to remove each approved worktree
-- **THEN** Immediately before each worktree removal, cleanup SHALL recheck the applicable effective status configuration and that operator-confirmed quiescence is still established; a changed configuration result SHALL require reconciliation and fresh confirmation, and unsafe/unknown configuration or unestablished quiescence SHALL pause the affected removal and preserve its branch.
+- **THEN** Immediately before each worktree removal, cleanup SHALL re-establish the applicable effective status configuration and assess whether the recorded continuing stopped-writers assertion remains applicable, rather than automatically requesting another human assertion.
+- **AND** Changed configuration results or applicability evidence/context SHALL invalidate affected approval and require reconciliation and fresh applicable confirmation, even if still safe; unsafe/unknown configuration or absent, uncertain, or lost quiescence SHALL pause the affected removal and preserve its branch; renewed consent SHALL NOT bypass eligibility or configuration prerequisites.
+
+#### Scenario: Safe configuration changes after approval
+- **WHEN** the effective status configuration changes from `normal` to `all`, or its bound applicability evidence/context changes, before removal
+- **THEN** cleanup SHALL pause the affected removal and preserve its branch; only reconciliation that re-establishes safe applicable configuration and eligibility SHALL permit a fresh preview, snapshot approval, and explicit continuing stopped-writers assertion
 
 #### Scenario: Disclose the non-atomic observation boundary at approval
 - **WHEN** cleanup previews candidates and seeks confirmation
@@ -119,4 +132,12 @@ Cleanup SHALL verify actual removed paths, registrations and refs, and report re
 
 #### Scenario: One candidate was removed before interruption
 - **WHEN** cleanup resumes after only some approved effects (pruning and removals) completed
-- **THEN** it recognizes actual completed effects, preserves uncertain state and confirms changed/new work before proceeding
+- **THEN** it recognizes actual completed effects without repeating completed pruning or removals, preserves uncertain state and confirms changed/new work before proceeding
+
+#### Scenario: Resume unchanged approval after interruption or pause
+- **WHEN** approved execution resumes after interruption or a pause in the removal sequence, even with unchanged remaining targets
+- **THEN** cleanup SHALL re-inventory and reconcile current evidence/configuration, retain unchanged approved identities, and obtain renewed explicit stopped-writers confirmation for every remaining worktree to be removed before its immediate rechecks; fresh snapshot approval SHALL be required for changed/new candidates only after eligibility and configuration prerequisites are satisfied
+
+#### Scenario: Writer quiescence becomes uncertain or is lost
+- **WHEN** a writer may have resumed or is known to be writing to an approved target before removal
+- **THEN** cleanup SHALL pause that removal and preserve its branch until reconciliation and renewed explicit continuing stopped-writers confirmation establish quiescence; unchanged snapshot approval alone SHALL NOT authorize removal
