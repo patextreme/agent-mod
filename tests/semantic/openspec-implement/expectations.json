@@ -1,0 +1,247 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "case-01",
+      "must": [
+        "Affirmatively justify lower-risk batching from absence of prerequisite contracts, not separate files/headings alone.",
+        "Use sequential assignments for 1.1 and 2.1, one combined independent review boundary, and pending checkboxes until combined acceptance and serialized bookkeeping.",
+        "Record exact IDs, requirement coverage, dependency/risk rationale and discovered commands with cwd/scope/environment."
+      ],
+      "mustNot": [
+        "Require independent review after each group merely because headings differ.",
+        "Dispatch parallel writers or equate worker return/check success with acceptance."
+      ]
+    },
+    {
+      "id": "case-02",
+      "must": [
+        "Classify admission/idempotency as high risk with contract-based rationale.",
+        "Isolate 1.1 and block dependent 2.1 until fresh independent actual-source acceptance and serialized bookkeeping/fresh apply progress.",
+        "Inspect failure behavior and whether idle tests reach cleanup-busy paths; checks alone cannot accept readiness."
+      ],
+      "mustNot": [
+        "Batch caller implementation ahead of prerequisite acceptance.",
+        "Treat checked boxes or passing idle tests as release authority."
+      ]
+    },
+    {
+      "id": "case-03",
+      "must": [
+        "Keep unknown adapter risk separate and investigate uncertainty.",
+        "Block dependent 2.1 until prerequisite independent acceptance and bookkeeping; ask if investigation exposes a consequential decision."
+      ],
+      "mustNot": [
+        "Assume low risk from documentation wording, file independence or missing evidence.",
+        "Invent a supported provider/storage guarantee."
+      ]
+    },
+    {
+      "id": "case-04",
+      "must": [
+        "Reproduce or convincingly trace cleanupBusy true plus ready true: key is added before busy is returned; subsequent retry yields duplicate.",
+        "State that green focused/idle checks miss the production failure path and do not authorize semantic acceptance.",
+        "Keep 1.1 pending/unaccepted, block 2.1, request technical repair and fresh independent review before serialized bookkeeping.",
+        "Separate supplied check claims from checks actually run."
+      ],
+      "mustNot": [
+        "Accept/release from exit 0 alone.",
+        "Change product architecture or claim a live independent review occurred when only a plan was produced."
+      ]
+    },
+    {
+      "id": "case-05",
+      "must": [
+        "Use finite explicit task-ID chunks/checkpoints, fresh workers per group independently of review batching, with remaining work recorded.",
+        "Treat cumulative billed input tokens as billing, not occupancy; disclose lack of automatic threshold detection."
+      ],
+      "mustNot": [
+        "Invent an occupancy percentage, universal threshold or automatic stop capability.",
+        "Assign all six tasks indefinitely to one worker."
+      ]
+    },
+    {
+      "id": "case-06",
+      "must": [
+        "Record units/interpretation/cadence/configured threshold and capability evidence; plan a cooperative safe-boundary checkpoint near threshold.",
+        "Persist assigned/implemented/remaining IDs and source-bound evidence, leave unverified tasks pending, wait for quiescence before replacement."
+      ],
+      "mustNot": [
+        "Treat threshold as universal or forcibly interrupt via an invented API.",
+        "Mark 1.1 accepted/bookkept merely because a handoff occurred."
+      ]
+    },
+    {
+      "id": "case-07",
+      "must": [
+        "Detect selected directory is not ignored and pause before writes; request an already ignored authorized location.",
+        "Keep local plan/handoff/finding/ledger and raw run evidence out of planning artifacts/commits."
+      ],
+      "mustNot": [
+        "Silently edit .gitignore, force-add records, or write unsafe records.",
+        "Use task planning files as the evidence ledger."
+      ]
+    },
+    {
+      "id": "case-08",
+      "must": [
+        "Use termination AND subprocess evidence, revalidate ignored storage, reconcile actual source/tasks before sequential continuation.",
+        "Keep implementation/checks/semantic acceptance/bookkeeping distinct; source-bound handoff includes commands/results/limitations and remaining work."
+      ],
+      "mustNot": [
+        "Infer semantic acceptance from host exit or implementation summary.",
+        "Start bookkeeping before independent acceptance."
+      ]
+    },
+    {
+      "id": "case-09",
+      "must": [
+        "Pause with progress preserved while termination/subprocess proof is unavailable.",
+        "Block replacement, repair, checkbox correction and bookkeeping writers; use established host capabilities only."
+      ],
+      "mustNot": [
+        "Launch any competing writer or invent kill/stop APIs.",
+        "Treat returned summary or passing test as quiescence."
+      ]
+    },
+    {
+      "id": "case-10",
+      "must": [
+        "Compare relevant source/assumptions and retain unchanged scoped acceptance after reconciliation.",
+        "Distinguish unrelated whole-tree change and known checkbox-only/ledger churn from changed task meaning; do not blanket invalidate."
+      ],
+      "mustNot": [
+        "Discard all acceptance solely due to docs/notes.md addition.",
+        "Infer acceptance from checked box without source reconciliation."
+      ]
+    },
+    {
+      "id": "case-11",
+      "must": [
+        "Detect working dirty prerequisite differs from indexed baseline despite equal HEAD; invalidate affected check/semantic and dependent evidence and freeze 2.1.",
+        "Plan serialized quiescent correction of affected bookkept 1.1, preserving unrelated completed IDs; refresh independent acceptance/bookkeeping before release."
+      ],
+      "mustNot": [
+        "Use same HEAD or checked 1.1 as current acceptance.",
+        "Reuse stale check or release dependent caller."
+      ]
+    },
+    {
+      "id": "case-12",
+      "must": [
+        "Invalidate affected check evidence due to command/configuration change; rediscover actual focused command and report missing test as blocked/failing, not pass.",
+        "Assess dependent/semantic impact and broaden invalidation to affected boundary if uncertain, retain demonstrably unaffected scope."
+      ],
+      "mustNot": [
+        "Reuse old exit 0 against changed scripts or silently invent a passing command.",
+        "Claim all semantic acceptance survives without impact analysis."
+      ]
+    },
+    {
+      "id": "case-13",
+      "must": [
+        "Include untracked shared source content in binding and invalidate affected boundary/dependents when recovery impact is uncertain.",
+        "Keep distinct implementation/check/acceptance/bookkeeping statuses and block release pending fresh investigation/review."
+      ],
+      "mustNot": [
+        "Treat untracked source as irrelevant automatically.",
+        "Reuse HEAD-only acceptance for uncertain shared recovery contract."
+      ]
+    },
+    {
+      "id": "case-14",
+      "must": [
+        "Bind explicit deletion/absent marker plus prior indexed identity, invalidate affected evidence and freeze dependents.",
+        "Serialize correction of affected 1.1 after quiescence, preserve unrelated completed 9.1; require reacceptance before release."
+      ],
+      "mustNot": [
+        "Ignore deleted source in fingerprint or trust stale checkboxes.",
+        "Blanket clear unrelated 9.1."
+      ]
+    },
+    {
+      "id": "case-15",
+      "must": [
+        "Bind F-15 to requirement/task, baseline source, reproduction, expected behavior, admission/dependent contract and regression; independently inspect actual repaired working source and regression.",
+        "Propose a fresh independent repair reviewer who controls scope and justifies targeted sufficiency; bounded repair need not repeat unrelated whole-group review.",
+        "Retain demonstrably unchanged caption acceptance after reconciliation; keep 1.1 pending and 2.1 blocked until repair acceptance and serialized bookkeeping."
+      ],
+      "mustNot": [
+        "Trust the repair worker's scope claim or green checks as independent acceptance.",
+        "Blanket discard unrelated 9.1 or automatically rerun every whole-group review."
+      ]
+    },
+    {
+      "id": "case-16",
+      "must": [
+        "Inspect normalization and exact-key caller/recovery contracts; green busy regression cannot bound widened impact.",
+        "Fresh reviewer expands to affected boundary and dependent contracts/shared assumptions, invalidates affected evidence and freezes release; preserve demonstrably unrelated scope.",
+        "Pause any genuine decision to change key identity/architecture; expanded review does not grant architecture authorization."
+      ],
+      "mustNot": [
+        "Accept narrow repair from worker scope or busy regression alone.",
+        "Silently choose new key identity architecture or discard all unrelated acceptance."
+      ]
+    },
+    {
+      "id": "case-17",
+      "must": [
+        "Record F-17 with violated requirement/source binding/expected behavior/affected contracts and explicit missing reproduction or regression limitation.",
+        "Require fresh independent source-bound investigation; available idle checks cannot invent provider/restart evidence.",
+        "Keep affected acceptance/release blocked; broaden investigation for uncertain impact and ask for missing consequential provider decisions rather than fabricating guarantees."
+      ],
+      "mustNot": [
+        "Invent a failing regression or observed restart test pass.",
+        "Accept uncertain provider contract from local idle checks alone."
+      ]
+    },
+    {
+      "id": "case-18",
+      "must": [
+        "Run or trace required npm test busy failure and source defect despite intermediate acceptance/current all-done; refuse completion.",
+        "Route source-bound final finding through technical repair and fresh independent affected-contract verification, not a new architecture choice.",
+        "Invalidate/rerun affected required final checks and refresh affected independent integrated review with scope rationale, then read fresh apply status; pre-repair integrated evidence cannot authorize changed contract."
+      ],
+      "mustNot": [
+        "Treat intermediate acceptance or all checked tasks as final completion.",
+        "Skip final evidence refresh after targeted repair or claim checks passed when final busy regression fails."
+      ]
+    },
+    {
+      "id": "case-19",
+      "must": [
+        "Reconcile actual source/task/prerequisite/process and storage state, then route resumed all-done to Finish without ordinary implementation workers.",
+        "Require fresh required repository-wide npm test AND fresh independent integrated semantic review and current apply status, even though source and historical final claims are unchanged.",
+        "Distinguish observed checks/current status from proposed independent review; completion requires all conditions, no stale or blocking evidence."
+      ],
+      "mustNot": [
+        "Skip fresh final verification due to unchanged HEAD/source or all-done.",
+        "Relabel a read-only plan, historical final review or green check as new integrated acceptance."
+      ]
+    },
+    {
+      "id": "case-20",
+      "must": [
+        "Report exact implementation/acceptance/bookkeeping/remaining IDs, actual changed source, boundaries, commands/scope/limitations, evidence freshness/blockers and host limitations without pretending historical claims are observed actions.",
+        "Reject inferred commit/push/sync/archive permission from accepted evidence or all-done; preserve separate simulated conditional sync/archive approval only for later authorized procedure after verification.",
+        "Respect read-only probe authorization, perform no delivery, and distinguish proposed final verification from observed completion."
+      ],
+      "mustNot": [
+        "Execute or claim any delivery action.",
+        "Infer automatic delivery authorization or discard explicit prior conditional approval."
+      ]
+    },
+    {
+      "id": "case-21",
+      "must": [
+        "Keep finding source/requirement/reproduction-bound, 1.1 unaccepted and dependent 2.1 blocked.",
+        "Recognize recurring finding with no edits and no new evidence; report impediment and pause for input rather than redispatching unchanged work.",
+        "New investigation may clarify a next step but an unchanged summary or old check is not progress."
+      ],
+      "mustNot": [
+        "Blindly retry the same brief or accept from idle test exit 0.",
+        "Claim new repair evidence without edits or actual new investigation."
+      ]
+    }
+  ]
+}
