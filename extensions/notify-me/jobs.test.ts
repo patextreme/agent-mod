@@ -17,7 +17,10 @@ function harness(request: Request) {
     string,
     ((event: ExtensionEvent, ctx: ExtensionCommandContext) => unknown)[]
   >();
-  let commandHandler!: Omit<RegisteredCommand, "name" | "sourceInfo">;
+  const commands = new Map<
+    string,
+    Omit<RegisteredCommand, "name" | "sourceInfo">
+  >();
   let name: string | undefined = "Original session";
   let credential = webhookUrl;
   const notices: { message: string; type?: string }[] = [];
@@ -26,11 +29,13 @@ function harness(request: Request) {
     cwd: "/origin/full/path",
     hasUI: true,
     ui: {
+      setStatus: () => {},
+      theme: { fg: (_color: string, text: string) => text },
       notify(message: string, type?: string) {
         notices.push({ message, type });
       },
     },
-  } as ExtensionCommandContext;
+  } as unknown as ExtensionCommandContext;
   const pi = {
     on(event: string, handler: unknown) {
       const list = handlers.get(event) ?? [];
@@ -44,10 +49,10 @@ function harness(request: Request) {
       return () => {};
     },
     registerCommand(
-      _name: string,
+      name: string,
       command: Omit<RegisteredCommand, "name" | "sourceInfo">,
     ) {
-      commandHandler = command;
+      commands.set(name, command);
     },
     getSessionName() {
       return name;
@@ -66,13 +71,19 @@ function harness(request: Request) {
     for (const handler of handlers.get(event.type) ?? [])
       await handler(event, ctx);
   };
+  const invoke = (name: string, args: string) => {
+    const command = commands.get(name);
+    assert.ok(command);
+    return command.handler(args, ctx);
+  };
   return {
     clock,
     calls,
     ctx,
     notices,
     emit,
-    command: (args: string) => commandHandler.handler(args, ctx),
+    command: (args: string) => invoke("notify-me", args),
+    cancel: () => invoke("notify-me-cancel", ""),
     settle: (aborted = false) => emit({ type: "agent_settled", aborted }),
     name: (value: string | undefined) => {
       name = value;
@@ -94,7 +105,7 @@ test("settlement snapshots synchronously and returns while network is unresolved
   assert.equal(h.calls.length, 1);
   // Interactive commands remain usable even though no response has arrived.
   await h.command("Later pending reminder");
-  await h.command("cancel");
+  await h.cancel();
   h.ctx.cwd = "/later/path";
   h.name("Later session");
   const embed = JSON.parse(String(h.calls[0].init.body)).embeds[0];
@@ -137,7 +148,7 @@ test("later arming/destination/cancel cannot alter independent retry bytes or cr
   await h.command("Second");
   await h.settle();
   await h.command("Third pending");
-  await h.command("cancel");
+  await h.cancel();
   await h.clock.advance(10_000);
   assert.equal(h.calls.length, 4);
   assert.deepEqual(

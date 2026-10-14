@@ -43,7 +43,11 @@ for (const path of [
       hasUI: true,
       mode: "tui",
       isIdle: () => false,
-      ui: { notify: () => {} },
+      ui: {
+        notify: () => {},
+        setStatus: () => {},
+        theme: { fg: (_color: string, text: string) => text },
+      },
     } as unknown as ExtensionCommandContext;
     const pi = {
       on(name: string, handler: unknown) {
@@ -56,10 +60,10 @@ for (const path of [
         };
       },
       registerCommand(
-        _name: string,
+        name: string,
         registered: Omit<RegisteredCommand, "name" | "sourceInfo">,
       ) {
-        command = registered;
+        if (name === "notify-me") command = registered;
       },
     } as Pick<ExtensionAPI, "on" | "registerCommand">;
     registerNotifyMe(pi, {

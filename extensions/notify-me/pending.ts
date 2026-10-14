@@ -11,6 +11,10 @@ export class PendingNotifications {
   private session = 0;
   private pending: PendingNotification | undefined;
 
+  hasPending(): boolean {
+    return this.pending !== undefined;
+  }
+
   beginArm(): number {
     return ++this.generation;
   }
