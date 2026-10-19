@@ -1,6 +1,6 @@
 # Issue-to-PR control flow
 
-`SKILL.md` defines stage contracts and completion gates. The main session executes downstream `orc-*` coordination and runs each delegated worker stage in a separate Agent. Call required SubagentWorkflow scripts from the main session, sequentially rather than inside an outer workflow; child Agents perform worker contracts, not workflow-owning orchestration.
+`SKILL.md` defines stage contracts and completion gates. The main session executes downstream `orc-*` and `pr-review-repair` coordination and runs each delegated worker stage in a separate Agent. Call required SubagentWorkflow scripts from the main session, sequentially rather than inside an outer workflow; child Agents perform worker contracts, not workflow-owning orchestration.
 
 ```text
 issue = DELEGATE Read and route(requested issue, repository)
@@ -34,7 +34,7 @@ FOR each unfinished stage in the selected flow:
     result = DELEGATE research, plan, implement, and relevant checks
     validation = DELEGATE independent actual-diff and acceptance-criteria checks
   ELSE:
-    READ the stage's named orc-* skill and its pseudocode
+    READ the stage's named bundled skill and its pseudocode
     result = EXECUTE its coordination in the main session:
       DELEGATE its worker stages under their original contracts
       CALL SubagentWorkflow here where required
@@ -66,7 +66,7 @@ IF intended merge base no longer matches current origin/<base>:
 delivery = DELEGATE Deliver with PR base <base>, reconciling any partial operation before retries
 ACCEPT verified signed commits, push, PR identity/body, and remote head
 
-READ orc-pr-review-repair and its pseudocode
+READ pr-review-repair and its pseudocode
 review = EXECUTE its coordination in the main session(exact PR, worktree, issue/change,
          archived change location and relevant main specs when flow = OpenSpec):
   DELEGATE preparation, fresh review, judgment, repair, checks, and publication

@@ -1,5 +1,5 @@
 ---
-name: orc-pr-review-repair
+name: pr-review-repair
 description: Review and repair a PR through delegated fresh review, history-aware judgment, and targeted fixes. Use when asked to review and fix a PR or loop PR review and repair. Commit, push, and comment on qualifying repairs; escalate after ten repair attempts. For review-only requests, use code-review instead.
 compatibility: Requires Agent tooling, codemode or SubagentWorkflow, the code-review skill, git signing, and authenticated PR read/comment/push access.
 ---

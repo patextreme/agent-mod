@@ -47,14 +47,14 @@ Delivery SHALL validate authorized contents, commit with signing and DCO, push w
 - **THEN** delegated safe reconciliation and affected validation occur before delivery is accepted
 
 ### Requirement: Main-session coordination
-The main session SHALL execute downstream `orc-*` orchestration skills and own required SubagentWorkflow calls, delegating their worker stages rather than workflow-owning orchestrators. Stage workflows SHALL run sequentially from the main session rather than inside an outer workflow. Review workers following `code-review` SHALL have nested Agent access for the Standards and Spec axes.
+The main session SHALL execute downstream `orc-*` and `pr-review-repair` orchestration skills and own required SubagentWorkflow calls, delegating their worker stages rather than workflow-owning orchestrators. Stage workflows SHALL run sequentially from the main session rather than inside an outer workflow. Review workers following `code-review` SHALL have nested Agent access for the Standards and Spec axes.
 
 #### Scenario: Child sessions lack SubagentWorkflow
 - **WHEN** an OpenSpec implementation stage requires SubagentWorkflow but child Agent sessions do not expose it
 - **THEN** the main session runs the implementation workflow and delegates task-group implementation, independent verification and bookkeeping to workers without requiring child workflow access
 
 ### Requirement: Review and final-head evidence
-After verified delivery, orchestration SHALL execute `orc-pr-review-repair` coordination in the main session with separate workers, retaining its run history, thresholds and budget on resume. Required separate delivery gates SHALL apply to the final delivered/reviewed head, including a project-required current-head Claude gate when applicable. Stale head-bound gates MUST NOT establish completion.
+After verified delivery, orchestration SHALL execute `pr-review-repair` coordination in the main session with separate workers, retaining its run history, thresholds and budget on resume. Required separate delivery gates SHALL apply to the final delivered/reviewed head, including a project-required current-head Claude gate when applicable. Stale head-bound gates MUST NOT establish completion.
 
 #### Scenario: Review produces a fixing commit
 - **WHEN** delegated review/repair changes the delivered head

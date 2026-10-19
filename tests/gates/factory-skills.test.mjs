@@ -31,7 +31,7 @@ const factorySkills = {
   "orc-openspec-groom": ["references/pseudocode.md"],
   "orc-openspec-implement": ["references/pseudocode.md"],
   "orc-openspec-verify": ["references/pseudocode.md"],
-  "orc-pr-review-repair": [
+  "pr-review-repair": [
     "references/pseudocode.md",
     "references/report-contracts.md",
   ],
@@ -167,18 +167,18 @@ test(
   () => checkFactoryNotice(process.env.PI_FACTORY_SKILLS_OUTPUT),
 );
 
-// --- orc-pr-review-repair report-presentation documentation contract ------
+// --- pr-review-repair report-presentation documentation contract ------
 
 const reportContracts = readFileSync(
-  join(repoRoot, "skills/orc-pr-review-repair/references/report-contracts.md"),
+  join(repoRoot, "skills/pr-review-repair/references/report-contracts.md"),
   "utf8",
 );
 const prReviewSkill = readFileSync(
-  join(repoRoot, "skills/orc-pr-review-repair/SKILL.md"),
+  join(repoRoot, "skills/pr-review-repair/SKILL.md"),
   "utf8",
 );
 const prReviewPseudocode = readFileSync(
-  join(repoRoot, "skills/orc-pr-review-repair/references/pseudocode.md"),
+  join(repoRoot, "skills/pr-review-repair/references/pseudocode.md"),
   "utf8",
 );
 const issueToPrSkill = readFileSync(
@@ -223,7 +223,7 @@ function visibleWords(record) {
 }
 
 const recordMarker =
-  /<!-- orc-pr-review-repair run=\S+ round=\d+ kind=(?:summary|escalation) -->/;
+  /<!-- pr-review-repair run=\S+ round=\d+ kind=(?:summary|escalation) -->/;
 
 const auditPreservations = [
   "Complete original Standards report",
@@ -598,9 +598,9 @@ test("factory skills are self-contained, packaged, and discoverable without defa
           "references",
           "finalization-receipts.md",
         );
-        const reviewSkill = read("orc-pr-review-repair", "SKILL.md");
+        const reviewSkill = read("pr-review-repair", "SKILL.md");
         const reviewPseudocode = read(
-          "orc-pr-review-repair",
+          "pr-review-repair",
           "references",
           "pseudocode.md",
         );
