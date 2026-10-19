@@ -78,7 +78,7 @@ These ship only as Nix flake outputs (`pi-permission`, `pi-ollama-usage`, `pi-co
 | [`orc-openspec-groom`](./skills/orc-openspec-groom/SKILL.md) | Delegate semantic review and Critical-only planning repairs |
 | [`orc-openspec-implement`](./skills/orc-openspec-implement/SKILL.md) | Implement whole task groups sequentially with independent checks |
 | [`orc-openspec-verify`](./skills/orc-openspec-verify/SKILL.md) | Verify and repair until Critical and Warning findings are clear |
-| [`orc-pr-review-repair`](./skills/orc-pr-review-repair/SKILL.md) | Coordinate fresh two-axis PR review, history-aware judgment, repair, and publication |
+| [`pr-review-repair`](./skills/pr-review-repair/SKILL.md) | Coordinate fresh two-axis PR review, history-aware judgment, repair, and publication |
 | [`orc-issue-to-pr`](./skills/orc-issue-to-pr/SKILL.md) | Deliver one explicitly selected GitHub issue to a reviewed PR |
 | [`cleanup-merged-issues`](./skills/cleanup-merged-issues/SKILL.md) | Preview and explicitly confirm cleanup of safely matched merged issue work |
 
@@ -91,7 +91,7 @@ Installation exposes instructions and bundled references, not an orchestration r
 /skill:orc-openspec-groom <existing-change>
 /skill:orc-openspec-implement <existing-change>
 /skill:orc-openspec-verify <existing-change>
-/skill:orc-pr-review-repair <PR-number-or-URL>
+/skill:pr-review-repair <PR-number-or-URL>
 /skill:orc-issue-to-pr <issue-number-or-URL>
 /skill:cleanup-merged-issues
 ```
@@ -100,7 +100,7 @@ Installation exposes instructions and bundled references, not an orchestration r
 
 | Applies to | Operator-managed prerequisite / convention |
 |------------|--------------------------------------------|
-| Orchestrators | `Agent` and `codemode` in the main session with `general-purpose` workers. The main session executes downstream `orc-*` coordination and delegates worker stages; `code-review` workers need nested Agent access for their two review axes. |
+| Orchestrators | `Agent` and `codemode` in the main session with `general-purpose` workers. The main session executes downstream `orc-*` and `pr-review-repair` coordination and delegates worker stages; `code-review` workers need nested Agent access for their two review axes. |
 | Implementation / composition | `SubagentWorkflow` in the main session for sequential whole task-group dispatch and repair; it is unavailable in child Agent sessions. Issue-to-PR executes downstream orchestration skills in the main session and runs their stage workflows sequentially, not inside an outer workflow. Follow the host's explicit workflow opt-in and depth rules; loading a skill does not bypass them. Pause if required tooling or worker delegation depth is unavailable. |
 | OpenSpec stages / OpenSpec issue route | OpenSpec CLI, an existing selected change, and unambiguous repository/store context. Discover registered stores with `openspec store list --json` and retain `--store <id>` on applicable commands when using a store. |
 | Issue OpenSpec proposal (human-only) | The external `openspec-propose` procedure, OpenSpec CLI, authenticated `gh` issue-write access, and commit signing/DCO. Runs before `orc-issue-to-pr` on the issue's `issue-<n>` worktree; human-only invocation (`disable-model-invocation: true`). |
@@ -375,7 +375,7 @@ The five acpx flow entrypoints — `openspec-groom`, `openspec-implement`, `open
 | Implement an existing change | `/skill:orc-openspec-implement <existing-change>` |
 | Verify an implemented change | `/skill:orc-openspec-verify <existing-change>` |
 | Deliver one issue to a reviewed PR | `/skill:orc-issue-to-pr <issue-number-or-URL>` |
-| Review or repair a PR | `/skill:orc-pr-review-repair <PR-number-or-URL>` |
+| Review or repair a PR | `/skill:pr-review-repair <PR-number-or-URL>` |
 | Clean up merged issue work | `/skill:cleanup-merged-issues` |
 
 Finalization is skill-based: on the OpenSpec route, `orc-issue-to-pr` synchronizes main specs and archives the verified change through the built-in `openspec-archive-change` and `openspec-sync-specs` procedures per [#49](https://github.com/patextreme/agent-mod/issues/49), superseding the standalone-finalizer approach tracked by [#47](https://github.com/patextreme/agent-mod/issues/47) (closed as not planned). No packaged full-lifecycle orchestrator is shipped: pipeline tracking [#48](https://github.com/patextreme/agent-mod/issues/48) and its composition PR [#54](https://github.com/patextreme/agent-mod/pull/54) closed without delivering one, so invoke the stage skills explicitly. `orc-issue-to-pr` finalization is bound to single-issue delivery — it is not a general sync/archive pipeline, and ordinary external sync/archive skills remain separate requests rather than parity with the retired acpx finalizer.

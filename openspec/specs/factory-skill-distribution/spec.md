@@ -7,7 +7,7 @@ Distribute the source-faithful factory skill toolkit through the existing Pi pac
 ## Requirements
 
 ### Requirement: Discoverable skill toolkit
-The package SHALL expose `orc-openspec-groom`, `orc-openspec-implement`, `orc-openspec-verify`, `orc-pr-review-repair`, `orc-issue-to-pr`, and `cleanup-merged-issues` through its declared skills resources. Each skill SHALL include its bundled references and valid name, description and compatibility metadata.
+The package SHALL expose `orc-openspec-groom`, `orc-openspec-implement`, `orc-openspec-verify`, `pr-review-repair`, `orc-issue-to-pr`, and `cleanup-merged-issues` through its declared skills resources. Each skill SHALL include its bundled references and valid name, description and compatibility metadata.
 
 #### Scenario: Discovery outside the source checkout
 - **WHEN** the package is loaded from a separate temporary repository without global skills or source-project resources

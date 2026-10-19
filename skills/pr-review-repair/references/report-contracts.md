@@ -23,10 +23,10 @@ For standards-only findings, mark runtime trigger/consequence as not applicable 
 Start each PR record with:
 
 ```text
-<!-- orc-pr-review-repair run=<initial-head-sha> round=<n> kind=<repair-start|summary|escalation> -->
+<!-- pr-review-repair run=<initial-head-sha> round=<n> kind=<repair-start|summary|escalation> -->
 ```
 
-Round numbers identify review/judgment cycles; `repairs used` counts reserved repair attempts, not comments or agent retries. Keep the original run ID on resume. Validate markers against PR identity, actual git state, and record contents; a marker alone is not authoritative evidence. Treat copied or conflicting records as an ambiguity to reconcile.
+Round numbers identify review/judgment cycles; `repairs used` counts reserved repair attempts, not comments or agent retries. Keep the original run ID on resume. A run started under the skill's former `orc-pr-review-repair` name keeps its existing markers and run ID; later records in that same run continue under that recorded identity rather than restarting the count. Validate markers against PR identity, actual git state, and record contents; a marker alone is not authoritative evidence. Treat copied or conflicting records as an ambiguity to reconcile.
 
 ## Repair-start comment
 
@@ -79,7 +79,7 @@ Repair-start/summary/escalation links and all mandatory bookkeeping stay recover
 ### Example: clean round
 
 ```markdown
-<!-- orc-pr-review-repair run=<initial-head-sha> round=1 kind=summary -->
+<!-- pr-review-repair run=<initial-head-sha> round=1 kind=summary -->
 ## Review complete — no repair-worthy findings
 
 Standards and Spec reviews covered the full PR diff at `f0df981`. **No findings or unresolved investigations.**
@@ -112,7 +112,7 @@ validation evidence and limitations, delivery state and receipts]
 ### Example: repaired round
 
 ```markdown
-<!-- orc-pr-review-repair run=<initial-head-sha> round=2 kind=summary -->
+<!-- pr-review-repair run=<initial-head-sha> round=2 kind=summary -->
 ## Review complete — repairs delivered and verified
 
 **Resolved**
@@ -149,7 +149,7 @@ check commands and results, skipped checks with reasons, signing/push receipts]
 ### Example: escalated round
 
 ```markdown
-<!-- orc-pr-review-repair run=<initial-head-sha> round=3 kind=escalation -->
+<!-- pr-review-repair run=<initial-head-sha> round=3 kind=escalation -->
 ## Review escalated — 1 blocker needs input
 
 **Needs decision:** `F-003` — [concrete blocker and specific question/recovery action].
