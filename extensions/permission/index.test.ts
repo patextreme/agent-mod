@@ -1,22 +1,11 @@
 import assert from "node:assert/strict";
-import { before, describe, it } from "node:test";
+import { describe, it } from "node:test";
 import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import permissionExtension from "./index.js";
 import { PERMISSION_RULES } from "./rules.js";
-
-// The bell is silent when PI_NO_BELL is set; it is read once at module load.
-// Set it before importing so no test ever spawns pw-play. The import lives in
-// a `before` hook because this package's CommonJS output cannot use
-// top-level await.
-process.env.PI_NO_BELL = "1";
-
-let permissionExtension: (pi: ExtensionAPI) => void;
-
-before(async () => {
-  ({ default: permissionExtension } = await import("./index.js"));
-});
 
 const BLOCKED = "herdr:blocked";
 
@@ -358,18 +347,7 @@ describe("registration surface", () => {
 
     assert.deepEqual(
       [...harness.handlers.keys()],
-      ["tool_call", "session_start", "agent_end"],
+      ["tool_call", "session_start"],
     );
-  });
-
-  it("does not emit from the agent_end bell", async () => {
-    const harness = createHarness({ select: () => "Yes" });
-
-    handlerFor(harness, "agent_end")(
-      { messages: [{ role: "assistant", stopReason: "stop" }] },
-      harness.ctx,
-    );
-
-    assert.deepEqual(harness.emitted, []);
   });
 });
