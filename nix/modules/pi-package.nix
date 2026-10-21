@@ -21,10 +21,9 @@
         src = ./../../extensions/permission;
         phases = [ "installPhase" ];
         installPhase = ''
-          mkdir -p $out/sounds
+          mkdir -p $out
           cp $src/index.ts $out/index.ts
           cp $src/rules.ts $out/rules.ts
-          cp $src/sounds/message.oga $out/sounds/message.oga
         '';
       };
 

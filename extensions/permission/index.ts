@@ -1,38 +1,23 @@
-import { spawn } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { findMatchingRule, PERMISSION_RULES } from "./rules.js";
 
-// Set when the user asked for silence via env var: any non-empty
-// PI_NO_BELL value suppresses every bell this extension plays (both
-// permission prompts and the agent_end "your turn" bell). Read once at
-// module init, like the PI_SANDBOX check below — never per call.
-const NO_BELL = (process.env.PI_NO_BELL ?? "") !== "";
+const HERDR_BLOCKED_CHANNEL = "herdr:blocked";
+const BLOCKED_LABEL_MAX = 80;
 
-// Play the vendored bell sound via pw-play. Best-effort: any failure
-// (missing binary, audio daemon down, etc.) is swallowed so audio can
-// never block or break the permission prompt.
-function playBell(): void {
-  if (NO_BELL) return;
-
-  try {
-    const here = dirname(fileURLToPath(import.meta.url));
-    const soundPath = join(here, "sounds", "message.oga");
-    const data = readFileSync(soundPath);
-    const proc = spawn("pw-play", ["-"], {
-      stdio: ["pipe", "ignore", "ignore"],
-    });
-    proc.on("error", () => {});
-    proc.stdin.on("error", () => {});
-    proc.stdin.end(data);
-  } catch {
-    // ignore
-  }
+// A Herdr sidebar message for the command a prompt is waiting on: one
+// whitespace-collapsed line, capped so long heredocs and pipelines stay
+// readable. Herdr renders this string verbatim while the pane is blocked.
+function blockedLabel(command: string): string {
+  const line = command.split("\n")[0].replace(/\s+/g, " ").trim();
+  const text = line === "" ? "(empty command)" : line;
+  const excerpt =
+    text.length > BLOCKED_LABEL_MAX
+      ? `${text.slice(0, BLOCKED_LABEL_MAX - 1)}…`
+      : text;
+  return `permission: ${excerpt}`;
 }
 
 const YOLO_STATUS_KEY = "permission-yolo";
@@ -65,6 +50,26 @@ export default function permissionExtension(pi: ExtensionAPI): void {
   // session_start and by /permission-reset.
   let yoloEnabled = false;
   const yoloActive = (): boolean => yoloEnabled || yoloPinned();
+
+  // Bracket a blocking prompt with Herdr's blocked signal. Herdr's Pi
+  // integration (v9) keeps a counter: every { active: true } must be paired
+  // with { active: false } or the pane stays blocked forever, so the release
+  // lives in finally. The listener only exists in a Herdr-managed TUI
+  // session, which makes the emit a harmless no-op everywhere else.
+  async function whileBlocked<T>(
+    command: string,
+    run: () => Promise<T>,
+  ): Promise<T> {
+    pi.events.emit(HERDR_BLOCKED_CHANNEL, {
+      active: true,
+      label: blockedLabel(command),
+    });
+    try {
+      return await run();
+    } finally {
+      pi.events.emit(HERDR_BLOCKED_CHANNEL, { active: false });
+    }
+  }
 
   // Write (or clear) the persistent footer warning. Called from every state
   // transition so the footer never lies. Idempotent. Safe in headless runs:
@@ -126,10 +131,11 @@ export default function permissionExtension(pi: ExtensionAPI): void {
         };
       }
 
-      playBell();
-      const choice = await ctx.ui.select(
-        `⚠️ Command matches permission rule ${rule.regex}:\n\n  ${command}\n\nAllow?`,
-        ["Yes", "Always allow", "No"],
+      const choice = await whileBlocked(command, () =>
+        ctx.ui.select(
+          `⚠️ Command matches permission rule ${rule.regex}:\n\n  ${command}\n\nAllow?`,
+          ["Yes", "Always allow", "No"],
+        ),
       );
 
       if (choice === "Always allow") {
@@ -161,10 +167,11 @@ export default function permissionExtension(pi: ExtensionAPI): void {
       };
     }
 
-    playBell();
-    const choice = await ctx.ui.select(
-      `⚠️ No permission rule matches command:\n\n  ${command}\n\nAllow?`,
-      ["Yes", "No"],
+    const choice = await whileBlocked(command, () =>
+      ctx.ui.select(
+        `⚠️ No permission rule matches command:\n\n  ${command}\n\nAllow?`,
+        ["Yes", "No"],
+      ),
     );
 
     if (choice !== "Yes") {
@@ -249,23 +256,5 @@ export default function permissionExtension(pi: ExtensionAPI): void {
   pi.on("session_start", async (_event, ctx) => {
     alwaysAllowed.clear();
     disableYolo(ctx);
-  });
-
-  // Ring the bell when the agent loop ends naturally, so the user knows
-  // it's their turn again without watching the screen. Suppress the bell
-  // when the user aborted the run — they already know they stopped it.
-  // event.messages always contains at least one assistant message: a
-  // normal run ends on a final assistant turn, and a failure before any
-  // response is synthesized in handleRunFailure with stopReason "aborted"
-  // or "error", so iterating from the end is reliable.
-  pi.on("agent_end", (event) => {
-    for (let i = event.messages.length - 1; i >= 0; i--) {
-      const message = event.messages[i];
-      if (message.role === "assistant") {
-        if (message.stopReason === "aborted") return;
-        break;
-      }
-    }
-    playBell();
   });
 }

@@ -91,6 +91,7 @@ Dependency checks performed for this adjustment:
    hash, then rebuild `checks.x86_64-linux.tsc-check` successfully. The resulting
    hash is `sha256-sl2eWiozBgs8AvobwWg2t6TxYDfv9WUrP9ENSSMlKEI=`.
 
-The existing permission extension remains on its existing `agent_end` bell
-behavior. This notification compatibility adjustment changes no permission
-policy or event registration.
+The permission extension kept its then-existing `agent_end` bell behavior for
+this notification compatibility adjustment; that bell was later removed in
+[#84](https://github.com/patextreme/agent-mod/issues/84). This notification
+compatibility adjustment changes no permission policy or event registration.
