@@ -58,7 +58,7 @@ These ship only as Nix flake outputs (`pi-permission`, `pi-ollama-usage`, `pi-co
 
 | Extension | Description |
 |-----------|-------------|
-| [Permission](./extensions/permission/index.ts) | Intercepts `bash` tool calls and applies regex-based permission rules; plays a bell on prompts and when the agent finishes; opt-in session-scoped `/permission-yolo` full bypass |
+| [Permission](./extensions/permission/index.ts) | Intercepts `bash` tool calls and applies regex-based permission rules; plays a bell on prompts and when the agent finishes; reports to Herdr while waiting on a prompt; opt-in session-scoped `/permission-yolo` full bypass |
 | [Ollama Usage](./extensions/ollama-usage/index.ts) | Shows Ollama Cloud session/weekly usage in the status bar; refreshes on ollama-cloud model selection and via `/ollama-usage-refresh` |
 | [Codex Alias](./extensions/codex-alias/index.ts) | Registers `openai-codex-secondary` as an independently authenticated alias of the built-in `openai-codex` provider, so two Codex accounts can share one agent directory |
 | [Notify Me](./extensions/notify-me/index.ts) | Arms a session-scoped, one-shot Discord reminder for final handback via `/notify-me <message>`; `/notify-me-cancel` clears pending work |
@@ -156,6 +156,8 @@ The always-allow state resets on each new session.
 - `--yolo` — CLI flag pinning YOLO mode on for the entire process run, including headless runs (`-p`, `--mode json`). The pin survives `session_start` and `/permission-reset` and cannot be turned off mid-session; `/permission-yolo off` while pinned reports that the mode is pinned instead of disabling it.
 
 A bell (`extensions/permission/sounds/message.oga`, played via `pw-play`) rings on each permission prompt and when the agent finishes a run (suppressed if you aborted it), so you don't have to watch the screen.
+
+While either confirmation prompt is open, the extension emits Herdr's `herdr:blocked` event (`{ active: true, label }` on entry and `{ active: false }` on exit), so a Herdr pane shows `blocked` with a `permission: <command>` message. The listener ships with Herdr's Pi integration (v9); without it the events are a harmless no-op.
 
 ## Ollama Usage Extension
 

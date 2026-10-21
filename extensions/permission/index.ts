@@ -35,6 +35,22 @@ function playBell(): void {
   }
 }
 
+const HERDR_BLOCKED_CHANNEL = "herdr:blocked";
+const BLOCKED_LABEL_MAX = 80;
+
+// A Herdr sidebar message for the command a prompt is waiting on: one
+// whitespace-collapsed line, capped so long heredocs and pipelines stay
+// readable. Herdr renders this string verbatim while the pane is blocked.
+function blockedLabel(command: string): string {
+  const line = command.split("\n")[0].replace(/\s+/g, " ").trim();
+  const text = line === "" ? "(empty command)" : line;
+  const excerpt =
+    text.length > BLOCKED_LABEL_MAX
+      ? `${text.slice(0, BLOCKED_LABEL_MAX - 1)}…`
+      : text;
+  return `permission: ${excerpt}`;
+}
+
 const YOLO_STATUS_KEY = "permission-yolo";
 const YOLO_STATUS_TEXT = "⚠️ YOLO MODE ON";
 
@@ -65,6 +81,26 @@ export default function permissionExtension(pi: ExtensionAPI): void {
   // session_start and by /permission-reset.
   let yoloEnabled = false;
   const yoloActive = (): boolean => yoloEnabled || yoloPinned();
+
+  // Bracket a blocking prompt with Herdr's blocked signal. Herdr's Pi
+  // integration (v9) keeps a counter: every { active: true } must be paired
+  // with { active: false } or the pane stays blocked forever, so the release
+  // lives in finally. The listener only exists in a Herdr-managed TUI
+  // session, which makes the emit a harmless no-op everywhere else.
+  async function whileBlocked<T>(
+    command: string,
+    run: () => Promise<T>,
+  ): Promise<T> {
+    pi.events.emit(HERDR_BLOCKED_CHANNEL, {
+      active: true,
+      label: blockedLabel(command),
+    });
+    try {
+      return await run();
+    } finally {
+      pi.events.emit(HERDR_BLOCKED_CHANNEL, { active: false });
+    }
+  }
 
   // Write (or clear) the persistent footer warning. Called from every state
   // transition so the footer never lies. Idempotent. Safe in headless runs:
@@ -127,9 +163,11 @@ export default function permissionExtension(pi: ExtensionAPI): void {
       }
 
       playBell();
-      const choice = await ctx.ui.select(
-        `⚠️ Command matches permission rule ${rule.regex}:\n\n  ${command}\n\nAllow?`,
-        ["Yes", "Always allow", "No"],
+      const choice = await whileBlocked(command, () =>
+        ctx.ui.select(
+          `⚠️ Command matches permission rule ${rule.regex}:\n\n  ${command}\n\nAllow?`,
+          ["Yes", "Always allow", "No"],
+        ),
       );
 
       if (choice === "Always allow") {
@@ -162,9 +200,11 @@ export default function permissionExtension(pi: ExtensionAPI): void {
     }
 
     playBell();
-    const choice = await ctx.ui.select(
-      `⚠️ No permission rule matches command:\n\n  ${command}\n\nAllow?`,
-      ["Yes", "No"],
+    const choice = await whileBlocked(command, () =>
+      ctx.ui.select(
+        `⚠️ No permission rule matches command:\n\n  ${command}\n\nAllow?`,
+        ["Yes", "No"],
+      ),
     );
 
     if (choice !== "Yes") {
