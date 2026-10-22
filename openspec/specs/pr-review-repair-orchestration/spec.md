@@ -39,7 +39,7 @@ Each repair SHALL require a posted and verified start record reserving one attem
 - **THEN** orchestration posts and verifies an append-only scope amendment, keeps the same attempt count, and continues without pausing for user approval
 
 #### Scenario: New finding needs human input
-- **WHEN** a new finding needs new product intent, new requirements, product behavior, a consequential design, architecture or public-contract change, a security/custody policy change or a high-risk correction, or reservation accounting is ambiguous
+- **WHEN** a new finding needs new product intent, new requirements, product behavior, a consequential design, architecture or public-contract change, a security/custody policy change or a high-risk correction, any correction that fails the in-attempt amendment conditions, or reservation accounting is ambiguous
 - **THEN** orchestration escalates the specific human decision instead of folding it into the active attempt
 
 #### Scenario: Last repair is reviewed

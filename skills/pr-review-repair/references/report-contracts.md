@@ -62,7 +62,7 @@ When the active attempt's required validation discovers an additional in-scope f
 - State: scope amended; no new reservation; no delivery confirmed
 ```
 
-A scope amendment adds only findings that satisfy the in-attempt amendment rules in [the repair policy](./policy.md). It never increments `repairs used`, changes the run ID, or replaces the active repair-start. If the finding needs new product intent, new requirements, product behavior, a consequential design, architecture or public-contract change, a security/custody policy change, a high-risk correction, or accounting is ambiguous, post an escalation instead. Keep the amendment complete and verifiable before edits; do not hide its fields behind collapsed details.
+A scope amendment adds only findings that satisfy the in-attempt amendment rules in [the repair policy](./policy.md). It never increments `repairs used`, changes the run ID, or replaces the active repair-start. If the finding needs new product intent, new requirements, product behavior, a consequential design, architecture or public-contract change, a security/custody policy change, a high-risk correction, any correction that fails the in-attempt amendment conditions, or accounting is ambiguous, post an escalation instead. Keep the amendment complete and verifiable before edits; do not hide its fields behind collapsed details.
 
 ## PR record layers
 

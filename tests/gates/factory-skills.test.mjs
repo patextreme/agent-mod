@@ -477,7 +477,9 @@ test("in-attempt scope amendments keep their reservation and stay out of human-i
     );
   }
   assert.ok(
-    prReviewSkill.includes("consequential design, architecture or public-contract changes"),
+    prReviewSkill.includes(
+      "consequential design, architecture or public-contract changes",
+    ),
     "human-decision list must include consequential architecture changes",
   );
   assert.ok(
@@ -488,6 +490,11 @@ test("in-attempt scope amendments keep their reservation and stay out of human-i
   assert.ok(
     prReviewSkill.includes("security/custody policy"),
     "human-decision list must include security/custody policy changes",
+  );
+  assert.ok(
+    prReviewSkill.includes("fails the in-attempt amendment conditions") &&
+      reportContracts.includes("fails the in-attempt amendment conditions"),
+    "human-input branches must cover corrections that fail the amendment conditions",
   );
   assert.ok(
     prReviewPseudocode.includes("SCOPE-AMENDMENT") &&
