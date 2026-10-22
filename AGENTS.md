@@ -51,6 +51,14 @@ nix flake check
 
 For issue operations and code-review spec discovery, read [the GitHub tracker workflow](docs/agents/issue-tracker.md), including pagination and non-issue spec sources.
 
+### Triage labels
+
+For issue classification and triage states, read [the label vocabulary](docs/agents/labels.md).
+
+### Domain docs
+
+Before exploring the codebase, read [the single-context domain-doc rules](docs/agents/domain.md).
+
 ## Key Conventions
 
 - **Biome** for formatting and linting — `biome.json` configures 2-space indentation only; lint rules use defaults

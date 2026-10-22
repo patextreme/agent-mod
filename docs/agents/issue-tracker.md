@@ -88,4 +88,6 @@ complete history.
 Adapted for this repository from the installed `setup-matt-pocock-skills`
 procedure and its `issue-tracker-github.md` seed in
 [mattpocock/skills at the installed revision](https://github.com/mattpocock/skills/tree/6acc160e4e0cd062dbbbd7a1b26ae92855edf07e/skills/engineering/setup-matt-pocock-skills).
-This is tracker-only setup; it adds no triage label mapping or domain-doc layout.
+Label vocabulary is documented in [labels.md](labels.md).
+Domain-document layout and consumer rules are documented in
+[domain.md](domain.md).
