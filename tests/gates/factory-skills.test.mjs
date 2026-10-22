@@ -467,7 +467,7 @@ test("in-attempt scope amendments keep their reservation and stay out of human-i
     "product behavior",
     "public contract",
     "security/custody policy",
-    "consequential design choice",
+    "consequential design or architecture change",
     "is not high-risk",
     "accounting is unambiguous",
   ]) {
@@ -476,6 +476,15 @@ test("in-attempt scope amendments keep their reservation and stay out of human-i
       `amendment boundary must retain: ${boundary}`,
     );
   }
+  assert.ok(
+    prReviewSkill.includes("consequential design, architecture or public-contract changes"),
+    "human-decision list must include consequential architecture changes",
+  );
+  assert.ok(
+    reportContracts.includes("architecture") &&
+      reportContracts.includes("security/custody policy change"),
+    "escalation trigger must include architecture and security/custody policy changes",
+  );
   assert.ok(
     prReviewSkill.includes("security/custody policy"),
     "human-decision list must include security/custody policy changes",

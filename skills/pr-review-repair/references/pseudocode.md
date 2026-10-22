@@ -67,7 +67,7 @@ SCOPE-AMENDMENT:
   REQUIRES one active verified repair-start and unambiguous run/round accounting
   ADDS a repair-worthy finding discovered by the active attempt's own required validation
   REQUIRES correction stays within authorized intent; no new requirements, product behavior,
-    public contract, security/custody policy, or consequential design change; not high-risk
+    public contract, security/custody policy, or consequential design or architecture change; not high-risk
   POST and VERIFY append-only scope-amendment record before editing
   KEEPS repairs used unchanged (not a new reservation)
   IF any condition is uncertain: ESCALATE instead

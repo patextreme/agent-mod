@@ -28,18 +28,18 @@ Only evidenced repair-worthy blockers or significant bugs SHALL drive autonomous
 - **THEN** it is reported without independent cleanup edits
 
 ### Requirement: Verified cumulative repair reservation
-Each repair SHALL require a posted and verified start record reserving one attempt before edits. An in-scope finding discovered by the active attempt's own required validation MAY be added to that attempt through a posted and verified scope-amendment record without incrementing the count, provided the correction introduces no new requirements, product behavior, public contract, security/custody policy or consequential design change and is not high-risk; otherwise human input SHALL be required. At most ten attempts SHALL be reserved per recovered run, including partial repairs and failed delivery. Resumes/retries SHALL retain run identity, ledger and cumulative count, reconcile incomplete operations, and avoid duplicate delivery; ambiguous history SHALL require human input.
+Each repair SHALL require a posted and verified start record reserving one attempt before edits. An in-scope finding discovered by the active attempt's own required validation MAY be added to that attempt through a posted and verified scope-amendment record without incrementing the count, provided the correction introduces no new requirements, product behavior, public contract, security/custody policy or consequential design or architecture change and is not high-risk; otherwise human input SHALL be required. At most ten attempts SHALL be reserved per recovered run, including partial repairs and failed delivery. Resumes/retries SHALL retain run identity, ledger and cumulative count, reconcile incomplete operations, and avoid duplicate delivery; ambiguous history SHALL require human input.
 
 #### Scenario: Delivery fails after reservation
 - **WHEN** repair has reserved an attempt but push or commenting fails
 - **THEN** that attempt remains consumed and a later continuation reconciles its remaining operations rather than starting with a fresh budget
 
 #### Scenario: Validation discovers an in-scope blocker
-- **WHEN** required validation of the active attempt discovers an additional repair-worthy blocker whose correction needs no new product intent, public-contract or consequential design change, security-policy change or high-risk decision
+- **WHEN** required validation of the active attempt discovers an additional repair-worthy blocker whose correction needs no new product intent, new requirements, product behavior, public-contract or consequential design or architecture change, security/custody policy change or high-risk decision
 - **THEN** orchestration posts and verifies an append-only scope amendment, keeps the same attempt count, and continues without pausing for user approval
 
 #### Scenario: New finding needs human input
-- **WHEN** a new finding needs new product intent, a consequential design or public-contract change, a security-policy change or a high-risk correction, or reservation accounting is ambiguous
+- **WHEN** a new finding needs new product intent, new requirements, product behavior, a consequential design, architecture or public-contract change, a security/custody policy change or a high-risk correction, or reservation accounting is ambiguous
 - **THEN** orchestration escalates the specific human decision instead of folding it into the active attempt
 
 #### Scenario: Last repair is reviewed
