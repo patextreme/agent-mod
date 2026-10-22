@@ -14,7 +14,7 @@ Resolve `code-review` from the invoking environment; read its SKILL.md and pass 
 
 Read [the preparation contract](./references/prepare.md) before setup, [the pseudocode](./references/pseudocode.md) before launching agents, [Report contracts](./references/report-contracts.md) during preparation and before briefing judges or record writers, and [repair policy](./references/policy.md) before judgment or repair decisions. The pseudocode is the control-flow source of truth. Records pair a concise visible summary with a collapsed audit preserving complete reports, ledger, and evidence; concise presentation never discards internal stage outputs, which remain required for judgment, handoffs, and resumes. Use codemode for judgment-heavy coordination or SubagentWorkflow for deterministic loops.
 
-A human-input branch pauses until the user answers and PR state is reconciled. Pause only for decisions this skill assigns to the user: new product intent, consequential architecture/public-contract choices, high-risk corrections, ambiguous identity/history/accounting, or missing prerequisites. Do not pause for a mechanical in-scope scope amendment or another orchestrator-owned action; record it and continue.
+A human-input branch pauses until the user answers and PR state is reconciled. Pause only for decisions this skill assigns to the user: new product intent, consequential architecture/public-contract choices, security/custody policy changes, high-risk corrections, ambiguous identity/history/accounting, or missing prerequisites. Do not pause for a mechanical in-scope scope amendment or another orchestrator-owned action; record it and continue.
 
 ## Repair policy
 
@@ -30,7 +30,7 @@ At each stage boundary, verify the expected base and phase state: review/judge u
 
 Accept evidence, not summaries: inspect actual code/diffs and check results through delegated validation. Incomplete coverage, unresolved investigation, or failed/unavailable required checks cannot establish success. PR-caused failures may qualify for repair; unrelated or environmental failures require escalation, not unrelated edits.
 
-On a blocked human decision, unsafe correction, failed required operation, agent failure, or recurring findings without substantive progress, preserve safe work and the reserved count. Orchestrator-owned recovery—an in-scope scope amendment, a retry of the reserved attempt, or another authorized accounting action—record and continue. Escalate only the actual human decision, with ledger, evidence, checks, exact operation state, and specific question/recovery action; verify its receipt. If commenting is unavailable, report the gap directly. Pause rather than repeat unchanged work.
+On a blocked human decision, unsafe correction, failed required operation, agent failure, or recurring findings without substantive progress, preserve safe work and the reserved count. Orchestrator-owned recovery—an in-scope scope amendment or another authorized accounting action—record and continue. Escalate only the actual human decision, with ledger, evidence, checks, exact operation state, and specific question/recovery action; verify its receipt. If commenting is unavailable, report the gap directly. Pause rather than repeat unchanged work.
 
 ## Stages
 

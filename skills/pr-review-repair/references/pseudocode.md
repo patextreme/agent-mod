@@ -14,6 +14,8 @@ IF an authorized attempt is incomplete:
     finishing it; add it with SCOPE-AMENDMENT
   IF recovery needs product/design/security/high-risk input or accounting is ambiguous:
     ESCALATE
+  IF recovery is blocked or unavailable for any other reason:
+    ESCALATE
 
 LOOP:
   GUARD expected phase-specific git/PR state
@@ -49,11 +51,11 @@ LOOP:
            documents, and rerun affected validation; code-only corrections never
            reopen, rearchive, or rerun the lifecycle)
   VALIDATE actual changes independently and complete required checks
-  IF repair or validation is blocked/incomplete:
-    IF an in-scope blocker discovered by this attempt's own required validation can be added:
-      SCOPE-AMENDMENT
-      REPEAT repair/validation for the amended scope
-    ELSE: ESCALATE
+  IF an in-scope repair-worthy finding discovered by this attempt's own required validation
+     can be added:
+    SCOPE-AMENDMENT
+    REPEAT repair/validation for the amended scope
+  IF repair or validation is blocked/incomplete: ESCALATE
 
   GUARD expected state
   delivery = DELIVER authorized signed commits, push, and summary comment

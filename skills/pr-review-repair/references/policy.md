@@ -4,10 +4,10 @@ Use this reference during judgment, repair authorization, and in-attempt scope a
 
 ## Repair threshold
 
-- **Blocker:** evidenced material correctness, security, reliability, compatibility, or delivery risk; or breach of an explicit mandatory requirement. Cite the requirement or concrete risk; an architecture-boundary violation can qualify without runtime impact.
-- **Significant bug:** evidenced requirement/contract deviation in a supported scenario with meaningful consequence. Require reproduction, a failing test, or convincing code-path evidence with trigger and consequence. Rare security/data-loss/credential failures and PR-caused build/test/delivery failures also qualify.
-- **Repair-worthy:** a confirmed blocker or significant bug whose benefit justifies scope and risk. High-risk corrections require human input.
-- **Report-only:** minor bugs, cosmetic/naming preferences, speculative hardening, and smells without material consequence. Cheapness alone does not justify repair.
+- **Blocker:** evidenced material correctness, security, reliability, compatibility, or delivery risk; or breach of an explicit mandatory requirement. Cite the requirement or concrete risk; a documented architecture-boundary violation can qualify without runtime impact.
+- **Significant bug:** evidenced requirement/contract deviation in a supported scenario with meaningful consequence. Require reproduction, a failing test, or convincing code-path evidence with trigger and consequence. Rare security, data-loss, or credential-verification failures still qualify; PR-caused build/test/delivery failures and missing mandatory acceptance criteria also qualify.
+- **Repair-worthy:** a confirmed blocker or significant bug whose benefit justifies scope and risk. High-risk corrections require human input rather than downgrading the finding.
+- **Report-only:** minor bugs, cosmetic/naming preferences, speculative hardening, and smells without material consequence. Cheapness alone does not justify repair; allow only refactoring needed for a qualifying correction.
 
 Investigate uncertainty before editing. Established requirements and recorded decisions settle corrections; new product intent or consequential design requires human input. Preserve requirements, tests, unrelated work, and report-only items.
 

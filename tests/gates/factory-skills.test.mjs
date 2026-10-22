@@ -462,10 +462,23 @@ test("in-attempt scope amendments keep their reservation and stay out of human-i
       prReviewSkill.includes("The attempt count stays unchanged"),
     "skill must define an in-attempt amendment that keeps the attempt count",
   );
+  for (const boundary of [
+    "no new requirements",
+    "product behavior",
+    "public contract",
+    "security/custody policy",
+    "consequential design choice",
+    "is not high-risk",
+    "accounting is unambiguous",
+  ]) {
+    assert.ok(
+      repairPolicy.includes(boundary),
+      `amendment boundary must retain: ${boundary}`,
+    );
+  }
   assert.ok(
-    prReviewSkill.includes("new requirements") &&
-      prReviewSkill.includes("high-risk"),
-    "amendment boundary must exclude new intent and high-risk corrections",
+    prReviewSkill.includes("security/custody policy"),
+    "human-decision list must include security/custody policy changes",
   );
   assert.ok(
     prReviewPseudocode.includes("SCOPE-AMENDMENT") &&
