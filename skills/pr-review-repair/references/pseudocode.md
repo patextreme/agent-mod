@@ -10,7 +10,12 @@ IF preparation is blocked:
   PAUSE with exact required input
 IF an authorized attempt is incomplete:
   RECONCILE and FINISH only that attempt before reviewing
-  IF recovery is blocked: ESCALATE
+  A repair-worthy blocker discovered by that attempt's own required validation is part of
+    finishing it; add it with SCOPE-AMENDMENT
+  IF recovery needs product/design/security/high-risk input or accounting is ambiguous:
+    ESCALATE
+  IF recovery is blocked or unavailable for any other reason:
+    ESCALATE
 
 LOOP:
   GUARD expected phase-specific git/PR state
@@ -46,6 +51,10 @@ LOOP:
            documents, and rerun affected validation; code-only corrections never
            reopen, rearchive, or rerun the lifecycle)
   VALIDATE actual changes independently and complete required checks
+  IF an in-scope repair-worthy finding discovered by this attempt's own required validation
+     can be added:
+    SCOPE-AMENDMENT
+    REPEAT repair/validation for the amended scope
   IF repair or validation is blocked/incomplete: ESCALATE
 
   GUARD expected state
@@ -54,12 +63,23 @@ LOOP:
   IF delivery is incomplete: ESCALATE
   CONTINUE at delivered head
 
+SCOPE-AMENDMENT:
+  REQUIRES one active verified repair-start and unambiguous run/round accounting
+  ADDS a repair-worthy finding discovered by the active attempt's own required validation
+  REQUIRES correction stays within authorized intent; no new requirements, product behavior,
+    public contract, security/custody policy, or consequential design or architecture change; not high-risk
+  POST and VERIFY append-only scope-amendment record before editing
+  KEEPS repairs used unchanged (not a new reservation)
+  IF any condition is uncertain: ESCALATE instead
+
 ESCALATE:
   PRESERVE safe work, ledger, reserved count, and exact operation state
   POST and VERIFY escalation record when possible
   REPORT missing receipts/history directly if recording fails
   REPORT a concise escalation summary, the posted record link, and the
-    specific human input/recovery action; PAUSE
+    specific human decision/recovery action; PAUSE
+  DO NOT escalate a mechanical scope amendment or another orchestrator-owned action;
+    record it and continue
 ```
 
-Resume explicitly with the user's answer and reconciled state. Retries complete the same reserved attempt; a new review/repair cycle consumes a new reservation. The final review after attempt ten can establish success or escalation, never authorize repair eleven.
+Resume explicitly with the user's answer and reconciled state. Retries complete the same reserved attempt; an in-attempt scope amendment does not consume a reservation; a new review/repair cycle consumes a new reservation. The final review after attempt ten can establish success or escalation, never authorize repair eleven.

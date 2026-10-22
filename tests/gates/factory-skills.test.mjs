@@ -34,6 +34,8 @@ const factorySkills = {
   "pr-review-repair": [
     "references/pseudocode.md",
     "references/report-contracts.md",
+    "references/policy.md",
+    "references/prepare.md",
   ],
   "orc-issue-to-pr": [
     "references/pseudocode.md",
@@ -179,6 +181,14 @@ const prReviewSkill = readFileSync(
 );
 const prReviewPseudocode = readFileSync(
   join(repoRoot, "skills/pr-review-repair/references/pseudocode.md"),
+  "utf8",
+);
+const repairPolicy = readFileSync(
+  join(repoRoot, "skills/pr-review-repair/references/policy.md"),
+  "utf8",
+);
+const preparationContract = readFileSync(
+  join(repoRoot, "skills/pr-review-repair/references/prepare.md"),
   "utf8",
 );
 const issueToPrSkill = readFileSync(
@@ -363,7 +373,7 @@ test("report contracts require complete collapsed audits without new storage", (
     "Complete original Standards and Spec reports",
     "full finding ledger",
     "Run identity, pinned refs",
-    "repair-start record link",
+    "repair-start and any scope-amendment record links",
     "delivery state and receipts",
     "incomplete-operation/recovery state",
   ]) {
@@ -397,7 +407,9 @@ test("report contracts require complete collapsed audits without new storage", (
     "word target must remain a soft readability goal",
   );
   assert.ok(
-    reportContracts.includes("kind=<repair-start|summary|escalation>"),
+    reportContracts.includes(
+      "kind=<repair-start|scope-amendment|summary|escalation>",
+    ),
     "record identity marker template must be retained",
   );
   for (const reservationField of [
@@ -427,6 +439,93 @@ test("report contracts require complete collapsed audits without new storage", (
   assert.ok(
     reportContracts.includes("never invent a receipt or link"),
     "fabricated receipts must stay forbidden",
+  );
+});
+
+test("in-attempt scope amendments keep their reservation and stay out of human-input branches", () => {
+  for (const required of [
+    "## Scope-amendment comment",
+    "- Active repair-start:",
+    "- Added actionable IDs:",
+    "- Added scope:",
+    "- In-scope rationale:",
+    "State: scope amended; no new reservation; no delivery confirmed",
+    "never increments `repairs used`",
+  ]) {
+    assert.ok(
+      reportContracts.includes(required),
+      `scope-amendment contract must require: ${required}`,
+    );
+  }
+  assert.ok(
+    prReviewSkill.includes("In-attempt scope amendments") &&
+      prReviewSkill.includes("The attempt count stays unchanged"),
+    "skill must define an in-attempt amendment that keeps the attempt count",
+  );
+  for (const boundary of [
+    "no new requirements",
+    "product behavior",
+    "public contract",
+    "security/custody policy",
+    "consequential design or architecture change",
+    "is not high-risk",
+    "accounting is unambiguous",
+  ]) {
+    assert.ok(
+      repairPolicy.includes(boundary),
+      `amendment boundary must retain: ${boundary}`,
+    );
+  }
+  assert.ok(
+    prReviewSkill.includes(
+      "consequential design, architecture or public-contract changes",
+    ),
+    "human-decision list must include consequential architecture changes",
+  );
+  assert.ok(
+    reportContracts.includes("architecture") &&
+      reportContracts.includes("security/custody policy change"),
+    "escalation trigger must include architecture and security/custody policy changes",
+  );
+  assert.ok(
+    prReviewSkill.includes("security/custody policy"),
+    "human-decision list must include security/custody policy changes",
+  );
+  assert.ok(
+    prReviewSkill.includes("fails the in-attempt amendment conditions") &&
+      reportContracts.includes("fails the in-attempt amendment conditions"),
+    "human-input branches must cover corrections that fail the amendment conditions",
+  );
+  assert.ok(
+    prReviewPseudocode.includes("SCOPE-AMENDMENT") &&
+      prReviewPseudocode.includes("KEEPS repairs used unchanged"),
+    "pseudocode must record the amendment without a new reservation",
+  );
+  assert.ok(
+    prReviewPseudocode.includes(
+      "DO NOT escalate a mechanical scope amendment",
+    ) &&
+      prReviewSkill.includes(
+        "Do not pause for a mechanical in-scope scope amendment",
+      ),
+    "orchestrator-owned amendments must not become human-input branches",
+  );
+  assert.ok(
+    repairPolicy.includes("## Repair threshold") &&
+      repairPolicy.includes("## In-attempt scope amendments") &&
+      repairPolicy.includes("The attempt count stays unchanged"),
+    "repair policy reference must keep thresholds and amendment rules",
+  );
+  assert.ok(
+    preparationContract.includes("sticky contract") &&
+      preparationContract.includes("paginated comments") &&
+      preparationContract.includes("Unpublished commits"),
+    "preparation contract must keep setup and reconciliation requirements",
+  );
+  assert.ok(
+    prReviewSkill.includes("./references/policy.md") &&
+      prReviewSkill.includes("./references/prepare.md"),
+    "skill must disclose detailed policy and preparation contracts",
   );
 });
 

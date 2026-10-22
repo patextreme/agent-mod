@@ -23,7 +23,7 @@ For standards-only findings, mark runtime trigger/consequence as not applicable 
 Start each PR record with:
 
 ```text
-<!-- pr-review-repair run=<initial-head-sha> round=<n> kind=<repair-start|summary|escalation> -->
+<!-- pr-review-repair run=<initial-head-sha> round=<n> kind=<repair-start|scope-amendment|summary|escalation> -->
 ```
 
 Round numbers identify review/judgment cycles; `repairs used` counts reserved repair attempts, not comments or agent retries. Keep the original run ID on resume. A run started under the skill's former `orc-pr-review-repair` name keeps its existing markers and run ID; later records in that same run continue under that recorded identity rather than restarting the count. Validate markers against PR identity, actual git state, and record contents; a marker alone is not authoritative evidence. Treat copied or conflicting records as an ambiguity to reconcile.
@@ -43,7 +43,26 @@ Post and verify this before dispatching a repair:
 - State: repair reserved; no delivery confirmed
 ```
 
-An unfinished start reserves the attempt across interruptions. Link subsequent summary/escalation records to it. Repair-start records stay complete and verifiable before edits: they never move fields behind collapsed details, and reservation sequencing is unchanged.
+An unfinished start reserves the attempt across interruptions. Link subsequent scope amendments, summaries, and escalations to it. Repair-start records stay complete and verifiable before edits: they never move fields behind collapsed details, and reservation sequencing is unchanged.
+
+## Scope-amendment comment
+
+When the active attempt's required validation discovers an additional in-scope finding, the orchestrator may amend the active reservation instead of opening a new attempt. Post and verify this before editing:
+
+```markdown
+## PR review/repair — scope amendment
+- PR / run / round:
+- Active repair-start:
+- Pinned base / merge-base:
+- Expected local and remote head:
+- Repairs used: <unchanged count>/10
+- Added actionable IDs:
+- Added scope:
+- In-scope rationale:
+- State: scope amended; no new reservation; no delivery confirmed
+```
+
+A scope amendment adds only findings that satisfy the in-attempt amendment rules in [the repair policy](./policy.md). It never increments `repairs used`, changes the run ID, or replaces the active repair-start. If the finding needs new product intent, new requirements, product behavior, a consequential design, architecture or public-contract change, a security/custody policy change, a high-risk correction, any correction that fails the in-attempt amendment conditions, or accounting is ambiguous, post an escalation instead. Keep the amendment complete and verifiable before edits; do not hide its fields behind collapsed details.
 
 ## PR record layers
 
@@ -72,9 +91,9 @@ The `<details>` block in the same comment preserves complete records, not summar
 - Complete original Standards and Spec reports verbatim (or the explicit authorized skipped coverage, or the durable link already permitted for a previously posted complete record).
 - The full finding ledger: every record with dispositions, resolution evidence, unresolved investigations, and prior-ID reconciliation.
 - Validation and evidence details: check commands and results at the reviewed/delivered SHA, fresh-versus-cached provenance, skipped checks with reasons, and evidence receipts. Local log paths and hashes may appear here only as non-public audit references, never presented as accessible evidence links or substitutes for the actual results and limitations.
-- Run identity, pinned refs, reviewed/local/delivered SHAs, the repair-start record link, cumulative repairs used, delivery state and receipts, and the exact incomplete-operation/recovery state when applicable.
+- Run identity, pinned refs, reviewed/local/delivered SHAs, the repair-start and any scope-amendment record links, cumulative repairs used, delivery state and receipts, and the exact incomplete-operation/recovery state when applicable.
 
-Repair-start/summary/escalation links and all mandatory bookkeeping stay recoverable from the full comment contents even when the visible summary omits them.
+Repair-start/scope-amendment/summary/escalation links and all mandatory bookkeeping stay recoverable from the full comment contents even when the visible summary omits them.
 
 ### Example: clean round
 
