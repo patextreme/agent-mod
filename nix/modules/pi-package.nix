@@ -38,6 +38,17 @@
         '';
       };
 
+      pi-opencode-usage = pkgs.stdenv.mkDerivation {
+        name = "pi-opencode-usage";
+        src = ./../../extensions/opencode-usage;
+        phases = [ "installPhase" ];
+        installPhase = ''
+          mkdir -p $out
+          cp $src/index.ts $out/index.ts
+          cp $src/parse.ts $out/parse.ts
+        '';
+      };
+
       pi-codex-alias = pkgs.stdenv.mkDerivation {
         name = "pi-codex-alias";
         src = ./../../extensions/codex-alias;
@@ -131,11 +142,11 @@
     in
     {
       packages = {
-        inherit pi-permission pi-ollama-usage pi-codex-alias pi-notify-me pi-prompts pi-skills;
+        inherit pi-permission pi-ollama-usage pi-opencode-usage pi-codex-alias pi-notify-me pi-prompts pi-skills;
       };
 
       checks = {
-        inherit pi-permission pi-ollama-usage pi-codex-alias pi-notify-me pi-prompts pi-skills;
+        inherit pi-permission pi-ollama-usage pi-opencode-usage pi-codex-alias pi-notify-me pi-prompts pi-skills;
         inherit biome-check tsc-check node-tests;
       };
     };
