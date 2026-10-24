@@ -14,7 +14,7 @@ Extensions ship as Nix flake outputs, while prompt templates and skills install 
 
 ## Requirements
 
-- Pi `^1.1.0` (declared as a peer dependency in [`package.json`](./package.json)); notify-me requires the final-settlement abort flag added in 1.1.0. See the [locked SDK compatibility evidence](./docs/notify-me-sdk-compatibility.md).
+- Pi `^1.4.0` (declared as a peer dependency in [`package.json`](./package.json)); notify-me requires the final-settlement abort flag added in 1.1.0. See the [locked SDK compatibility evidence](./docs/notify-me-sdk-compatibility.md).
 
 ## Installation
 
@@ -202,7 +202,7 @@ Credentials are stored under separate `auth.json` keys (`openai-codex` and `open
 
 ## Notify Me Extension
 
-Build and load the extension with Pi 1.1.0 or newer:
+Build and load the extension with Pi 1.4.0 or newer:
 
 ```bash
 nix build .#pi-notify-me

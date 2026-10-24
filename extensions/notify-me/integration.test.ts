@@ -195,7 +195,10 @@ for (const aborted of [false, true]) {
     await h.command("Runtime composed reminder");
     const { AgentSession } = await import("@earendil-works/pi-coding-agent");
     type RuntimeMethods = {
-      _runAgentPrompt: (messages: unknown[]) => Promise<void>;
+      _startRun: (
+        trigger: { messageType: "user"; prompt: string; images: unknown[] },
+        onStarted?: () => void,
+      ) => Promise<void>;
       _handlePostAgentRun: () => Promise<boolean>;
       _runBeforeSettleBoundary: () => Promise<boolean>;
       _emitAgentSettled: () => Promise<void>;
@@ -213,6 +216,7 @@ for (const aborted of [false, true]) {
       _pendingToolNames: new Set(),
       _deferredSettledActions: [],
       _retryAttempt: 0,
+      _prepareRun: async () => [],
       _recordSelection: () => {},
       _finishCancelledRetry: () => {},
       _flushPendingBashMessages: () => {},
@@ -268,7 +272,11 @@ for (const aborted of [false, true]) {
       },
       hasQueuedMessages: () => false,
     };
-    await runtime._runAgentPrompt.call(facade, []);
+    await runtime._startRun.call(facade, {
+      messageType: "user",
+      prompt: "runtime fixture",
+      images: [],
+    });
     await flush();
     assert.equal(stage, aborted ? 0 : 1);
     assert.equal(h.calls.length, aborted ? 0 : 1);
