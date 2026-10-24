@@ -25,7 +25,10 @@ for (const path of [
   test(`locked runtime ${path} reaches the registered adapter only at final settlement`, async () => {
     const { AgentSession } = await import("@earendil-works/pi-coding-agent");
     type RuntimeMethods = {
-      _runAgentPrompt: (messages: unknown[]) => Promise<void>;
+      _startRun: (
+        trigger: { messageType: "user"; prompt: string; images: unknown[] },
+        onStarted?: () => void,
+      ) => Promise<void>;
       _handlePostAgentRun: () => Promise<boolean>;
       _runBeforeSettleBoundary: () => Promise<boolean>;
       _emitAgentSettled: () => Promise<void>;
@@ -95,6 +98,7 @@ for (const path of [
       _pendingToolNames: new Set(),
       _deferredSettledActions: [],
       _retryAttempt: 0,
+      _prepareRun: async () => [],
       _recordSelection: () => {},
       _finishCancelledRetry: () => {},
       _flushPendingBashMessages: () => {},
@@ -168,7 +172,11 @@ for (const path of [
       },
       hasQueuedMessages: () => stage === 0 && path === "queued",
     };
-    await runtime._runAgentPrompt.call(facade, []);
+    await runtime._startRun.call(facade, {
+      messageType: "user",
+      prompt: "runtime fixture",
+      images: [],
+    });
     const abort = path.startsWith("abort-");
     assert.equal(stage, abort ? 0 : 1);
     assert.equal(delivered.length, abort ? 0 : 1);
