@@ -7,6 +7,7 @@ Pi is a terminal coding agent. This package augments it with:
 - **Guardrails** — a permission extension that intercepts shell commands and asks before running anything destructive (`git push`, `git rebase`, unknown `gh` calls, …), while auto-allowing safe read-only commands.
 - **One-shot reminders** — a notify-me extension that sends your message and session context to Discord only after Pi finally hands control back.
 - **Usage visibility** — an ollama-usage extension that shows Ollama Cloud session and weekly usage in the status bar.
+- **OpenCode Go usage** — an opencode-usage extension that shows OpenCode Go rolling, weekly, and monthly allowance usage in the status bar.
 - **Factory skills** — explicit OpenSpec stages, single-issue PR delivery, review/repair, and human-confirmed cleanup; see the [toolkit prerequisites](#factory-skill-toolkit).
 
 Extensions ship as Nix flake outputs, while prompt templates and skills install through `pi install`.
@@ -30,6 +31,7 @@ Extensions are distributed as flake outputs rather than through `pi install`:
 ```bash
 nix build .#pi-permission
 nix build .#pi-ollama-usage
+nix build .#pi-opencode-usage
 nix build .#pi-codex-alias
 nix build .#pi-notify-me
 ```
@@ -54,12 +56,13 @@ its upstream and patch tests.
 
 ### Extensions
 
-These ship only as Nix flake outputs (`pi-permission`, `pi-ollama-usage`, `pi-codex-alias`, `pi-notify-me`) and are not installed by `pi install`.
+These ship only as Nix flake outputs (`pi-permission`, `pi-ollama-usage`, `pi-opencode-usage`, `pi-codex-alias`, `pi-notify-me`) and are not installed by `pi install`.
 
 | Extension | Description |
 |-----------|-------------|
 | [Permission](./extensions/permission/index.ts) | Intercepts `bash` tool calls and applies regex-based permission rules; reports to Herdr while waiting on a prompt; opt-in session-scoped `/permission-yolo` full bypass |
 | [Ollama Usage](./extensions/ollama-usage/index.ts) | Shows Ollama Cloud session/weekly usage in the status bar; refreshes on ollama-cloud model selection and via `/ollama-usage-refresh` |
+| [OpenCode Usage](./extensions/opencode-usage/index.ts) | Shows OpenCode Go rolling/weekly/monthly allowance usage in the status bar; refreshes on opencode-go model selection and via `/opencode-usage-refresh` |
 | [Codex Alias](./extensions/codex-alias/index.ts) | Registers `openai-codex-secondary` as an independently authenticated alias of the built-in `openai-codex` provider, so two Codex accounts can share one agent directory |
 | [Notify Me](./extensions/notify-me/index.ts) | Arms a session-scoped, one-shot Discord reminder for final handback via `/notify-me <message>`; `/notify-me-cancel` clears pending work |
 
@@ -166,6 +169,16 @@ Shows Ollama Cloud session and weekly usage in the pi status bar as `ollama: 2.6
 - Switching to a non-ollama-cloud model clears the slot.
 - Reuses pi's resolved ollama-cloud provider key, so no separate configuration is needed beyond the existing ollama-cloud entry in `models.json`.
 - Failure paths are non-throwing: a failed fetch renders the dim placeholder `ollama: ? / ?`, and a missing provider key silently clears the slot.
+
+## OpenCode Usage Extension
+
+Shows OpenCode Go allowance usage in the pi status bar as `opencode-go: 3% / 1% / 0%` (rolling five-hour / weekly / monthly consumed).
+
+- Reads OpenCode Go's undocumented `GET /inference/go/v1/usage` endpoint on the inference gateway and shows the consumed integer percentage of each allowance window. The endpoint is undocumented and may change or disappear without notice; it is intentionally isolated behind the pure parser in [`parse.ts`](./extensions/opencode-usage/parse.ts).
+- Refreshes whenever an opencode-go model is selected — `/model`, Ctrl+P cycling, and session restore — and via `/opencode-usage-refresh`. There is no polling and no timer.
+- Switching to a non-opencode-go model clears the slot and discards any in-flight fetch.
+- Reuses pi's resolved opencode-go provider key, so no separate configuration is needed.
+- Failure paths are non-throwing: a failed fetch renders the dim placeholder `opencode-go: ? / ? / ?`, a window whose status is not `ok` renders `?` only for that window, and a missing provider key silently clears the slot.
 
 ## Codex Alias Extension
 

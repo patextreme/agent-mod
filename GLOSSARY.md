@@ -1,6 +1,6 @@
 # OpenSpec Automation
 
-Language for issue-to-PR automation, the implementation, verification, and finalization of approved OpenSpec changes, and the repository's test suites.
+Language for issue-to-PR automation, the implementation, verification, and finalization of approved OpenSpec changes, the repository's test suites, and its usage-reporting extensions.
 
 ## Language
 
@@ -82,3 +82,17 @@ _Avoid_: Integration test, eval gate, benchmark
 **Hermetic gate**:
 The sandboxed build that rebuilds every package and reruns every quality gate with pinned inputs.
 _Avoid_: CI pipeline, build job
+
+### Usage reporting
+
+**Usage meter**:
+A provider-reported allowance window with a consumed percentage; reset times are metadata the status slot does not display.
+_Avoid_: Balance, quota
+
+**Rolling meter**:
+The five-hour OpenCode Go allowance window that the usage API calls `rolling`.
+_Avoid_: Session, five-hour session
+
+**Status slot**:
+A named footer cell owned by one extension through `ctx.ui.setStatus`, cleared or replaced only by that extension.
+_Avoid_: Status bar, badge
