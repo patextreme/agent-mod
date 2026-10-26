@@ -5,7 +5,7 @@
  * inference-gateway meters behind the Go plan; it may change or disappear
  * without notice) and shows the consumed percentage of the rolling (five-hour),
  * weekly, and monthly allowances as a footer status slot:
- * `opencode-go: 3% / 1% / 0%` (rolling / weekly / monthly).
+ * `opencode-go: 3.0% / 1.0% / 0.0%` (rolling / weekly / monthly).
  *
  * Refreshes on `session_start` when the current model is already opencode-go,
  * on `model_select` for opencode-go, and via `/opencode-usage-refresh`.

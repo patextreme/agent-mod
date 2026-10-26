@@ -80,12 +80,12 @@ describe("parseUsage", () => {
     );
   });
 
-  it("rounds a fractional percentage to the nearest integer", () => {
+  it("rounds a fractional percentage to one decimal place", () => {
     assert.deepStrictEqual(
       parseUsage(
-        '{"usage":{"rolling":{"status":"ok","percent":3.6},"weekly":{"status":"ok","percent":0.4}}}',
+        '{"usage":{"rolling":{"status":"ok","percent":3.64},"weekly":{"status":"ok","percent":0.46}}}',
       ),
-      { rolling: 4, weekly: 0, monthly: null },
+      { rolling: 3.6, weekly: 0.5, monthly: null },
     );
   });
 
@@ -232,14 +232,21 @@ describe("formatUsage", () => {
   it("formats all three consumed percentages", () => {
     assert.strictEqual(
       formatUsage({ rolling: 3, weekly: 1, monthly: 0 }),
-      "opencode-go: 3% / 1% / 0%",
+      "opencode-go: 3.0% / 1.0% / 0.0%",
     );
   });
 
-  it("formats full consumption as 100%", () => {
+  it("keeps one decimal place for fractional values", () => {
+    assert.strictEqual(
+      formatUsage({ rolling: 3.6, weekly: 12.25, monthly: 0.4 }),
+      "opencode-go: 3.6% / 12.3% / 0.4%",
+    );
+  });
+
+  it("formats full consumption as 100.0%", () => {
     assert.strictEqual(
       formatUsage({ rolling: 100, weekly: 100, monthly: 100 }),
-      "opencode-go: 100% / 100% / 100%",
+      "opencode-go: 100.0% / 100.0% / 100.0%",
     );
   });
 
@@ -253,7 +260,7 @@ describe("formatUsage", () => {
   it("renders ? only for a partially unknown result", () => {
     assert.strictEqual(
       formatUsage({ rolling: 3, weekly: null, monthly: 0 }),
-      "opencode-go: 3% / ? / 0%",
+      "opencode-go: 3.0% / ? / 0.0%",
     );
   });
 });

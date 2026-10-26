@@ -172,9 +172,9 @@ Shows Ollama Cloud session and weekly usage in the pi status bar as `ollama: 2.6
 
 ## OpenCode Usage Extension
 
-Shows OpenCode Go allowance usage in the pi status bar as `opencode-go: 3% / 1% / 0%` (rolling five-hour / weekly / monthly consumed).
+Shows OpenCode Go allowance usage in the pi status bar as `opencode-go: 3.0% / 1.0% / 0.0%` (rolling five-hour / weekly / monthly consumed).
 
-- Reads OpenCode Go's undocumented `GET /inference/go/v1/usage` endpoint on the inference gateway and shows the consumed integer percentage of each allowance window. The endpoint is undocumented and may change or disappear without notice; it is intentionally isolated behind the pure parser in [`parse.ts`](./extensions/opencode-usage/parse.ts).
+- Reads OpenCode Go's undocumented `GET /inference/go/v1/usage` endpoint on the inference gateway and shows the consumed percentage of each allowance window with one decimal place. The endpoint is undocumented and may change or disappear without notice; it is intentionally isolated behind the pure parser in [`parse.ts`](./extensions/opencode-usage/parse.ts).
 - Refreshes whenever an opencode-go model is selected — `/model`, Ctrl+P cycling, and session restore — and via `/opencode-usage-refresh`. There is no polling and no timer.
 - Switching to a non-opencode-go model clears the slot and discards any in-flight fetch.
 - Reuses pi's resolved opencode-go provider key, so no separate configuration is needed.
