@@ -14,9 +14,10 @@ export interface Usage {
 }
 
 /**
- * Status-slot text shown in the footer, e.g. `opencode-go: 3% / 1% / 0%`
- * (rolling / weekly / monthly). Unknown windows render as `?` so a partial or
- * failed response keeps the slot visible (e.g. `opencode-go: 3% / ? / 0%`, or
+ * Status-slot text shown in the footer, e.g. `opencode-go: 3.0% / 1.0% / 0.0%`
+ * (rolling / weekly / monthly). Every known value renders with exactly one
+ * decimal place. Unknown windows render as `?` so a partial or failed response
+ * keeps the slot visible (e.g. `opencode-go: 3.0% / ? / 0.0%`, or
  * `opencode-go: ? / ? / ?` on failure).
  *
  * @internal Exported for testing only.
@@ -27,7 +28,7 @@ export function formatUsage(usage: Usage): string {
 
 function formatPercent(percent: number | null): string {
   if (percent === null) return "?";
-  return `${percent}%`;
+  return `${percent.toFixed(1)}%`;
 }
 
 /** No meter has a usable percentage. */
@@ -48,7 +49,8 @@ export function isUnknownUsage(usage: Usage): boolean {
  * Parse an OpenCode Go `GET /inference/go/v1/usage` response body (raw JSON
  * text). Each window reports its `status` and consumed `percent` (0..100, not
  * remaining); a window contributes a value only when its status is `ok` and
- * its percent is a finite number, clamped to 0..100 and rounded to an integer.
+ * its percent is a finite number, clamped to 0..100 and rounded to one decimal
+ * place.
  * Every other shape becomes null for that window so callers can treat all
  * failure modes uniformly as "unknown".
  *
@@ -92,5 +94,5 @@ function parseMeter(meter: unknown): number | null {
   };
   if (status !== "ok") return null;
   if (typeof percent !== "number" || !Number.isFinite(percent)) return null;
-  return Math.round(Math.min(100, Math.max(0, percent)));
+  return Math.round(Math.min(100, Math.max(0, percent)) * 10) / 10;
 }
