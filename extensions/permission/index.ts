@@ -120,6 +120,11 @@ export default function permissionExtension(pi: ExtensionAPI): void {
 
     // If a rule matches and it's "ask", check always-allow or prompt the user
     if (rule && rule.action === "ask") {
+      // In a sandbox, an ask rule is auto-allowed: the sandbox is the
+      // isolation boundary, so there is nothing for a prompt to protect.
+      // Deny rules above still block - only YOLO mode bypasses them.
+      if (isSandbox) return undefined;
+
       if (alwaysAllowed.has(rule.id)) {
         return undefined;
       }
@@ -153,11 +158,8 @@ export default function permissionExtension(pi: ExtensionAPI): void {
       return undefined;
     }
 
-    // No rule matches - check if we're in a sandbox
-    if (isSandbox) {
-      // In sandbox, allow by default
-      return undefined;
-    }
+    // No rule matches - in a sandbox, allow by default
+    if (isSandbox) return undefined;
 
     // Outside sandbox, ask the user
     if (!ctx.hasUI) {

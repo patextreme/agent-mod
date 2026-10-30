@@ -290,6 +290,52 @@ describe("permission blocked signal", () => {
     assert.equal(harness.selectCalls.length, 0);
   });
 
+  it("auto-allows an ask rule in a sandbox without prompting", async () => {
+    const harness = createHarness({ select: () => "No", sandbox: true });
+
+    for (const command of [
+      "git push origin main",
+      "git rebase main",
+      "gh pr merge 42",
+    ]) {
+      const result = await harness.runTool(command);
+      assert.equal(result, undefined, command);
+    }
+
+    assert.deepEqual(harness.emitted, []);
+    assert.equal(harness.selectCalls.length, 0);
+  });
+
+  it("auto-allows an ask rule in a sandbox even without UI", async () => {
+    const harness = createHarness({ hasUI: false, sandbox: true });
+
+    const result = await harness.runTool("git push origin main");
+
+    assert.equal(result, undefined);
+    assert.deepEqual(harness.emitted, []);
+  });
+
+  it("still blocks a deny rule in a sandbox", async () => {
+    PERMISSION_RULES.unshift({
+      id: -2,
+      regex: /\bblocked-cmd\b/,
+      action: "deny",
+    });
+    try {
+      const harness = createHarness({ select: () => "Yes", sandbox: true });
+
+      const result = await harness.runTool("blocked-cmd");
+
+      assert.deepEqual(result, {
+        block: true,
+        reason: "Command matches deny rule /\\bblocked-cmd\\b/: blocked-cmd",
+      });
+      assert.deepEqual(harness.emitted, []);
+    } finally {
+      PERMISSION_RULES.shift();
+    }
+  });
+
   it("does not emit when an ask rule denies immediately without UI", async () => {
     const harness = createHarness({ hasUI: false });
 

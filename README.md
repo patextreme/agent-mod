@@ -144,6 +144,8 @@ Intercepts every `bash` tool call and applies regex-based permission rules in **
 - Any other `gh ...` command — ask
 - Commands that match **no** rule: ask outside a sandbox, auto-allow when `PI_SANDBOX=true`
 
+`PI_SANDBOX=true` also auto-allows every `ask` rule (so `git push`, `git rebase`, and non-read-only `gh` commands run unprompted there), since the sandbox is the isolation boundary. `deny` rules still block; only YOLO mode bypasses them.
+
 There is no explicit `git commit` rule; commits fall through to the unmatched-command path (ask outside sandbox).
 
 **Commands:**
