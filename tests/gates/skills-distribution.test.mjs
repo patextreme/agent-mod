@@ -27,7 +27,7 @@ import {
 // text of skill documentation and examples; they do not establish live model
 // adherence or how GitHub renders collapsed details.
 const repoRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
-const factorySkills = {
+const packagedSkills = {
   "pr-review-repair": [
     "references/pseudocode.md",
     "references/report-contracts.md",
@@ -132,7 +132,7 @@ function checkInstalledSkill(installedRoot, name, references) {
   }
 }
 
-function checkFactoryNotice(skillsRoot) {
+function checkSkillNotice(skillsRoot) {
   // The migrated toolkit retains the standalone MIT notice; historical
   // provenance was retired, so no provenance document is expected.
   const licensePath = join(skillsRoot, "LICENSE");
@@ -147,8 +147,8 @@ function checkFactoryNotice(skillsRoot) {
 
 test(
   "standalone Nix skills output contains the complete MIT notice",
-  { skip: !process.env.PI_FACTORY_SKILLS_OUTPUT },
-  () => checkFactoryNotice(process.env.PI_FACTORY_SKILLS_OUTPUT),
+  { skip: !process.env.PI_SKILLS_OUTPUT },
+  () => checkSkillNotice(process.env.PI_SKILLS_OUTPUT),
 );
 
 // --- pr-review-repair report-presentation documentation contract ------
@@ -558,8 +558,8 @@ function seedDefaultSkill(dir, name) {
   );
 }
 
-test("factory skills are self-contained, packaged, and discoverable without defaults", async (t) => {
-  const tempRoot = mkdtempSync(join(tmpdir(), "pi-factory-skills-"));
+test("packaged skills are self-contained, discoverable without defaults, and ship their notice", async (t) => {
+  const tempRoot = mkdtempSync(join(tmpdir(), "pi-skills-"));
   try {
     const manifest = JSON.parse(
       readFileSync(join(repoRoot, "package.json"), "utf8"),
@@ -609,7 +609,7 @@ test("factory skills are self-contained, packaged, and discoverable without defa
     await t.test(
       "npm dry-run includes every packaged definition and bundled file",
       () => {
-        for (const [name, references] of Object.entries(factorySkills)) {
+        for (const [name, references] of Object.entries(packagedSkills)) {
           for (const path of ["SKILL.md", ...references]) {
             assert.ok(
               packedPaths.has(`skills/${name}/${path}`),
@@ -639,11 +639,11 @@ test("factory skills are self-contained, packaged, and discoverable without defa
           "not packed: skills/LICENSE",
         );
         assert.ok(!packedPaths.has("skills/FACTORY-PROVENANCE.md"));
-        checkFactoryNotice(join(installedRoot, "skills"));
+        checkSkillNotice(join(installedRoot, "skills"));
       },
     );
 
-    for (const [name, references] of Object.entries(factorySkills)) {
+    for (const [name, references] of Object.entries(packagedSkills)) {
       await t.test(
         `${name}: portable metadata and installed reference links`,
         () => {
@@ -675,7 +675,7 @@ test("factory skills are self-contained, packaged, and discoverable without defa
       });
       assert.deepEqual(diagnostics, []);
       const byName = new Map(skills.map((skill) => [skill.name, skill]));
-      for (const [name, references] of Object.entries(factorySkills)) {
+      for (const [name, references] of Object.entries(packagedSkills)) {
         const skill = byName.get(name);
         assert.ok(skill, `Pi did not discover ${name}`);
         assert.equal(
@@ -701,7 +701,7 @@ test("factory skills are self-contained, packaged, and discoverable without defa
       for (const skill of skills)
         assertWithin(installedRoot, realpathSync(skill.filePath));
       const advertised = formatSkillsForPrompt(skills);
-      for (const name of Object.keys(factorySkills)) {
+      for (const name of Object.keys(packagedSkills)) {
         assert.ok(
           advertised.includes(`<name>${name}</name>`),
           `${name} must be advertised`,

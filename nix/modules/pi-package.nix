@@ -128,12 +128,12 @@
         phases = [ "unpackPhase" "buildPhase" "installPhase" ];
         buildPhase = ''
           # Provide root node_modules for tsx and the pi SDK, then run the
-          # discovery-based gate runner. PI_FACTORY_SKILLS_OUTPUT supplies the
+          # discovery-based gate runner. PI_SKILLS_OUTPUT supplies the
           # hermetic-only tier; without it the runner self-skips that tier.
           cp -r ${rootNodeModules} node_modules
           chmod -R u+w node_modules
 
-          PI_FACTORY_SKILLS_OUTPUT=${pi-skills} node tests/run.mjs
+          PI_SKILLS_OUTPUT=${pi-skills} node tests/run.mjs
         '';
         installPhase = ''
           touch $out
