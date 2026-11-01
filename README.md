@@ -80,30 +80,24 @@ These ship only as Nix flake outputs (`pi-permission`, `pi-ollama-usage`, `pi-op
 
 ## Skill toolkit
 
-Installation exposes instructions and bundled references, not an orchestration runtime or credentials. `pr-review-repair` requires an **enhanced Pi host**; stock Pi alone is not sufficient. Read the skill and prepare its prerequisites before invocation, for example:
+`pr-review-repair` needs an **enhanced Pi host**: stock Pi alone is not sufficient, and installation exposes instructions plus bundled references, not an orchestration runtime or credentials. Read the skill and prepare these operator-managed prerequisites before invoking it:
 
 ```text
 /skill:pr-review-repair <PR-number-or-URL>
 ```
 
-### Prerequisites and retained conventions
+- **Delegation** — `Agent` and `codemode` in the main session with `general-purpose` workers. The main session runs coordination and delegates worker stages; the external `code-review` workers need nested Agent access for their two review axes.
+- **External skill** — supply `code-review` yourself; it is not bundled. Resolve its real location and pass the absolute path plus repository/worktree context to delegates, including new worktrees.
+- **Delivery access** — Git and authenticated `gh` access to PRs, issues, paginated comments/history, checks, pushes, and the required records, plus the issue tracker and access that the external `code-review` procedure requires. Configure commit signing and DCO sign-off; target-project signing policy stays controlling.
+- **Target-project policy** — project instructions and mandatory checks/delivery gates remain controlling. Re-establish head-bound gates on the final delivered/reviewed head, including a **current-head Claude gate only if the project requires it**. Incompatible conventions or missing access are blockers, not permission to relax policy.
 
-| Applies to | Operator-managed prerequisite / convention |
-|------------|--------------------------------------------|
-| Orchestrators | `Agent` and `codemode` in the main session with `general-purpose` workers. The main session executes `pr-review-repair` coordination and delegates worker stages; `code-review` workers need nested Agent access for their two review axes. |
-| Skill dependencies | Supply `code-review` externally where required; it is not bundled. Resolve its actual available-skill location and pass the absolute path plus repository/worktree context to delegates, including new worktrees. |
-| PR review / delivery | Git and authenticated `gh` access to PRs, issues, paginated comments/history, checks, pushes, and required records; configure the issue tracker and access required by the external `code-review` procedure. Configure commit signing and DCO sign-off for delivery; do not weaken target-project signing policy. |
-| Target-project policy | Project instructions and mandatory checks/delivery gates remain controlling. Re-establish head-bound gates on the final delivered/reviewed head, including a **current-head Claude gate only if the project requires it**. Incompatible conventions or missing access are blockers, not permission to relax policy. |
+### Round boundary
 
-Package installation does not install the external skills or guarantee their availability. Delivery is reusable only in repositories compatible with the retained conventions. PR review/repair invocation authorizes its qualifying edits/publication (commits, normal pushes, and verified PR history comments), not merges or a tool-permission bypass; read-only delegation is not an OS sandbox.
+A round is one fresh Standards-plus-Spec review, a separate history-aware judgment, then evidenced repair. Only evidenced material findings drive repair; verified start reservations draw on a cumulative **ten-attempt** budget across continuations, and an in-scope finding surfaced by the active attempt's own required validation may be added by a verified scope amendment without spending another attempt. Delivery, check, and history evidence must all match the reviewed head, and new intent needs user authorization.
 
-### Stage and lifecycle boundary
+Invocation authorizes those qualifying edits and publication — commits, normal pushes, and verified PR history comments — not merges or a tool-permission bypass. Package installation neither supplies the external skill nor guarantees its availability, so delivery is reusable only in repositories compatible with these conventions.
 
-- **PR review/repair:** fresh Standards and Spec axes followed by separate history-aware judgment. Only evidenced material findings drive repair; verified start reservations consume a cumulative **ten-attempt** budget across continuations. An in-scope finding discovered by the active attempt's own required validation may be added by a verified scope amendment without consuming another attempt. Delivery/check/history evidence must match the reviewed head, and new intent requires user authorization.
-
-Frontmatter, bundled-reference, package-content, and isolated discovery checks provide **static distribution assurance only**, not live operational safety, model obedience, external-prerequisite availability, or stock-Pi runtime support. They do not execute delivery or deletion.
-
-The toolkit ships the complete [MIT notice](./skills/LICENSE).
+Frontmatter, bundled-reference, package-content, and isolated discovery checks give **static distribution assurance only**: not live operational safety, model obedience, or stock-Pi runtime support, and they execute neither delivery nor deletion. The toolkit ships the complete [MIT notice](./skills/LICENSE).
 
 ## Permission Extension
 
@@ -177,7 +171,7 @@ Credentials are stored under separate `auth.json` keys (`openai-codex` and `open
 
 **Cross-provider sessions.** Pi's Responses converter keeps reasoning and tool-call ids intact only when provider, API, and model all match. `openai-codex-secondary` is not in Pi's Codex tool-call provider allowlist (`CODEX_TOOL_CALL_PROVIDERS` is `openai`, `openai-codex`, `opencode`), so switching accounts mid-conversation is treated like switching vendors: encrypted reasoning is replaced with plain text and tool-call ids are normalized consistently, keeping each `function_call` paired with its `function_call_output`. Staying on one provider preserves full fidelity. This is the documented low-risk behavior; a real request after a switch has not been sent.
 
-**Supported Pi versions.** Requires a Pi that bundles the `openai-codex` provider with OAuth (`^0.99.1` in this repo). If the provider or its OAuth flow is unavailable, the extension fails fast with a clear error instead of registering a broken provider.
+**Supported Pi versions.** Requires a Pi that bundles the `openai-codex` provider with OAuth, at or above the version in [Requirements](#requirements). If the provider or its OAuth flow is unavailable, the extension fails fast with a clear error instead of registering a broken provider.
 
 ## Notify Me Extension
 
@@ -356,11 +350,14 @@ provide neither guaranteed delivery nor exactly-once delivery. See the
 [job lifecycle tests](./extensions/notify-me/jobs.test.ts) for model/network-free
 coverage of these contracts.
 
-## Retired acpx flows
+## Retired tooling
 
-The five acpx flow entrypoints — `openspec-groom`, `openspec-implement`, `openspec-verify`, `openspec-finalize` and `openspec-all` — plus the `acpx-flow` authoring skill were removed as a breaking change. The flows are gone; this repository no longer ships or supports them.
+Two orchestration layers this package once shipped are gone, both as breaking changes with no in-repo replacement:
 
-[`pi-acp`](./nix/packages/pi-acp/README.md) above remains the supported ACP integration.
+- **acpx flows** — the five entrypoints `openspec-groom`, `openspec-implement`, `openspec-verify`, `openspec-finalize`, and `openspec-all`, plus the `acpx-flow` authoring skill.
+- **OpenSpec workflow skills** — `openspec-review`, `openspec-propose-issue`, `orc-openspec-groom`, `orc-openspec-implement`, `orc-openspec-verify`, `orc-issue-to-pr`, and `cleanup-merged-issues`, together with the OpenSpec specs, change history, and manual semantic suites that supported them.
+
+`pr-review-repair` above is the surviving skill. [`pi-acp`](./nix/packages/pi-acp/README.md) remains the supported ACP integration.
 
 ## Development
 

@@ -10,7 +10,7 @@ Act only as the orchestrator: delegate investigation, review, judgment, repair, 
 
 ## Dependencies and control
 
-Resolve `code-review` from the invoking environment; read its SKILL.md and pass its absolute path, repository/worktree, and change/store context to delegates. Missing prerequisite: pause; never invent a path or substitute a procedure.
+Resolve `code-review` from the invoking environment; read its SKILL.md and pass its absolute path, plus the repository/worktree context, to delegates. Missing prerequisite: pause; never invent a path or substitute a procedure.
 
 Read [the preparation contract](./references/prepare.md) before setup, [the pseudocode](./references/pseudocode.md) before launching agents, [Report contracts](./references/report-contracts.md) during preparation and before briefing judges or record writers, and [repair policy](./references/policy.md) before judgment or repair decisions. The pseudocode is the control-flow source of truth. Records pair a concise visible summary with a collapsed audit preserving complete reports, ledger, and evidence; concise presentation never discards internal stage outputs, which remain required for judgment, handoffs, and resumes. Use codemode for judgment-heavy coordination or SubagentWorkflow for deterministic loops.
 
