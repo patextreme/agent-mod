@@ -11,7 +11,6 @@ npm run lint           # biome lint .
 npm run check          # biome check . (lint + format check combined)
 npm run typecheck      # tsc --noEmit
 npm test              # node tests/run.mjs (discovery-based gate runner)
-npm run test:semantic # materialize manual semantic-suite fixtures (never a gate)
 nix flake check        # nix build checks (biome, tsc, node-tests, package builds)
 ```
 
@@ -41,10 +40,9 @@ nix flake check
 - `skills/` — Pi skills (`<name>/SKILL.md` with YAML frontmatter), packaged via the `pi` field and the `pi-skills` flake output
 - `tests/run.mjs` — discovery-based gate runner; the recognized roots are the whole manifest: `extensions/**/*.test.ts` plus `tests/gates/**/*.test.mjs`
 - `tests/gates/` — ownerless contract tests (no owning module), run by every gate execution
-- `tests/semantic/` — manual live-model suites; never gates, evidence never committed (see `docs/adr/0001-semantic-evidence-stays-local.md`)
 - `nix/` — Flake devshell and package build config
 
-`package.json` `"pi"` field declares only the `prompts` and `skills` directories; extensions ship exclusively as Nix flake outputs and are intentionally omitted from `pi install`. `tsconfig.json` includes `extensions/**/*.ts`. The retired acpx `flows/` runtime is gone; orchestration lives in the imported skills under `skills/`.
+`package.json` `"pi"` field declares only the `prompts` and `skills` directories; extensions ship exclusively as Nix flake outputs and are intentionally omitted from `pi install`. `tsconfig.json` includes `extensions/**/*.ts`. The retired acpx `flows/` runtime is gone; orchestration lives in the imported skill under `skills/`.
 
 ## Agent skills
 
@@ -66,8 +64,8 @@ Before exploring the codebase, read [the single-context domain-doc rules](docs/a
 - **No build step** — `tsc --noEmit` only type-checks, no output
 - **Extensions** export a default function `(pi: ExtensionAPI) => void`
 - **Every extension must have a flake output** — each directory under `extensions/` needs a `pi-<name>` package in `nix/modules/pi-package.nix`, wired into both `packages` and `checks`. Tests need no Nix entry: a co-located `extensions/<name>/<name>.test.ts` runs via the discovery-based `node-tests` check, which invokes `tests/run.mjs`.
-- **Test placement is two-rule discovery** — unit tests live beside their extension module; ownerless repository contracts live under `tests/gates/*.test.mjs`. A test file at a recognized root runs without any registration edit; nothing elsewhere runs. Semantic suites under `tests/semantic/` are manual only and never gates.
-- **Removing an extension mirrors adding one** — delete the directory and every artifact class that references it: the `pi-<name>` derivation and its `packages`/`checks` entries in `nix/modules/pi-package.nix`; any `tsconfig.json` `include`/`exclude` entry; the README extensions-table row and its `## <Name> Extension` section; and this file's Repo Layout bullet. Its co-located test disappears with the directory — discovery needs no list edit. Dependencies only that extension imported come out of `package.json`, which invalidates `package-lock.json` and the `npmDepsHash` (see the lockfile note above). If the extension carried an OpenSpec capability, retire it with a `## REMOVED Requirements` delta and `retire_capabilities: true` rather than deleting the spec by hand.
+- **Test placement is two-rule discovery** — unit tests live beside their extension module; ownerless repository contracts live under `tests/gates/*.test.mjs`. A test file at a recognized root runs without any registration edit; nothing elsewhere runs.
+- **Removing an extension mirrors adding one** — delete the directory and every artifact class that references it: the `pi-<name>` derivation and its `packages`/`checks` entries in `nix/modules/pi-package.nix`; any `tsconfig.json` `include`/`exclude` entry; the README extensions-table row and its `## <Name> Extension` section; and this file's Repo Layout bullet. Its co-located test disappears with the directory — discovery needs no list edit. Dependencies only that extension imported come out of `package.json`, which invalidates `package-lock.json` and the `npmDepsHash` (see the lockfile note above).
 - **Notify-me changes**: preserve final `agent_settled` semantics (Pi >=1.1.0), memory-only session arming, and independent dispatched jobs. Read [notify-me documentation](README.md#notify-me-extension) for configuration, privacy, and retry contracts; [SDK evidence](docs/notify-me-sdk-compatibility.md) for lifecycle/preflight ordering. Tests use temporary configuration and fake network/clocks, never personal credentials or live Discord.
 - **Prompts** use `---` YAML frontmatter with a `description` field; `$ARGUMENTS` placeholder for user input
 - **Permission extension**: rules processed in **forward order**; first match wins. Actions: `allow`, `ask`, `deny`. Registers commands `permission-list-always-allow`, `permission-reset`, and `permission-yolo`. Resets always-allowed state on `session_start`. `/permission-yolo` (bare toggle / `on` / `off`) enables a session-scoped mode that bypasses all permission checks — including `deny` rules and prompts — with a persistent status-bar warning; it is an explicit typed opt-in (no dialog) and resets on `session_start` and via `permission-reset`. A `--yolo` CLI flag (registered via `pi.registerFlag`) pins YOLO mode on for the entire process run — including headless runs (`-p`, `--mode json`) where there is no UI to prompt; the pin survives `session_start` and `/permission-reset` and cannot be turned off mid-session. While either confirmation prompt is open it emits Herdr's `herdr:blocked` event pair (`{ active: true, label }` / `{ active: false }`) so the pane reports blocked; this is a no-op outside a Herdr TUI session. The extension plays no audio.

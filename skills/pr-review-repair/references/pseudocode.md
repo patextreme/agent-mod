@@ -4,8 +4,8 @@ Use this loop as the control-flow source of truth. `SKILL.md` defines preparatio
 
 ```text
 contract = PREPARE requested PR; load paginated history and report contracts;
-          load archived change artifacts and relevant main specs when the invocation
-          supplies them after finalization (requirements evidence beside the issue)
+          load the originating issue/spec when the invocation supplies it
+          (requirements evidence)
 IF preparation is blocked:
   PAUSE with exact required input
 IF an authorized attempt is incomplete:
@@ -46,10 +46,6 @@ LOOP:
   IF reservation is unverified: ESCALATE before edits
   INCREMENT repairs used
   repair = REPAIR authorized findings and run checks
-           (when the change is archived: keep it archived; behavior-changing repairs
-           check code, archived artifacts, and main specs together, update affected
-           documents, and rerun affected validation; code-only corrections never
-           reopen, rearchive, or rerun the lifecycle)
   VALIDATE actual changes independently and complete required checks
   IF an in-scope repair-worthy finding discovered by this attempt's own required validation
      can be added:

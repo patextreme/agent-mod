@@ -23,40 +23,23 @@ import {
 
 // Model-free checks only: packaging/distribution/discovery plus documented
 // report-presentation contracts. No sessions, model calls, workflow dispatch,
-// GitHub access, signing, or cleanup execution. The contract tests assert the
+// GitHub access, or signing. The contract tests assert the
 // text of skill documentation and examples; they do not establish live model
 // adherence or how GitHub renders collapsed details.
 const repoRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 const factorySkills = {
-  "orc-openspec-groom": ["references/pseudocode.md"],
-  "orc-openspec-implement": ["references/pseudocode.md"],
-  "orc-openspec-verify": ["references/pseudocode.md"],
   "pr-review-repair": [
     "references/pseudocode.md",
     "references/report-contracts.md",
     "references/policy.md",
     "references/prepare.md",
   ],
-  "orc-issue-to-pr": [
-    "references/pseudocode.md",
-    "references/finalization.md",
-    "references/finalization-receipts.md",
-  ],
-  "cleanup-merged-issues": [],
-  "openspec-propose-issue": [],
 };
-const humanOnlySkills = new Set([
-  "cleanup-merged-issues",
-  "openspec-propose-issue",
-]);
+const humanOnlySkills = new Set();
 const externalSkills = [
   "code-review",
-  "openspec-apply-change",
-  "openspec-verify-change",
-  "openspec-update-change",
-  "openspec-propose",
-  "openspec-sync-specs",
-  "openspec-archive-change",
+  "code-review-project",
+  "code-review-agents",
 ];
 
 function assertWithin(root, path) {
@@ -189,10 +172,6 @@ const repairPolicy = readFileSync(
 );
 const preparationContract = readFileSync(
   join(repoRoot, "skills/pr-review-repair/references/prepare.md"),
-  "utf8",
-);
-const issueToPrSkill = readFileSync(
-  join(repoRoot, "skills/orc-issue-to-pr/SKILL.md"),
   "utf8",
 );
 
@@ -570,17 +549,6 @@ test("skills keep concise user responses with complete internal handoffs", () =>
     prReviewPseudocode.includes("concise escalation summary"),
     "escalation reporting must be concise",
   );
-  assert.ok(
-    issueToPrSkill.includes("complete final orchestration report") &&
-      issueToPrSkill.includes(
-        "does not replace this internal handoff evidence",
-      ),
-    "caller must retain complete internal review handoff evidence",
-  );
-  assert.ok(
-    issueToPrSkill.includes("verified PR record link"),
-    "caller finish report must link the verified PR record",
-  );
 });
 
 function seedDefaultSkill(dir, name) {
@@ -676,79 +644,6 @@ test("factory skills are self-contained, packaged, and discoverable without defa
       },
     );
 
-    await t.test(
-      "finalization contract text covers the required scenarios without execution",
-      () => {
-        const read = (...parts) =>
-          readFileSync(join(installedRoot, "skills", ...parts), "utf8");
-        const routeSkill = read("orc-issue-to-pr", "SKILL.md");
-        const routePseudocode = read(
-          "orc-issue-to-pr",
-          "references",
-          "pseudocode.md",
-        );
-        const finalization = read(
-          "orc-issue-to-pr",
-          "references",
-          "finalization.md",
-        );
-        const receipts = read(
-          "orc-issue-to-pr",
-          "references",
-          "finalization-receipts.md",
-        );
-        const reviewSkill = read("pr-review-repair", "SKILL.md");
-        const reviewPseudocode = read(
-          "pr-review-repair",
-          "references",
-          "pseudocode.md",
-        );
-
-        // Successful finalization: delegated built-in procedure, accepted
-        // post-sync comparison, confirmed archival gating delivery.
-        assert.match(routeSkill, /openspec-archive-change/);
-        assert.match(routeSkill, /openspec-sync-specs/);
-        assert.match(routeSkill, /post-sync comparison/);
-        assert.match(routeSkill, /Confirm actual archival/);
-        assert.match(
-          finalization,
-          /No separate finalizer skill and no fresh independent sync assessor/,
-        );
-        assert.match(routePseudocode, /CONFIRM actual archival/);
-        assert.match(routePseudocode, /DO NOT dispatch delivery/);
-
-        // No-delta changes archive without synchronization.
-        assert.match(routeSkill, /no-delta path/);
-        assert.match(finalization, /no-delta path/);
-        assert.match(routePseudocode, /no-delta path/);
-
-        // Rejected synchronization and archive failures pause with preserved work.
-        assert.match(finalization, /synchronization conflicts/);
-        assert.match(
-          finalization,
-          /Archive failure after completed synchronization preserves/,
-        );
-        assert.match(routePseudocode, /sync conflict/);
-        assert.match(routePseudocode, /preserve safe work and receipts/);
-
-        // Resume reconciles already-finalized, partial sync/archive, and
-        // partially completed delivery without duplicate moves or replay.
-        assert.match(receipts, /Already-finalized change/);
-        assert.match(receipts, /Partial synchronization/);
-        assert.match(receipts, /Partial archival/);
-        assert.match(receipts, /Partially completed delivery/);
-        assert.match(receipts, /duplicate archive/);
-        assert.match(routePseudocode, /without moving it again/);
-
-        // Post-archive PR repairs keep archived intent under authorization.
-        assert.match(reviewSkill, /archived-intent rules/);
-        assert.match(reviewSkill, /keep the change archived/);
-        assert.match(reviewSkill, /require user authorization/);
-        assert.match(reviewPseudocode, /archived artifacts/);
-        assert.match(reviewPseudocode, /ESCALATE for user authorization/);
-      },
-    );
-
     for (const [name, references] of Object.entries(factorySkills)) {
       await t.test(
         `${name}: portable metadata and installed reference links`,
@@ -758,70 +653,60 @@ test("factory skills are self-contained, packaged, and discoverable without defa
       );
     }
 
-    await t.test(
-      "Pi SDK loads only explicit installed skills, including human-only skills",
-      () => {
-        const cwd = join(tempRoot, "project");
-        const agentDir = join(tempRoot, "agent");
-        mkdirSync(cwd, { recursive: true });
-        mkdirSync(agentDir, { recursive: true });
-        // Deliberately valid defaults: excluding them must not depend on an
-        // empty machine, the user's home, or this repository's .pi directory.
-        seedDefaultSkill(join(agentDir, "skills"), "code-review");
-        seedDefaultSkill(join(cwd, ".pi", "skills"), "openspec-verify-change");
-        seedDefaultSkill(
-          join(cwd, ".agents", "skills"),
-          "openspec-apply-change",
+    await t.test("Pi SDK loads only explicit installed skills", () => {
+      const cwd = join(tempRoot, "project");
+      const agentDir = join(tempRoot, "agent");
+      mkdirSync(cwd, { recursive: true });
+      mkdirSync(agentDir, { recursive: true });
+      // Deliberately valid defaults: excluding them must not depend on an
+      // empty machine, the user's home, or this repository's .pi directory.
+      seedDefaultSkill(join(agentDir, "skills"), "code-review");
+      seedDefaultSkill(join(cwd, ".pi", "skills"), "code-review-project");
+      seedDefaultSkill(join(cwd, ".agents", "skills"), "code-review-agents");
+      const installedManifest = JSON.parse(
+        readFileSync(join(installedRoot, "package.json"), "utf8"),
+      );
+      const { skills, diagnostics } = loadSkills({
+        cwd,
+        agentDir,
+        skillPaths: installedManifest.pi.skills.map((path) =>
+          resolve(installedRoot, path),
+        ),
+        includeDefaults: false,
+      });
+      assert.deepEqual(diagnostics, []);
+      const byName = new Map(skills.map((skill) => [skill.name, skill]));
+      for (const [name, references] of Object.entries(factorySkills)) {
+        const skill = byName.get(name);
+        assert.ok(skill, `Pi did not discover ${name}`);
+        assert.equal(
+          skill.filePath,
+          join(installedRoot, "skills", name, "SKILL.md"),
         );
-        const installedManifest = JSON.parse(
-          readFileSync(join(installedRoot, "package.json"), "utf8"),
-        );
-        const { skills, diagnostics } = loadSkills({
-          cwd,
-          agentDir,
-          skillPaths: installedManifest.pi.skills.map((path) =>
-            resolve(installedRoot, path),
-          ),
-          includeDefaults: false,
-        });
-        assert.deepEqual(diagnostics, []);
-        const byName = new Map(skills.map((skill) => [skill.name, skill]));
-        for (const [name, references] of Object.entries(factorySkills)) {
-          const skill = byName.get(name);
-          assert.ok(skill, `Pi did not discover ${name}`);
-          assert.equal(
-            skill.filePath,
-            join(installedRoot, "skills", name, "SKILL.md"),
-          );
-          assert.equal(skill.baseDir, dirname(skill.filePath));
-          assertWithin(installedRoot, realpathSync(skill.filePath));
-          assert.equal(skill.disableModelInvocation, humanOnlySkills.has(name));
-          for (const reference of references) {
-            assert.ok(lstatSync(join(skill.baseDir, reference)).isFile());
-          }
+        assert.equal(skill.baseDir, dirname(skill.filePath));
+        assertWithin(installedRoot, realpathSync(skill.filePath));
+        assert.equal(skill.disableModelInvocation, humanOnlySkills.has(name));
+        for (const reference of references) {
+          assert.ok(lstatSync(join(skill.baseDir, reference)).isFile());
         }
+      }
+      for (const name of externalSkills) {
         assert.ok(
-          byName.has("openspec-review"),
-          "package-supplied review must remain available",
+          !byName.has(name),
+          `external/default skill unexpectedly loaded: ${name}`,
         );
-        for (const name of externalSkills) {
-          assert.ok(
-            !byName.has(name),
-            `external/default skill unexpectedly loaded: ${name}`,
-          );
-        }
-        for (const skill of skills)
-          assertWithin(installedRoot, realpathSync(skill.filePath));
-        const advertised = formatSkillsForPrompt(skills);
-        for (const name of Object.keys(factorySkills)) {
-          assert.equal(
-            advertised.includes(`<name>${name}</name>`),
-            !humanOnlySkills.has(name),
-            `${name} advertisement must match its human-only status`,
-          );
-        }
-      },
-    );
+      }
+      for (const skill of skills)
+        assertWithin(installedRoot, realpathSync(skill.filePath));
+      const advertised = formatSkillsForPrompt(skills);
+      for (const name of Object.keys(factorySkills)) {
+        assert.equal(
+          advertised.includes(`<name>${name}</name>`),
+          !humanOnlySkills.has(name),
+          `${name} advertisement must match its human-only status`,
+        );
+      }
+    });
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }

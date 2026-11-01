@@ -2,8 +2,7 @@
 // Unit tests stay co-located with their extension modules; ownerless contract
 // tests live under tests/gates/. A test file at a recognized location runs in
 // every gate execution without any registration edit, and nothing outside the
-// roots executes (openspec/changes/unify-test-harness, design D1/D2). Named
-// run.mjs so the discovery globs never self-match.
+// roots executes. Named run.mjs so the discovery globs never self-match.
 import { spawnSync } from "node:child_process";
 import { readdirSync } from "node:fs";
 import { dirname, join, relative } from "node:path";

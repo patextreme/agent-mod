@@ -1,6 +1,7 @@
 node_modules/
 dist/
 result
+result-*
 
 # bv (beads viewer) local config and caches
 .bv/
