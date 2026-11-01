@@ -35,7 +35,6 @@ const factorySkills = {
     "references/prepare.md",
   ],
 };
-const humanOnlySkills = new Set();
 const externalSkills = [
   "code-review",
   "code-review-project",
@@ -96,9 +95,9 @@ function checkInstalledSkill(installedRoot, name, references) {
       `${name}: ${field} exceeds ${maxLength} characters`,
     );
   }
-  assert.equal(
-    frontmatter["disable-model-invocation"] === true,
-    humanOnlySkills.has(name),
+  assert.ok(
+    !frontmatter["disable-model-invocation"],
+    `${name} must stay model-invocable`,
   );
 
   for (const reference of references) {
@@ -685,7 +684,10 @@ test("factory skills are self-contained, packaged, and discoverable without defa
         );
         assert.equal(skill.baseDir, dirname(skill.filePath));
         assertWithin(installedRoot, realpathSync(skill.filePath));
-        assert.equal(skill.disableModelInvocation, humanOnlySkills.has(name));
+        assert.ok(
+          !skill.disableModelInvocation,
+          `${name} must stay model-invocable`,
+        );
         for (const reference of references) {
           assert.ok(lstatSync(join(skill.baseDir, reference)).isFile());
         }
@@ -700,10 +702,9 @@ test("factory skills are self-contained, packaged, and discoverable without defa
         assertWithin(installedRoot, realpathSync(skill.filePath));
       const advertised = formatSkillsForPrompt(skills);
       for (const name of Object.keys(factorySkills)) {
-        assert.equal(
+        assert.ok(
           advertised.includes(`<name>${name}</name>`),
-          !humanOnlySkills.has(name),
-          `${name} advertisement must match its human-only status`,
+          `${name} must be advertised`,
         );
       }
     });
