@@ -44,19 +44,9 @@ Separate requested requirements from discussion and follow-up suggestions.
 ## Spec sources for code review
 
 An originating GitHub issue is evidence when one exists, not a prerequisite for
-every change. Use the user-selected spec and repository OpenSpec artifacts when
-applicable; ask for a source if none is identifiable. Preserve unrelated or
-future issue references as context, not additional implementation requirements.
-
-For `migrate-factory-skills`, the originating specification is
-`openspec/changes/archive/2026-10-07-migrate-factory-skills/` (proposal, design,
-capability deltas, and tasks), with synced main specs in `openspec/specs/` for
-`factory-skill-distribution`, `openspec-skill-orchestration`,
-`pr-review-repair-orchestration`, `issue-to-pr-orchestration`, and
-`merged-issue-cleanup`. The prompt removals in commit `e3c8e4261af9a7f5903e5a83e90d4bc14ff760d0`
-were separately authorized; test concurrency and this tracker setup are
-separately authorized delivery prerequisites. References to #47/#48 are
-follow-up scope, not requirements to implement in the migration.
+every change. Use the user-selected spec or issue when applicable; ask for a
+source if none is identifiable. Preserve unrelated or future issue references
+as context, not additional implementation requirements.
 
 ## Authorized issue operations
 

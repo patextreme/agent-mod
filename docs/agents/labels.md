@@ -26,9 +26,6 @@ When a skill names a canonical triage role, use its mapped GitHub label.
 | `help wanted` | Extra attention is needed |
 | `invalid` | Report does not appear valid |
 | `question` | Further information is requested |
-| `openspec` | Routes work through OpenSpec orchestration skills |
 
 `question` is an existing classification label; `needs-info` specifically
 indicates that triage is waiting on reporter information.
-
-The `openspec` routing label is independent of implementation readiness.

@@ -26,7 +26,6 @@
     "lint": "biome lint .",
     "check": "biome check .",
     "typecheck": "tsc --noEmit",
-    "test": "node tests/run.mjs",
-    "test:semantic": "node tests/semantic/openspec-review/materialize.mjs"
+    "test": "node tests/run.mjs"
   }
 }

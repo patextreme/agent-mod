@@ -103,7 +103,7 @@ Repair-start/scope-amendment/summary/escalation links and all mandatory bookkeep
 
 Standards and Spec reviews covered the full PR diff at `f0df981`. **No findings or unresolved investigations.**
 
-**Validation:** 525 tests passed, 1 skipped; format, lint, typecheck, and OpenSpec checks passed. Nix acceptance used cached results matched to the reviewed source—not a fresh run.
+**Validation:** 525 tests passed, 1 skipped; format, lint, and typecheck passed. Nix acceptance used cached results matched to the reviewed source—not a fresh run.
 
 **Scope:** migration distribution validation only; live workflows and cleanup/deletion were not exercised.
 
