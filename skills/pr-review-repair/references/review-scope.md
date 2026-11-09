@@ -1,32 +1,38 @@
 # Review scope and evidence reuse
 
-Use this contract when selecting a review scope, briefing reviewers, accepting coverage, or resuming. [The pseudocode](./pseudocode.md) owns transitions; this file owns coverage eligibility and invalidation.
+Read before selecting/resuming coverage, briefing reviewers, or reusing evidence. [Control flow](./pseudocode.md) owns transitions; this contract owns scope, eligibility, and reuse.
 
-## Full and delta reviews
+## Reviewer brief
 
-- **Full:** review the entire PR diff from the pinned merge-base to the current head, including all repairs. Start with a full review. A clean full review/judgment at the unchanged current head is the final review too; an initially clean PR needs only one review.
-- **Delta:** after delivery, review changes from the last accepted reviewed SHA to the current head, plus affected surrounding code, callers, dependencies, tests, and contracts. Expand scope until the impact is bounded; changed lines alone are insufficient. Keep the last full-review SHA separately from the last reviewed SHA.
-- **Final:** after a clean delta review/judgment, run a fresh full review/judgment at that same head before finishing. A final full review that finds repair-worthy issues returns to repair, then delta review, then another final full review. After attempt ten, go directly to the final full review/judgment; it can establish success or escalation, never authorize attempt eleven.
+Use fresh, read-only, history-free reviewers for both full and delta reviews, with parallel Standards and Spec axes. Supply only PR/worktree identity, project instructions, absolute `code-review` path, clean requirements/standards sources, pinned refs, explicit scope/range, and current head. Exclude prior reports, judgments, repair rationale/summaries, and history comments from the review delegate and both axis prompts. The separate judge owns prior-finding reconciliation.
 
-Both scopes use parallel Standards and Spec axes and fresh, read-only, history-free reviewers. Supply identity, instructions, clean source material, pinned refs, explicit scope/range, and current head. The final reviewers receive no earlier reports or repair rationale. The history-aware judge separately reconciles every prior actionable ID against current code/checks, including IDs outside the delta. A clean delta establishes only incremental coverage, never whole-PR verification.
+- **Full:** inspect the entire PR diff from the pinned merge-base to current head, including repairs. Retain `code-review`'s full PR comparison.
+- **Delta:** inspect the last accepted reviewed SHA to current head, plus affected surrounding code, callers, dependencies, tests, and contracts. Bound impact rather than stopping at changed lines. Assess requirements within that impact rather than treating unchanged PR work as missing.
 
-For a delta, tell the `code-review` delegate explicitly to replace its usual fixed-point/three-dot diff with `git diff <last-reviewed-sha> <current-head> --` and `git log <last-reviewed-sha>..<current-head> --oneline`. Verify ancestry first; pin both SHAs rather than using a moving `HEAD`. Retain its two-axis method and required sources, but assess existing requirements within the delta's impact rather than treating unchanged PR work as missing. For a full review, retain the full PR comparison against the pinned base/merge-base. Report complete axis outputs and any expanded scope or uncertainty.
+For delta mode, replace `code-review`'s fixed-point/three-dot diff with these pinned commands; verify ancestry first:
 
-## Eligibility and invalidation
+```bash
+git diff <last-reviewed-sha> <current-head> --
+git log <last-reviewed-sha>..<current-head> --oneline
+```
 
-Accept a delta only when all of these are evidenced:
+Retain its two-axis method and required sources. Return complete reports with scope expansions and uncertainties. A clean delta is incremental coverage, not whole-PR verification.
 
-- A complete full review/judgment and the intervening accepted review/judgment chain are recoverable with their exact SHAs, ranges, sources, and reports.
-- The last reviewed SHA is an ancestor of the current head, and all intervening changes belong to verified, authorized repair deliveries in this run.
-- PR identity, pinned base/merge-base, requirements, standards, project instructions, and required-check definitions are unchanged.
-- Repair impact can be confidently bounded by inspecting affected code and contracts.
+## Delta eligibility
 
-Missing coverage evidence, an unexpected commit, changed review inputs, rewritten history, or unbounded/cross-cutting impact invalidates incremental coverage. Reconcile unexpected state under the shared guards first; then select a full review under the accepted current contract, without resetting the ledger or repair budget. If a delta reviewer cannot bound impact, mark the delta insufficient and widen to a full review before accepting judgment or authorizing another repair. An actual unresolved requirement or risk still requires investigation or escalation; widening is not a substitute for resolving uncertainty.
+Require evidence for every condition:
 
-On resume, recover and verify coverage from PR audit records after reconciling unfinished operations. Older records lacking scope/chain evidence require a full review, not an inferred delta baseline. A review becomes an accepted baseline only after complete reports and judgment are accepted; a delivered repair alone never advances the reviewed SHA.
+- Complete full review/judgment and the intervening accepted review/judgment chain, recoverable with exact SHAs, ranges, sources, and reports.
+- Last reviewed SHA is an ancestor of current head; all intervening changes belong to verified, authorized repair deliveries in this run.
+- Unchanged PR identity, pinned base/merge-base, requirements, standards, project instructions, and required-check definitions.
+- Confidently bounded repair impact, established by inspecting affected code/contracts.
 
-## Reuse without skipping guards
+Missing evidence, unexpected commits, changed inputs, rewritten history, or unbounded/cross-cutting impact invalidates delta eligibility. Reconcile unexpected state under the shared guards first; then use full review under the accepted contract, preserving the ledger and budget. If a delta reviewer cannot bound impact, mark scope insufficient and widen to full review before judgment or repair authorization. Investigate/escalate unresolved requirements and risks; widening alone does not resolve them.
 
-Reuse resolved preparation results (source locations/content fingerprints, pinned refs, check definitions) while their inputs remain unchanged. Recheck git/PR state and refresh relevant history at stage boundaries; revalidate source discovery and fingerprints, including added or removed requirements/standards files. Refresh preparation when inputs change. Reuse is not permission for a reviewer to skip a required source.
+On resume, recover coverage from verified PR audit records after reconciling unfinished operations. Older records lacking scope/chain evidence require full review. Accept a baseline only after complete reports and judgment; delivery alone never advances the reviewed SHA. Track last full-review and last accepted reviewed SHAs separately.
 
-Check evidence may be reused only when it is demonstrably valid for the exact current source, configuration, dependencies, and relevant environment required by that check. Record its original SHA, command, result, inputs, and acceptance rationale. A changed head is not automatically eligible: rerun affected checks and every required check without demonstrably matching evidence. In particular, delta review never replaces required quality gates. At an unchanged head, a final full review may reuse valid check evidence from the delta pass, while performing a new independent code review.
+## Evidence reuse
+
+Reuse preparation results (source locations/content fingerprints, pinned refs, check definitions) only while inputs match. At stage boundaries, recheck git/PR state, refresh relevant history, and revalidate source discovery/fingerprints, including added or removed requirements/standards files. Refresh changed preparation inputs. Every reviewer still reads required sources.
+
+Reuse check evidence only for matching source, configuration, dependencies, and relevant environment required by that check. Record the original SHA, command, result, inputs, and acceptance rationale. Rerun affected checks and every required check without matching evidence; delta review preserves all required quality gates. A final full review at an unchanged head may reuse valid check evidence, but performs a new independent code review.

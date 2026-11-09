@@ -22,8 +22,8 @@ import {
 } from "@earendil-works/pi-coding-agent";
 
 // Model-free checks only: packaging/distribution/discovery plus documented
-// report-presentation and review-scope contracts. No sessions, model calls, workflow dispatch,
-// GitHub access, or signing. The contract tests assert the
+// report-presentation and review-scope contracts. No sessions, model calls,
+// workflow dispatch, GitHub access, or signing. The contract tests assert the
 // text of skill documentation and examples; they do not establish live model
 // adherence or how GitHub renders collapsed details.
 const repoRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
@@ -443,9 +443,8 @@ test("in-attempt scope amendments keep their reservation and stay out of human-i
     );
   }
   assert.ok(
-    prReviewSkill.includes("In-attempt scope amendments") &&
-      prReviewSkill.includes("The attempt count stays unchanged"),
-    "skill must define an in-attempt amendment that keeps the attempt count",
+    repairPolicy.includes("The attempt count stays unchanged"),
+    "repair policy must keep amendments within the active reservation",
   );
   for (const boundary of [
     "no new requirements",
@@ -454,7 +453,7 @@ test("in-attempt scope amendments keep their reservation and stay out of human-i
     "security/custody policy",
     "consequential design or architecture change",
     "is not high-risk",
-    "accounting is unambiguous",
+    "Accounting is unambiguous",
   ]) {
     assert.ok(
       repairPolicy.includes(boundary),
@@ -462,24 +461,27 @@ test("in-attempt scope amendments keep their reservation and stay out of human-i
     );
   }
   assert.ok(
-    prReviewSkill.includes(
+    repairPolicy.includes(
       "consequential design, architecture or public-contract changes",
     ),
-    "human-decision list must include consequential architecture changes",
+    "repair policy must require input for consequential architecture changes",
   );
   assert.ok(
-    reportContracts.includes("architecture") &&
-      reportContracts.includes("security/custody policy change"),
-    "escalation trigger must include architecture and security/custody policy changes",
+    repairPolicy.includes("security/custody policy changes"),
+    "repair policy must require input for security/custody policy changes",
   );
   assert.ok(
-    prReviewSkill.includes("security/custody policy"),
-    "human-decision list must include security/custody policy changes",
+    prReviewSkill.includes("amendments, or human-input decisions") &&
+      prReviewSkill.includes("[Repair policy](./references/policy.md)"),
+    "skill must load repair policy for amendment and human-input decisions",
   );
   assert.ok(
-    prReviewSkill.includes("fails the in-attempt amendment conditions") &&
-      reportContracts.includes("fails the in-attempt amendment conditions"),
-    "human-input branches must cover corrections that fail the amendment conditions",
+    repairPolicy.includes("fails the in-attempt amendment conditions") &&
+      reportContracts.includes(
+        "Escalate ineligible or unresolved amendments",
+      ) &&
+      reportContracts.includes("[repair policy](./policy.md)"),
+    "records must defer ineligible amendments to the policy's human-input rules",
   );
   assert.ok(
     prReviewPseudocode.includes("SCOPE-AMENDMENT") &&
@@ -488,11 +490,8 @@ test("in-attempt scope amendments keep their reservation and stay out of human-i
   );
   assert.ok(
     prReviewPseudocode.includes(
-      "DO NOT escalate a mechanical scope amendment",
-    ) &&
-      prReviewSkill.includes(
-        "Do not pause for a mechanical in-scope scope amendment",
-      ),
+      "eligible amendments are orchestrator-owned work, not human-input branches",
+    ) && repairPolicy.includes("Record eligible amendments and continue"),
     "orchestrator-owned amendments must not become human-input branches",
   );
   assert.ok(
@@ -516,7 +515,7 @@ test("in-attempt scope amendments keep their reservation and stay out of human-i
 
 test("skills keep concise user responses with complete internal handoffs", () => {
   assert.ok(
-    prReviewSkill.includes("never discards internal stage outputs"),
+    prReviewSkill.includes("Preserve complete stage outputs"),
     "pr-review skill must retain complete stage outputs",
   );
   assert.ok(
@@ -533,10 +532,10 @@ test("skills keep concise user responses with complete internal handoffs", () =>
     "callers must still receive complete orchestration evidence",
   );
   assert.ok(
-    !prReviewSkill.includes(
-      "Return the final user report from Report contracts with counts, ledger",
+    reportContracts.includes(
+      "Keep the full reports/ledger in PR history and the internal handoff",
     ),
-    "skill must no longer return the full ledger to the user",
+    "complete reports must stay in durable history and internal handoffs",
   );
   assert.ok(
     prReviewPseudocode.includes("visible summary plus collapsed audit layers"),
@@ -561,17 +560,18 @@ test("skills keep concise user responses with complete internal handoffs", () =>
 test("repair loop requires full boundary reviews and impact-aware deltas", () => {
   assert.ok(prReviewSkill.includes("./references/review-scope.md"));
   for (const requirement of [
-    "Start with a full review",
-    "an initially clean PR needs only one review",
     "callers, dependencies, tests, and contracts",
-    "changed lines alone are insufficient",
+    "Bound impact rather than stopping at changed lines",
     "fresh, read-only, history-free reviewers",
-    "judge separately reconciles every prior actionable ID",
-    "never whole-PR verification",
+    "Supply only PR/worktree identity",
+    "Exclude prior reports, judgments, repair rationale/summaries, and history comments",
+    "from the review delegate and both axis prompts",
+    "separate judge owns prior-finding reconciliation",
+    "not whole-PR verification",
     "git diff <last-reviewed-sha> <current-head> --",
     "git log <last-reviewed-sha>..<current-head> --oneline",
-    "Verify ancestry first",
-    "replace its usual fixed-point/three-dot diff",
+    "verify ancestry first",
+    "replace `code-review`'s fixed-point/three-dot diff",
     "rather than treating unchanged PR work as missing",
   ]) {
     assert.ok(reviewScope.includes(requirement), requirement);
@@ -585,9 +585,13 @@ test("repair loop requires full boundary reviews and impact-aware deltas", () =>
     /IF DELTA impact cannot be bounded:[\s\S]*?CONTINUE without accepting coverage/,
   );
   assert.ok(
-    prReviewPseudocode.includes(
-      "final full review with repair-worthy findings",
-    ) && prReviewPseudocode.includes("another final full review"),
+    prReviewPseudocode.includes("mode = FULL\nIF resuming") &&
+      prReviewPseudocode.includes(
+        "A clean initial full review can finish directly",
+      ) &&
+      prReviewPseudocode.includes(
+        "including final review, fall through to repair",
+      ),
   );
   assert.doesNotMatch(prReviewPseudocode, /review = REVIEW full PR diff/);
 });
@@ -596,59 +600,62 @@ test("delta coverage invalidates safely and survives only evidenced resumes", ()
   for (const requirement of [
     "intervening accepted review/judgment chain",
     "all intervening changes belong to verified, authorized repair deliveries",
-    "requirements, standards, project instructions, and required-check definitions are unchanged",
-    "unexpected commit",
+    "Unchanged PR identity, pinned base/merge-base, requirements, standards, project instructions, and required-check definitions",
+    "unexpected commits",
     "rewritten history",
     "unbounded/cross-cutting impact",
     "Reconcile unexpected state under the shared guards first",
-    "Older records lacking scope/chain evidence require a full review",
-    "delivered repair alone never advances the reviewed SHA",
-    "without resetting the ledger or repair budget",
+    "Older records lacking scope/chain evidence require full review",
+    "delivery alone never advances the reviewed SHA",
+    "preserving the ledger and budget",
     "including added or removed requirements/standards files",
-    "Reuse is not permission for a reviewer to skip a required source",
+    "Every reviewer still reads required sources",
   ]) {
     assert.ok(reviewScope.includes(requirement), requirement);
   }
   assert.ok(
-    preparationContract.includes("absent or unverifiable coverage history"),
+    preparationContract.includes("coverage recovery") &&
+      preparationContract.includes("[review scope](./review-scope.md)"),
   );
   assert.ok(prReviewPseudocode.includes("revalidate review inputs"));
 });
 
 test("incremental reviews preserve checks, reservations, and the final attempt limit", () => {
   assert.ok(
-    reviewScope.includes("delta review never replaces required quality gates"),
+    reviewScope.includes("delta review preserves all required quality gates"),
   );
   assert.ok(
     reviewScope.includes(
-      "exact current source, configuration, dependencies, and relevant environment",
+      "matching source, configuration, dependencies, and relevant environment",
     ),
   );
   assert.ok(
     reviewScope.includes(
-      "rerun affected checks and every required check without demonstrably matching evidence",
+      "Rerun affected checks and every required check without matching evidence",
     ),
   );
   assert.ok(
     repairPolicy.includes(
-      "post-delivery delta review is not the active attempt's validation",
+      "Findings from fresh full/delta review or judgment start the next repair cycle",
     ),
   );
   assert.ok(
-    repairPolicy.includes("cannot retroactively amend its reservation"),
+    repairPolicy.includes(
+      "post-delivery delta review cannot retroactively amend a reservation",
+    ),
   );
   assert.ok(prReviewPseudocode.includes("repairs used < 10, otherwise FULL"));
   assert.ok(
-    reviewScope.includes(
-      "After attempt ten, go directly to the final full review/judgment",
+    prReviewPseudocode.includes(
+      "After attempt ten that branch selects full review: success or escalation, never repair eleven",
     ),
   );
-  assert.ok(prReviewPseudocode.includes("never authorize repair eleven"));
   assert.ok(
     prReviewSkill.includes(
-      "an initially clean full review already satisfies the final-review requirement",
+      "Each verified repair-start reserves one of ten attempts",
     ),
   );
+  assert.ok(prReviewSkill.includes("complete full review/judgment"));
 });
 
 test("reports expose incremental scope and preserve the accepted coverage chain", () => {
@@ -659,8 +666,7 @@ test("reports expose incremental scope and preserve the accepted coverage chain"
     "input fingerprints",
     "invalidation/fallback reason",
     "final-full-review status",
-    "it never replaces the earlier complete full reports",
-    "cannot authorize incremental coverage",
+    "Include earlier complete reports by durable link rather than replacing them with the delta report",
     "A clean delta alone is in progress, not a final decision",
   ]) {
     assert.ok(reportContracts.includes(requirement), requirement);
