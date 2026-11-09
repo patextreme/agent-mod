@@ -22,7 +22,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 
 // Model-free checks only: packaging/distribution/discovery plus documented
-// report-presentation contracts. No sessions, model calls, workflow dispatch,
+// report-presentation and review-scope contracts. No sessions, model calls, workflow dispatch,
 // GitHub access, or signing. The contract tests assert the
 // text of skill documentation and examples; they do not establish live model
 // adherence or how GitHub renders collapsed details.
@@ -33,6 +33,7 @@ const packagedSkills = {
     "references/report-contracts.md",
     "references/policy.md",
     "references/prepare.md",
+    "references/review-scope.md",
   ],
 };
 const externalSkills = [
@@ -174,6 +175,11 @@ const preparationContract = readFileSync(
   "utf8",
 );
 
+const reviewScope = readFileSync(
+  join(repoRoot, "skills/pr-review-repair/references/review-scope.md"),
+  "utf8",
+);
+
 function recordExample(name) {
   const heading = `### Example: ${name}`;
   const start = reportContracts.indexOf(heading);
@@ -222,6 +228,7 @@ const auditPreservations = [
 for (const [name, kind] of [
   ["clean round", "summary"],
   ["repaired round", "summary"],
+  ["incremental round", "summary"],
   ["escalated round", "escalation"],
 ]) {
   test(`${name} example preserves identity, audit, and bookkeeping`, () => {
@@ -547,6 +554,132 @@ test("skills keep concise user responses with complete internal handoffs", () =>
   assert.ok(
     prReviewPseudocode.includes("concise escalation summary"),
     "escalation reporting must be concise",
+  );
+});
+
+// Static documentation guards, not executable proof of agent control flow.
+test("repair loop requires full boundary reviews and impact-aware deltas", () => {
+  assert.ok(prReviewSkill.includes("./references/review-scope.md"));
+  for (const requirement of [
+    "Start with a full review",
+    "an initially clean PR needs only one review",
+    "callers, dependencies, tests, and contracts",
+    "changed lines alone are insufficient",
+    "fresh, read-only, history-free reviewers",
+    "judge separately reconciles every prior actionable ID",
+    "never whole-PR verification",
+    "git diff <last-reviewed-sha> <current-head> --",
+    "git log <last-reviewed-sha>..<current-head> --oneline",
+    "Verify ancestry first",
+    "replace its usual fixed-point/three-dot diff",
+    "rather than treating unchanged PR work as missing",
+  ]) {
+    assert.ok(reviewScope.includes(requirement), requirement);
+  }
+  assert.match(
+    prReviewPseudocode,
+    /IF no repair-worthy findings:\s+IF mode == DELTA:\s+POST and VERIFY intermediate summary with complete reports, judgment, and coverage chain\s+IF recording fails: ESCALATE\s+mode = FULL \(final\); CONTINUE at the same unchanged head/,
+  );
+  assert.match(
+    prReviewPseudocode,
+    /IF DELTA impact cannot be bounded:[\s\S]*?CONTINUE without accepting coverage/,
+  );
+  assert.ok(
+    prReviewPseudocode.includes(
+      "final full review with repair-worthy findings",
+    ) && prReviewPseudocode.includes("another final full review"),
+  );
+  assert.doesNotMatch(prReviewPseudocode, /review = REVIEW full PR diff/);
+});
+
+test("delta coverage invalidates safely and survives only evidenced resumes", () => {
+  for (const requirement of [
+    "intervening accepted review/judgment chain",
+    "all intervening changes belong to verified, authorized repair deliveries",
+    "requirements, standards, project instructions, and required-check definitions are unchanged",
+    "unexpected commit",
+    "rewritten history",
+    "unbounded/cross-cutting impact",
+    "Reconcile unexpected state under the shared guards first",
+    "Older records lacking scope/chain evidence require a full review",
+    "delivered repair alone never advances the reviewed SHA",
+    "without resetting the ledger or repair budget",
+    "including added or removed requirements/standards files",
+    "Reuse is not permission for a reviewer to skip a required source",
+  ]) {
+    assert.ok(reviewScope.includes(requirement), requirement);
+  }
+  assert.ok(
+    preparationContract.includes("absent or unverifiable coverage history"),
+  );
+  assert.ok(prReviewPseudocode.includes("revalidate review inputs"));
+});
+
+test("incremental reviews preserve checks, reservations, and the final attempt limit", () => {
+  assert.ok(
+    reviewScope.includes("delta review never replaces required quality gates"),
+  );
+  assert.ok(
+    reviewScope.includes(
+      "exact current source, configuration, dependencies, and relevant environment",
+    ),
+  );
+  assert.ok(
+    reviewScope.includes(
+      "rerun affected checks and every required check without demonstrably matching evidence",
+    ),
+  );
+  assert.ok(
+    repairPolicy.includes(
+      "post-delivery delta review is not the active attempt's validation",
+    ),
+  );
+  assert.ok(
+    repairPolicy.includes("cannot retroactively amend its reservation"),
+  );
+  assert.ok(prReviewPseudocode.includes("repairs used < 10, otherwise FULL"));
+  assert.ok(
+    reviewScope.includes(
+      "After attempt ten, go directly to the final full review/judgment",
+    ),
+  );
+  assert.ok(prReviewPseudocode.includes("never authorize repair eleven"));
+  assert.ok(
+    prReviewSkill.includes(
+      "an initially clean full review already satisfies the final-review requirement",
+    ),
+  );
+});
+
+test("reports expose incremental scope and preserve the accepted coverage chain", () => {
+  for (const requirement of [
+    "## Review coverage record",
+    "Last accepted full-review SHA and last accepted reviewed SHA",
+    "durable links to complete reports/judgments",
+    "input fingerprints",
+    "invalidation/fallback reason",
+    "final-full-review status",
+    "it never replaces the earlier complete full reports",
+    "cannot authorize incremental coverage",
+    "A clean delta alone is in progress, not a final decision",
+  ]) {
+    assert.ok(reportContracts.includes(requirement), requirement);
+  }
+  for (const name of ["repaired round", "incremental round"]) {
+    const example = recordExample(name);
+    assert.match(example.visible, /In progress/);
+    assert.match(example.visible, /final full review pending/);
+    assert.doesNotMatch(example.visible, /## Review complete/);
+    assert.match(example.audit, /complete Review coverage record/);
+  }
+  const delta = recordExample("incremental round");
+  assert.match(delta.visible, /abc1234\.\.def5678/);
+  assert.match(delta.visible, /not whole-PR verification/);
+  assert.match(delta.audit, /last full-review SHA abc1234/);
+  assert.match(delta.audit, /last reviewed SHA def5678/);
+  assert.match(
+    recordExample("clean round").visible,
+    /clean initial full review also completes the final review/,
   );
 });
 
