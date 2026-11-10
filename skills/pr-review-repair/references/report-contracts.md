@@ -34,7 +34,7 @@ Include complete records in `<details>`:
 - Collapsed audit details: Complete original Standards and Spec reports for each round that produced findings, explicit skips, or durable links to previously posted complete reports.
 - The full finding ledger: every disposition — repaired, unresolved, regression, report-only, deferred — with resolution evidence and prior-ID reconciliation.
 - Check commands/results at reviewed and delivered SHAs, fresh/cached provenance, skips with reasons, and evidence receipts. Local log paths and hashes appear only as non-public audit references, alongside actual results and limitations.
-- Run identity, pinned refs and merge-base, reviewed/local/delivered SHAs, rounds used, repair cycles, delivery state and receipts.
+- Run identity, pinned refs and merge-base, reviewed/local/delivered SHAs, rounds used, repair cycles, per-ID failed-verification counts, delivery state and receipts.
 
 Nothing is replaced by a digest, external storage, or local-file links. Keep every record recoverable from the comment itself.
 

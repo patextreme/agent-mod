@@ -64,7 +64,7 @@ LOOP:
     POST and VERIFY final summary with the deferred list
     FINISH limited coverage
 
-  progress = any ID resolved this cycle
+  progress = the open set lost at least one ID this cycle and gained none
   IF progress: stalled = 0 ELSE stalled = stalled + 1
   IF stalled >= 2 OR any open ID has failed verification 3 times: ESCALATE
 

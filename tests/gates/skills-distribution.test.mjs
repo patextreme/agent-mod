@@ -577,6 +577,10 @@ test("stalls escalate without reopening discovery", () => {
     "the per-ID failed-verification guard needs a declared counter to evaluate",
   );
   assert.ok(
+    prReviewPseudocode.includes("lost at least one ID this cycle"),
+    "progress must require a net loss of open IDs so alternating regressions stall",
+  );
+  assert.ok(
     prReviewPseudocode.includes(
       "Deferred findings never justify another review round or an escalation",
     ),
@@ -633,6 +637,14 @@ test("incremental reviews preserve checks and reuse rules", () => {
       preparationContract.includes("paginated comments") &&
       preparationContract.includes("Unpublished commits"),
     "preparation contract must keep setup and reconciliation requirements",
+  );
+  assert.ok(
+    preparationContract.includes("per-ID failed-verification counts"),
+    "preparation must recover the guard's per-ID verification failures",
+  );
+  assert.ok(
+    preparationContract.includes("coverage limitation"),
+    "an authorized missing issue/spec must be reported as a coverage limitation",
   );
   assert.ok(
     preparationContract.includes("[review scope](./review-scope.md)"),
