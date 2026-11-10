@@ -627,6 +627,67 @@ test("findings are grounded in PR intent and out-of-scope work is deferred", () 
   }
 });
 
+test("repair validation enters deferral handling for every validation event of the attempt", () => {
+  const deferralStep = "HANDLE-VALIDATION-DEFERRAL";
+  const invocations = (
+    prReviewPseudocode.match(new RegExp(`^[ \\t]+${deferralStep}$`, "gm")) ?? []
+  ).length;
+  assert.equal(
+    invocations,
+    2,
+    "HANDLE-VALIDATION-DEFERRAL must run after the initial validation and after each amended-scope repeat",
+  );
+  assert.match(
+    prReviewPseudocode,
+    /VALIDATE actual changes independently and complete required checks\n[ \t]+HANDLE-VALIDATION-DEFERRAL\n/,
+    "the attempt's first required-validation event must enter HANDLE-VALIDATION-DEFERRAL",
+  );
+  assert.match(
+    prReviewPseudocode,
+    /WHILE this attempt's required validation finds an eligible additional finding:\n[ \t]+SCOPE-AMENDMENT\n[ \t]+REPEAT repair\/validation for the amended scope\n[ \t]+HANDLE-VALIDATION-DEFERRAL\n/,
+    "an amended iteration's own revalidation must re-enter HANDLE-VALIDATION-DEFERRAL inside the amendment loop",
+  );
+
+  const loopStart = prReviewPseudocode.indexOf("\nLOOP:\n");
+  const loopEnd = prReviewPseudocode.indexOf("\nSCOPE-AMENDMENT:\n");
+  assert.ok(
+    loopStart !== -1 && loopEnd > loopStart,
+    "the control flow must keep the LOOP block followed by its named transitions",
+  );
+  const definitionStart = prReviewPseudocode.indexOf(`\n${deferralStep}:\n`);
+  assert.ok(
+    definitionStart > loopEnd,
+    "HANDLE-VALIDATION-DEFERRAL must be defined beside SCOPE-AMENDMENT/ESCALATE, outside the LOOP block",
+  );
+  const definition = prReviewPseudocode
+    .slice(definitionStart)
+    .match(
+      new RegExp(
+        `^${deferralStep}:\\n([\\s\\S]*?)(?=\\n[A-Z][A-Z-]+:\\n|\\n\`\`\`)`,
+        "m",
+      ),
+    );
+  assert.ok(
+    definition,
+    "HANDLE-VALIDATION-DEFERRAL must define the deferral transition body",
+  );
+  for (const transition of [
+    "RUN after every required-validation event of the attempt",
+    "IF this attempt's required validation finds an in-intent finding whose only viable correction is overarching:",
+    "no repair-start ID",
+    "EXCLUDE or REVERT any edits already made for it",
+    "CONTINUE the attempt without editing for that finding",
+    "RECORD the deferred ID in the attempt's ledger for the round summary",
+    "REVALIDATE actual changes and complete required checks",
+    "REPEAT this step until its revalidation finds no further in-intent finding whose only viable correction is overarching",
+  ]) {
+    assert.ok(
+      definition[1].includes(transition),
+      `HANDLE-VALIDATION-DEFERRAL must keep: ${transition}`,
+    );
+  }
+});
+
 test("skills keep concise user responses with complete internal handoffs", () => {
   assert.ok(
     prReviewSkill.includes("Preserve complete stage outputs"),

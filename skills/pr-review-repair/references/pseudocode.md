@@ -61,12 +61,11 @@ LOOP:
   INCREMENT repairs used
   repair = REPAIR authorized in-intent findings and run checks
   VALIDATE actual changes independently and complete required checks
-  IF this attempt's required validation finds an in-intent finding whose only viable correction is overarching:
-    DEFER it when its consequence permits; RECORD it as deferred with no repair-start ID and EXCLUDE or REVERT any edits already made for it; CONTINUE the attempt without editing for that finding; ESCALATE a scope decision when it blocks the PR's stated intent
-  IF edits for a deferred finding were excluded or reverted: REVALIDATE actual changes and complete required checks
+  HANDLE-VALIDATION-DEFERRAL
   WHILE this attempt's required validation finds an eligible additional finding:
     SCOPE-AMENDMENT
     REPEAT repair/validation for the amended scope
+    HANDLE-VALIDATION-DEFERRAL
   IF repair or validation is blocked/incomplete: ESCALATE
   IF no authorized edits remain after deferral:
     POST and VERIFY append-only summary record linked to the active repair-start listing the deferred IDs with one-line descriptions, grounding, and suggested follow-up, stating that no authorized edits remain and no delivery occurred, and recording the unchanged head with the reserved attempt count kept
@@ -86,6 +85,14 @@ SCOPE-AMENDMENT:
   POST and VERIFY append-only scope-amendment linked to active repair-start before editing
   KEEPS repairs used unchanged
 
+HANDLE-VALIDATION-DEFERRAL:
+  RUN after every required-validation event of the attempt, including after an amended-scope repeat and after its own revalidation
+  IF this attempt's required validation finds an in-intent finding whose only viable correction is overarching:
+    DEFER it when its consequence permits; RECORD it as deferred with no repair-start ID and EXCLUDE or REVERT any edits already made for it; CONTINUE the attempt without editing for that finding; ESCALATE a scope decision when it blocks the PR's stated intent
+    RECORD the deferred ID in the attempt's ledger for the round summary
+  IF edits for a deferred finding were excluded or reverted: REVALIDATE actual changes and complete required checks
+  REPEAT this step until its revalidation finds no further in-intent finding whose only viable correction is overarching
+
 ESCALATE:
   PRESERVE safe work, ledger, reserved count, and exact operation state
   POST and VERIFY escalation record when possible
@@ -94,4 +101,4 @@ ESCALATE:
     human decision/recovery action; PAUSE until answer and state reconciliation
 ```
 
-A clean initial full review can finish directly. Findings in any full review, including final review, fall through to repair when budget permits; the delivered changes then follow the same scope-selection branch. After attempt ten that branch selects full review: success or escalation, never repair eleven. Retries/resumes complete the same reservation; eligible amendments are orchestrator-owned work, not human-input branches, and an in-intent finding from validation whose only viable correction is overarching is deferred when its consequence permits rather than pausing for input. Deferred findings never authorize repair and remain terminal across resumes; a concern that becomes in-scope again is a new open finding.
+A clean initial full review can finish directly. Findings in any full review, including final review, fall through to repair when budget permits; the delivered changes then follow the same scope-selection branch. After attempt ten that branch selects full review: success or escalation, never repair eleven. Retries/resumes complete the same reservation; eligible amendments are orchestrator-owned work, not human-input branches, and an in-intent finding from validation whose only viable correction is overarching is deferred when its consequence permits rather than pausing for input, at every required-validation event of the attempt including an amended iteration's own revalidation. Deferred findings never authorize repair and remain terminal across resumes; a concern that becomes in-scope again is a new open finding.
