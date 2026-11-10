@@ -62,11 +62,14 @@ LOOP:
   repair = REPAIR authorized in-intent findings and run checks
   VALIDATE actual changes independently and complete required checks
   IF this attempt's required validation finds an in-intent finding whose only viable correction is overarching:
-    DEFER it when its consequence permits; RECORD it and CONTINUE the attempt without editing; ESCALATE a scope decision when it blocks the PR's stated intent
+    DEFER it when its consequence permits; RECORD it as deferred with no repair-start ID and EXCLUDE or REVERT any edits already made for it; CONTINUE the attempt without editing for that finding; ESCALATE a scope decision when it blocks the PR's stated intent
+  IF edits for a deferred finding were excluded or reverted: REVALIDATE actual changes and complete required checks
   WHILE this attempt's required validation finds an eligible additional finding:
     SCOPE-AMENDMENT
     REPEAT repair/validation for the amended scope
   IF repair or validation is blocked/incomplete: ESCALATE
+  IF no authorized edits remain after deferral:
+    RECORD the deferred findings in the ledger and report; SKIP delivery; CONTINUE at the unchanged head to the next review round with the reserved attempt count unchanged
 
   GUARD expected state
   delivery = DELIVER authorized signed commits, push, and summary comment
