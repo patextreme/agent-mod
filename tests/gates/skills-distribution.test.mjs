@@ -533,7 +533,9 @@ test("findings are grounded in PR intent and out-of-scope work is deferred", () 
     "declared scope and non-goals",
     "An explicit linked non-goal or phased plan may narrow scope; otherwise the issue's requirements govern",
     "Conflict or ambiguity pauses for reconciliation or limited coverage",
-    "Pin and fingerprint the contract",
+    "Pin and fingerprint this contract",
+    "The changed/impact boundary is not part of it",
+    "record it per review as coverage context and recompute it as verified deliveries advance the head",
   ]) {
     assert.ok(preparationContract.includes(requirement), requirement);
   }
@@ -556,7 +558,10 @@ test("findings are grounded in PR intent and out-of-scope work is deferred", () 
     "A pre-existing concern this PR makes reachable or worse is PR-caused and in-intent",
     "An in-intent finding whose only viable correction is overarching does not expand the PR",
     "a confirmed in-intent blocker or significant bug",
-    "Out-of-scope product/design needs are deferred, not escalated",
+    "A non-blocking overarching correction of an in-intent finding is not a pause",
+    "defer and record it while the attempt or review continues",
+    "Out-of-scope product/design needs are not human-input branches either",
+    "defer non-blocking ones, and escalate a scope decision when one blocks the PR's stated intent",
   ]) {
     assert.ok(repairPolicy.includes(requirement), requirement);
   }
@@ -578,7 +583,9 @@ test("findings are grounded in PR intent and out-of-scope work is deferred", () 
     "pinned intent contract",
     "GROUND each finding as in-intent actionable, report-only, or deferred",
     "IF an in-intent finding's only viable correction is overarching",
-    "DEFER it when its consequence permits; otherwise ESCALATE a scope decision",
+    "DEFER it when its consequence permits; ESCALATE a scope decision when it blocks the PR's stated intent",
+    "IF this attempt's required validation finds an in-intent finding whose only viable correction is overarching",
+    "DEFER it when its consequence permits; RECORD it and CONTINUE the attempt without editing; ESCALATE a scope decision when it blocks the PR's stated intent",
     "ACCEPT reports/judgment only with every prior actionable and deferred ID accounted for",
     "RECORD deferred findings in the ledger and report",
     "REPAIR authorized in-intent findings and run checks",
@@ -587,6 +594,14 @@ test("findings are grounded in PR intent and out-of-scope work is deferred", () 
   ]) {
     assert.ok(prReviewPseudocode.includes(requirement), requirement);
   }
+  assert.ok(
+    (
+      prReviewPseudocode.match(
+        /DEFER it when its consequence permits;.*ESCALATE a scope decision when it blocks the PR's stated intent/g,
+      ) ?? []
+    ).length >= 2,
+    "judgment and repair validation must both defer a non-blocking overarching finding and escalate a blocking one",
+  );
   for (const requirement of [
     "| Intent grounding |",
     "Deferred is a terminal disposition, not a severity",
@@ -688,6 +703,7 @@ test("delta coverage invalidates safely and survives only evidenced resumes", ()
   for (const requirement of [
     "intervening accepted review/judgment chain",
     "all intervening changes belong to verified, authorized repair deliveries",
+    "Growth of the changed/impact boundary from verified authorized repair deliveries is expected and does not invalidate delta eligibility",
     "Unchanged PR identity, pinned base/merge-base, requirements, standards, project instructions, and required-check definitions",
     "unexpected commits",
     "rewritten history",

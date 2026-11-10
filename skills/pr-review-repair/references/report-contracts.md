@@ -28,7 +28,7 @@ Retain these fields for every review/judgment cycle in its collapsed audit and i
 - Mode/purpose: full (initial, fallback, or final) or delta; accepted, incomplete, or insufficient scope.
 - Pinned base/merge-base, exact comparison SHAs and diff/log commands, and reviewed head.
 - Last accepted full-review SHA and last accepted reviewed SHA, with durable links to complete reports/judgments establishing the coverage chain (or explicitly absent coverage).
-- Requirements, standards, intent contract, instructions, and check-definition fingerprints; source discovery/revalidation results and any invalidation/fallback reason.
+- Requirements, standards, intent contract, instructions, and check-definition fingerprints (the changed/impact boundary is recomputed per review, never fingerprinted); source discovery/revalidation results and any invalidation/fallback reason.
 - Delta impact inspected beyond the changed lines, scope expansions, skipped coverage, and uncertainty.
 - Whether final full review/judgment is pending or complete at the current head; check evidence and any reuse rationale under [review scope](./review-scope.md).
 

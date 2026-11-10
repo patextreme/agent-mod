@@ -34,7 +34,7 @@ LOOP:
   judgment = JUDGE current reports, pinned intent contract, and complete prior ledger/history
   GROUND each finding as in-intent actionable, report-only, or deferred
   IF an in-intent finding's only viable correction is overarching:
-    DEFER it when its consequence permits; otherwise ESCALATE a scope decision
+    DEFER it when its consequence permits; ESCALATE a scope decision when it blocks the PR's stated intent
   INVESTIGATE uncertain classifications and intent grounding
   ACCEPT reports/judgment only with every prior actionable and deferred ID accounted for
   IF judgment is incomplete OR uncertainty remains OR policy requires human input:
@@ -61,6 +61,8 @@ LOOP:
   INCREMENT repairs used
   repair = REPAIR authorized in-intent findings and run checks
   VALIDATE actual changes independently and complete required checks
+  IF this attempt's required validation finds an in-intent finding whose only viable correction is overarching:
+    DEFER it when its consequence permits; RECORD it and CONTINUE the attempt without editing; ESCALATE a scope decision when it blocks the PR's stated intent
   WHILE this attempt's required validation finds an eligible additional finding:
     SCOPE-AMENDMENT
     REPEAT repair/validation for the amended scope
@@ -87,4 +89,4 @@ ESCALATE:
     human decision/recovery action; PAUSE until answer and state reconciliation
 ```
 
-A clean initial full review can finish directly. Findings in any full review, including final review, fall through to repair when budget permits; the delivered changes then follow the same scope-selection branch. After attempt ten that branch selects full review: success or escalation, never repair eleven. Retries/resumes complete the same reservation; eligible amendments are orchestrator-owned work, not human-input branches. Deferred findings never authorize repair and remain terminal across resumes; a concern that becomes in-scope again is a new open finding.
+A clean initial full review can finish directly. Findings in any full review, including final review, fall through to repair when budget permits; the delivered changes then follow the same scope-selection branch. After attempt ten that branch selects full review: success or escalation, never repair eleven. Retries/resumes complete the same reservation; eligible amendments are orchestrator-owned work, not human-input branches, and an in-intent finding from validation whose only viable correction is overarching is deferred when its consequence permits rather than pausing for input. Deferred findings never authorize repair and remain terminal across resumes; a concern that becomes in-scope again is a new open finding.
