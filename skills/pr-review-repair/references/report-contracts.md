@@ -1,279 +1,174 @@
 # Report contracts
 
-Read before preparation, judgment, or record writing. Preserve complete Standards and Spec reports alongside the ledger; grouping findings for repair keeps both axis reports intact.
+Read before posting records and before composing the final response. [Control flow](./pseudocode.md) owns timing; this contract owns content.
 
-## Finding record
+Keep PR history append-only: post a new comment, never rewrite an earlier one. Every record carries its identity marker on its first line:
 
-Assign a stable run-local ID (for example, `F-001`). Match recurrence by requirement, affected behavior, and root cause, not title alone.
-
-| Field | Content |
-| --- | --- |
-| ID / provenance | Stable ID; Standards, Spec, or both; links to original findings. |
-| Category | blocker, significant bug, report-only, refuted, or needs investigation. |
-| Evidence | File/line or code path, reproduction/test where available, established requirement or mandatory rule. |
-| Impact | Concrete trigger, consequence, supported scenario, and significance rationale. |
-| Correction | Proposed scope, dependencies, risk, and whether human input is needed. |
-| Disposition | open, repaired-and-verified, recurring, refuted, or awaiting human input. |
-| Resolution evidence | Current code/test evidence; reviewed SHA; earlier occurrence/comment links. |
-
-For standards-only findings, mark runtime trigger/consequence not applicable and cite the mandatory rule or material maintenance risk. Explain report-only classifications. For uncertainty, record missing evidence and the next investigation.
-
-## Review coverage record
-
-Retain these fields for every review/judgment cycle in its collapsed audit and internal handoff:
-
-- Mode/purpose: full (initial, fallback, or final) or delta; accepted, incomplete, or insufficient scope.
-- Pinned base/merge-base, exact comparison SHAs and diff/log commands, and reviewed head.
-- Last accepted full-review SHA and last accepted reviewed SHA, with durable links to complete reports/judgments establishing the coverage chain (or explicitly absent coverage).
-- Requirements, standards, instructions, and check-definition fingerprints; source discovery/revalidation results and any invalidation/fallback reason.
-- Delta impact inspected beyond the changed lines, scope expansions, skipped coverage, and uncertainty.
-- Whether final full review/judgment is pending or complete at the current head; check evidence and any reuse rationale under [review scope](./review-scope.md).
-
-Distinguish the candidate reviewed head from the last accepted reviewed SHA. Include earlier complete reports by durable link rather than replacing them with the delta report. Follow [control flow](./pseudocode.md) for publication timing and [review scope](./review-scope.md) for coverage recovery.
-
-## Record identity
-
-Start each PR record with:
-
-```text
-<!-- pr-review-repair run=<initial-head-sha> round=<n> kind=<repair-start|scope-amendment|summary|escalation> -->
+```html
+<!-- pr-review-repair run=<initial-head-sha> round=<n> kind=<summary|escalation> -->
 ```
 
-`round` identifies a review/judgment cycle; `repairs used` counts reserved attempts, not comments or retries. On resume, retain the original run ID/count, including existing `orc-pr-review-repair` markers for runs begun under that former name. Validate identity against the PR, git state, and record contents. Reconcile copied/conflicting markers; a marker alone is not evidence.
+`kind=summary` covers round summaries and the final decision; `kind=escalation` covers pauses. Post and read-back verify every record. If posting fails, report the unrecorded state directly to the user; never invent a receipt or link.
 
-## Repair-start comment
+## Visible summary contract
 
-Post and verify this before dispatching a repair:
-
-```markdown
-## PR review/repair — repair start
-- PR / run / round:
-- Pinned base / merge-base:
-- Expected local and remote head:
-- Repairs used: <incremented count>/10
-- Authorized actionable IDs:
-- Intended scope:
-- State: repair reserved; no delivery confirmed
-```
-
-An unfinished start reserves the attempt across interruptions. Link amendments, summaries, and escalations to it. Keep every field visible and read-back verified before edits; reservation sequencing is unchanged.
-
-## Scope-amendment comment
-
-Apply [repair policy](./policy.md) to findings discovered by the active attempt's required validation. For an eligible amendment, post and verify this before editing:
-
-```markdown
-## PR review/repair — scope amendment
-- PR / run / round:
-- Active repair-start:
-- Pinned base / merge-base:
-- Expected local and remote head:
-- Repairs used: <unchanged count>/10
-- Added actionable IDs:
-- Added scope:
-- In-scope rationale:
-- State: scope amended; no new reservation; no delivery confirmed
-```
-
-An amendment never increments `repairs used`, changes the run ID, or replaces the active repair-start. Keep every field visible and verified before editing. Escalate ineligible or unresolved amendments under repair policy's human-input rules.
-
-## PR record layers
-
-Round summaries and final PR decisions are one comment with two layers:
-
-- **Visible summary** — factual, outcome-first, understandable without the agent's filesystem.
-- **Collapsed audit details** — complete records in a same-comment HTML `<details>` block. Nothing is replaced by a digest, external storage, or local-file links; durable links to previously posted complete records are permitted.
-
-Place the identity marker before both layers. Keep PR history append-only.
-
-### Visible summary contract
-
-- State the outcome first: `verified`, `limited coverage`, or `escalated` for final decisions; `in progress — final full review pending` for intermediate delivery/clean delta summaries.
-- Put unresolved blockers and specific human decisions/recovery actions immediately below the outcome.
+- State the outcome first: `verified`, `limited coverage`, or `escalated` for a final decision; `In progress` for a round summary.
+- Put blockers, required human decisions, and deferred findings immediately below the outcome.
 - Give finding counts, including unresolved investigations. Repair bullets carry stable IDs, fixing commits, and validation attribution.
 - Report checks, including failures, pending/unknown/unavailable results, skips, and material caveats. Attribute fresh versus cached evidence to its source; never label unknown or unavailable checks as green.
 - Keep material coverage/scope limitations visible; never move them into collapsed details.
-- Show reviewed commit, full/delta scope/range, final-full-review status, and attempts used (`n/10`). Show delivered head separately when different.
-- Omit empty headings and routine not-applicable fields here; retain their values in the audit.
-- Aim for **150 words for a clean round**: a readability target, not a hard cap. Preserve blockers, actionable findings, required input, and material limitations.
+- Show reviewed commit, `Rounds: n/3`, `Repair cycles: n`, and the delivered head when it differs from the reviewed head.
+- Omit empty headings; retain their values in the audit.
+- Aim for **150 words for a clean round**: a readability target, not a hard cap.
 
-### Collapsed audit contract
+## Deferred findings
+
+After the discovery window closes, new issues are deferred, not repaired. Give each a stable ID, a one-line description, the file or area, and why it was not repaired (usually "not repaired in this run"). Deferred findings stay in the visible summary because a reader deciding whether to merge needs them.
+
+Deferral is not ambiguity and not an escalation: it changes no count, adds no round, and never blocks a `limited coverage` finish.
+
+## Collapsed audit contract
 
 Include complete records in `<details>`:
 
-- Complete original Standards and Spec reports verbatim, explicit authorized skips, or durable links to previously posted complete reports.
-- The full finding ledger: every disposition, resolution evidence, unresolved investigation, and prior-ID reconciliation.
-- Check commands/results at reviewed/delivered SHAs, fresh/cached provenance, skips with reasons, and evidence receipts. Local log paths/hashes appear only as non-public audit references, alongside actual results and limitations—not as accessible evidence links.
-- Run identity, pinned refs, reviewed/local/delivered SHAs, the repair-start and any scope-amendment record links, cumulative repairs used, delivery state and receipts, and the exact incomplete-operation/recovery state when applicable.
-- The complete Review coverage record, including baseline/chain links, scope, input fingerprints, invalidation, and final-full-review status.
+- Collapsed audit details: Complete original Standards and Spec reports for each round that produced findings, explicit skips, or durable links to previously posted complete reports.
+- The full finding ledger: every disposition — repaired, unresolved, regression, report-only, deferred — with resolution evidence and prior-ID reconciliation.
+- Check commands/results at reviewed and delivered SHAs, fresh/cached provenance, skips with reasons, and evidence receipts. Local log paths and hashes appear only as non-public audit references, alongside actual results and limitations.
+- Run identity, pinned refs and merge-base, reviewed/local/delivered SHAs, rounds used, repair cycles, delivery state and receipts.
 
-Keep all record links and mandatory bookkeeping recoverable from the comment.
+Nothing is replaced by a digest, external storage, or local-file links. Keep every record recoverable from the comment itself.
 
 ### Example: clean round
 
 ```markdown
-<!-- pr-review-repair run=<initial-head-sha> round=1 kind=summary -->
+<!-- pr-review-repair run=f0df981 round=1 kind=summary -->
 ## Review complete — no repair-worthy findings
 
-Standards and Spec reviews covered the full PR diff `a1b2c3d..f0df981`. **No findings or unresolved investigations.** This clean initial full review also completes the final review at the unchanged head `f0df981`.
+Standards and Spec reviewed the full PR diff `a1b2c3d..f0df981`. **No findings or unresolved investigations.** Discovery converged in round one; no further rounds run.
 
 **Validation:** 525 tests passed, 1 skipped; format, lint, and typecheck passed. Nix acceptance used cached results matched to the reviewed source—not a fresh run.
 
 **Scope:** migration distribution validation only; live workflows and cleanup/deletion were not exercised.
 
-**Repairs:** none · **Attempts:** 0/10 · **Human input:** none
+**Rounds:** 1/3 · **Repair cycles:** 0 · **Deferred:** none · **Human input:** none
 
 <details>
-<summary>Full review reports and audit details</summary>
+<summary>Full reports and audit details</summary>
 
-### Standards
-[Complete original Standards report]
+Complete original Standards report: [axis report verbatim]
 
-### Spec
-[Complete original Spec report]
+Complete original Spec report: [axis report verbatim]
 
-### Judge ledger
-[Complete ledger and classifications, including prior-ID reconciliation]
+Complete ledger: no findings.
 
-### Audit record
-[Run identity, pinned refs, reviewed/delivered SHAs, repair-start link,
-validation evidence and limitations, delivery state and receipts;
-complete Review coverage record: full initial/final, exact commands, input fingerprints,
-last full-review and last reviewed SHA f0df981, no prior chain, final full review complete]
-
+[A] run=f0df981; pinned merge-base a1b2c3d; reviewed and delivered head f0df981;
+rounds 1/3; repair cycles 0; checks: node tests, biome, tsc, nix flake check (cached
+results matched to the reviewed source); no deferred findings; no incomplete-operation state
 </details>
 ```
 
 ### Example: repaired round
 
 ```markdown
-<!-- pr-review-repair run=<initial-head-sha> round=2 kind=summary -->
-## In progress — repairs delivered; final full review pending
+<!-- pr-review-repair run=a1b2c3d round=2 kind=summary -->
+## In progress — round 1 repairs delivered
 
-**Resolved**
-- `F-001` — [brief correction summary] · `abc1234` · regression test added and passed.
-- `F-002` — [brief correction summary] · `def5678` · targeted checks passed at the delivered head.
+Round 1 found F-001 (blocker) and F-002 (significant). Both are repaired and delivered in `def5678`; round 2 review is pending at that head.
 
-**Findings:** 0 blockers · 0 unresolved investigations · 1 report-only (recorded in the audit).
+**Repairs:** F-001 rejects empty credentials before use (`abc1234`); F-002 enforces the retry cap with a regression test (`def5678`).
 
-**Validation:** full suite passed at the delivered head `def5678`; the lint/typecheck results from reviewed head `abc1234` were accepted as cached evidence for unchanged sources. One optional check remained unavailable and is not counted as passing.
+**Validation:** full suite passed at `def5678`; lint and typecheck from `abc1234` were accepted as cached evidence for unchanged sources. One optional check remained unavailable and is not counted as passing.
 
-**Scope:** full PR diff `<merge-base>..abc1234`; delivered repair `abc1234..def5678` awaits delta review, then final full review. [Material coverage limitations, if any.]
-
-**Reviewed:** `abc1234` · **Delivered:** `def5678` · **Attempts:** 1/10 · **Human input:** none
+**Reviewed:** `abc1234` · **Delivered:** `def5678` · **Rounds:** 2/3 · **Repair cycles:** 1 · **Deferred:** none
 
 <details>
-<summary>Full review reports and audit details</summary>
+<summary>Full reports and audit details</summary>
 
-### Standards
-[Complete original Standards report]
+Complete original Standards report: [round 1 report verbatim, linkable if posted]
 
-### Spec
-[Complete original Spec report]
+Complete original Spec report: [round 1 report verbatim, linkable if posted]
 
-### Judge ledger
-[Complete ledger: F-001 and F-002 repaired-and-verified with evidence, the report-only record, and prior-ID reconciliation]
+Complete ledger: F-001 repaired `abc1234`, F-002 repaired `def5678`, no report-only findings.
 
-### Audit record
-[Repair-start link, run identity, pinned refs, reviewed/delivered SHAs,
-check commands and results, skipped checks with reasons, signing/push receipts;
-complete Review coverage record: full, exact commands, input fingerprints, baseline/chain links,
-last full-review and last reviewed SHA abc1234, delivered def5678 not yet reviewed,
-final full review pending]
-
+[A] run=a1b2c3d; pinned merge-base a1b2c3d; rounds 2/3; repair cycles 1; delivery
+receipts: commit `def5678`, push to PR head, comment posted; deferred: none
 </details>
 ```
 
-### Example: incremental round
+### Example: capped round
 
 ```markdown
-<!-- pr-review-repair run=<initial-head-sha> round=3 kind=summary -->
-## In progress — delta clean; final full review pending
+<!-- pr-review-repair run=a1b2c3d round=3 kind=summary -->
+## Review complete — limited coverage, repairs verified, 2 findings deferred
 
-Standards and Spec reviewed repair delta `abc1234..def5678`, including affected callers and contracts. No new repair-worthy findings or unresolved investigations. The judge verified every prior actionable ID against current code/checks.
+Discovery closed after round three. All four recorded findings are resolved and verified at `def5678`; required checks pass. Two issues noticed during verification were deferred because no review round remains.
 
-**Validation:** required checks passed at `def5678`.
-**Scope:** incremental coverage only; this is not whole-PR verification. Next: fresh full review of `<merge-base>..def5678` at the unchanged head.
-**Reviewed / delivered:** `def5678` · **Attempts:** 1/10 · **Human input:** none
+**Deferred (not repaired in this run):**
+- F-005 `extensions/permission/rules.ts`: an `allow` rule shadows a later `deny` rule when both match. Precedence needs a product decision.
+- F-006 `extensions/notify-me/index.ts`: retry backoff ignores `Retry-After`. Hardening only; no demonstrated consequence.
+
+**Repairs:** F-001 commit-subject injection (`abc1234`); F-002 retry cap (`abc1234`); F-003 missing directory-rename test (`def5678`); F-004 stale help text (`def5678`).
+
+**Validation:** full suite passed at `def5678`; lint, typecheck, and format passed fresh. Nix acceptance was unavailable and is not counted as passing.
+
+**Rounds:** 3/3 · **Repair cycles:** 2 · **Deferred:** 2 · **Scope:** full PR diff `a1b2c3d..def5678`; no fourth review round ran, so anything outside the recorded IDs is unreviewed.
 
 <details>
-<summary>Full delta reports and audit details</summary>
+<summary>Full reports and audit details</summary>
 
-### Standards
-[Complete original Standards report for delta and inspected impact]
+Complete original Standards report: [round 3 report verbatim]
 
-### Spec
-[Complete original Spec report for delta and inspected impact]
+Complete original Spec report: [round 3 report verbatim]
 
-### Judge ledger
-[Complete ledger with current resolution evidence for every prior actionable ID]
+Complete ledger: F-001..F-004 repaired and verified; F-005, F-006 deferred (verification-sourced, never repaired); no report-only findings.
 
-### Audit record
-[Run identity, repair-start link, delivery receipts, checks and evidence;
-complete Review coverage record: delta abc1234..def5678, exact commands,
-input fingerprints and revalidation, last full-review SHA abc1234,
-last reviewed SHA def5678, durable baseline/chain report and judgment links,
-inspected callers/contracts, final full review pending]
-
+[A] run=a1b2c3d; pinned merge-base a1b2c3d; reviewed `abc1234`; delivered `def5678`;
+rounds 3/3; repair cycles 2; checks: fresh lint/typecheck/format/tests, nix unavailable;
+deferred dispositions recorded; no incomplete-operation state
 </details>
 ```
 
 ### Example: escalated round
 
 ```markdown
-<!-- pr-review-repair run=<initial-head-sha> round=3 kind=escalation -->
-## Review escalated — 1 blocker needs input
+<!-- pr-review-repair run=a1b2c3d round=3 kind=escalation -->
+## Escalated — F-002 fix needs a product decision
 
-**Needs decision:** `F-003` — [concrete blocker and specific question/recovery action].
+**Needs decision:** F-002 (retry cap) cannot be resolved without choosing between dropping the last retry and extending the backoff window; both change documented behavior in `extensions/notify-me/README.md`.
 
-**Findings:** [blocker/significant bug/report-only/unresolved investigation counts].
+**Recovery action:** confirm which behavior is intended; the orchestrator then resumes the fix at `def5678` with no new review round.
 
-**Resolved**
-- `F-001` — [brief correction] · `abc1234` · regression test passed.
-- `F-002` — [brief correction] · `def5678` · targeted checks passed.
+**Validation:** suite green at `def5678` except the F-002 regression test added in `abc1234`, which fails by design until the decision lands.
 
-**Validation:** [actual results, failed/unavailable checks, and material limitations].
-**Scope:** [material coverage limitations, if any].
-**Reviewed:** [SHA] · **Delivered:** [SHA, if different] · **Attempts:** 1/10
+**Rounds:** 3/3 · **Repair cycles:** 2 · **Deferred:** 1 · **Human input:** required
 
 <details>
-<summary>Full reports, ledger, and audit details</summary>
+<summary>Full reports and audit details</summary>
 
-### Standards
-[Complete original Standards report]
+Complete original Standards report: [round 3 report verbatim]
 
-### Spec
-[Complete original Spec report]
+Complete original Spec report: [round 3 report verbatim]
 
-### Judge ledger
-[Complete ledger and classifications, including F-003 awaiting human input]
+Complete ledger: F-001 repaired `abc1234`; F-002 awaiting human input; F-003 deferred.
 
-### Audit record
-[Repair-start links, reservation accounting, exact incomplete-operation state,
-operation state and evidence, and the specific recovery input required;
-complete Review coverage record: mode/range, last full-review and last reviewed SHAs,
-baseline/chain links, input fingerprints, invalidation reasons, final full review status]
-
+[A] run=a1b2c3d; pinned merge-base a1b2c3d; rounds 3/3; repair cycles 2; incomplete-operation state: F-002 fix not delivered, worktree at `def5678`; recovery input: F-002
+behavior decision
 </details>
 ```
 
-Return the comment URL/ID as a posting receipt; the comment need not link itself. For no-repair rounds, record repair/commit/push as not applicable in the audit and show or omit those fields in the summary. For partial delivery, show completed operations and the next recovery action. When commenting fails, report the unrecorded state directly to the user.
-
 ## Final response to the user
 
-Return only the outcome, material limitations, required input, and verified record link:
+Return only the outcome, material limitations, deferred findings, required input, and verified record link:
 
 ```markdown
 PR review/repair on <PR URL>: <verified | limited coverage | escalated>.
-<Material limitations, if any.>
-<Required human decision/recovery action, if any.>
+<Material limitations and deferred findings, if any.>
+<Required human decision or recovery action, if any.>
 Record: <verified PR comment link>
 ```
 
 Keep the full reports/ledger in PR history and the internal handoff. If required publication failed, disclose the missing record, exact operation state, and recovery action; never invent a receipt or link.
 
-- **Verified:** all finish gates in [SKILL.md](../SKILL.md) pass.
-- **Limited coverage:** explicitly authorized narrower coverage completed successfully; state the limit.
-- **Escalated:** unresolved actionable findings/uncertainty, failed required operations, or exhausted repair budget with work remaining, even if useful repairs were delivered.
-
-A clean delta alone is in progress, not a final decision.
+- **Verified:** a review round converged with no repair-worthy findings, checks pass, nothing deferred.
+- **Limited coverage:** the discovery window closed with repairs; every open ID is resolved and verified, and any deferred findings are listed.
+- **Escalated:** a fix stalled or is blocked, human input is needed, or evidence/receipts are incomplete.
