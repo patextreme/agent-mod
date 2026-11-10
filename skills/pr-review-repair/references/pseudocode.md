@@ -58,7 +58,10 @@ LOOP:
   REGRESSION -> keep the ID open; increment that ID's verification_failures; a
                 fix broke what it touched, a required check, or a previously
                 resolved ID
-  NEW ISSUE  -> add to deferred; never repair
+  NEW ISSUE  -> never repair; classify under Review scope and Repair policy:
+                repair-worthy AND out of this PR's scope -> add to deferred
+                repair-worthy AND in this PR's scope     -> add to open; ESCALATE
+                below the repair threshold               -> report-only
   IF any ID moved to deferred: record it in the ledger and the pending summary
   IF open is empty:
     POST and VERIFY final summary with the deferred list
@@ -88,8 +91,9 @@ ESCALATE:
 Rules the flow depends on:
 
 - A round that finds nothing finishes `verified`; no fourth review ever runs. A round that inspects the full diff is the only thing that counts as discovery.
-- Verification **confirms, denies, or regresses; it never discovers.** Deferral is the release valve: new work is recorded and reported, not repaired.
+- Verification **confirms, denies, or regresses; it never discovers.** Deferral is the release valve for repair-worthy work outside the PR's scope: it is recorded and reported, not repaired. Below-threshold findings are report-only; an in-scope repair-worthy one stays open and escalates.
 - Verification covers every recorded ID, not just the open ones. A repair that undoes an earlier fix is a regression on that ID, not new work.
-- Deferred findings never justify another review round or an escalation. Escalation is for stalls and blockers only.
+- An unrelated or environmental check failure is a material limitation on the evidence, never deferred work.
+- Deferred findings never justify another review round or an escalation. Escalation is for stalls and blockers — including an open ID the closed window cannot repair.
 - Repairs may not add scope. Open IDs are the entire authorized queue after the window closes.
 - Resumes and retries keep the same round count and repair-cycle counts; a clean verification is `limited coverage`, not `verified`.

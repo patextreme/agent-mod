@@ -329,7 +329,7 @@ test("repaired example uses stable IDs, commits, and truthful validation", () =>
   );
 });
 
-test("capped example reports deferred findings and closed discovery", () => {
+test("capped example reports only out-of-scope deferred findings and closed discovery", () => {
   const example = recordExample("capped round");
   assert.match(
     example.visible,
@@ -337,21 +337,28 @@ test("capped example reports deferred findings and closed discovery", () => {
     "a capped run finishes as limited coverage",
   );
   assert.ok(
-    example.visible.includes("Deferred (not repaired in this run):"),
-    "deferred findings must be listed visibly",
+    example.visible.includes(
+      "Deferred (repair-worthy, outside this PR's scope):",
+    ),
+    "deferred findings must be listed visibly with their PR-scope test",
   );
   assert.ok(
-    example.visible.includes("F-005") && example.visible.includes("F-006"),
-    "each deferred finding needs a stable ID",
+    example.visible.includes("F-005") && !example.visible.includes("F-006"),
+    "only repair-worthy out-of-scope findings are enumerated; report-only findings stay in the audit",
   );
   assert.ok(
     example.visible.includes("no fourth review round"),
     "the visible summary must state the closed-window limitation",
   );
-  assert.match(example.visible, /Deferred:\*\* 2/);
+  assert.match(example.visible, /Deferred:\*\* 1/);
+  assert.match(example.visible, /Report-only:\*\* 1/);
   assert.ok(
-    example.audit.includes("deferred (verification-sourced, never repaired)"),
+    example.audit.includes("deferred (verification-sourced, never repaired"),
     "the ledger must record deferred dispositions as never repaired",
+  );
+  assert.ok(
+    example.audit.includes("F-006 report-only"),
+    "report-only findings stay in the collapsed audit ledger",
   );
 });
 
@@ -507,7 +514,7 @@ test("discovery is capped at three full review rounds", () => {
   );
 });
 
-test("verification fixes recorded IDs and defers everything else", () => {
+test("verification fixes recorded IDs and classifies everything else", () => {
   assert.ok(
     prReviewSkill.includes(
       "confirms, denies, or regresses; it never discovers",
@@ -527,8 +534,13 @@ test("verification fixes recorded IDs and defers everything else", () => {
     assert.ok(reviewScope.includes(requirement), requirement);
   }
   assert.ok(
-    prReviewPseudocode.includes("NEW ISSUE  -> add to deferred; never repair"),
-    "new work must route to deferral, not repair",
+    prReviewPseudocode.includes(
+      "NEW ISSUE  -> never repair; classify under Review scope and Repair policy:",
+    ) &&
+      prReviewPseudocode.includes(
+        "repair-worthy AND out of this PR's scope -> add to deferred",
+      ),
+    "new work must be classified by importance and scope, not repaired",
   );
   assert.ok(
     prReviewPseudocode.includes("REGRESSION -> keep the ID open"),
@@ -550,7 +562,7 @@ test("verification fixes recorded IDs and defers everything else", () => {
   );
   for (const requirement of [
     "## Closed discovery",
-    "repair only IDs already open and defer everything else",
+    "repair only IDs already open and classify everything else",
     "Deferred findings are posted, never silently dropped",
     "Deferral is a recording decision, not a human-input branch",
   ]) {
@@ -590,7 +602,7 @@ test("stalls escalate without reopening discovery", () => {
     prReviewSkill.includes(
       "never repaired — escalate them before the window closes",
     ),
-    "unrelated check failures must escalate inside the window and defer after it",
+    "unrelated check failures must escalate inside the window and stay a limitation after it",
   );
   assert.ok(
     prReviewSkill.includes("A resume never restarts the review window"),

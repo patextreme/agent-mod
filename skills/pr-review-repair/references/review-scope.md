@@ -21,9 +21,12 @@ Its question is narrow: **does the current head resolve each open ID, keep every
 - **Resolved:** cite the code or check that satisfies the ID.
 - **Unresolved:** cite what is still missing; keep the ID open.
 - **Regression:** a fix breaks a caller, dependency, test, required check, or previously resolved ID; keep the affected ID open.
-- **New issue:** any other problem noticed. Never repaired after the window; record it as deferred under Report contracts.
+- **New issue:** any other problem noticed. Never repaired after the window. Classify it before recording:
+  - repair-worthy and outside the PR's intended scope → deferred under Report contracts; name the ticket, decision, or measurement that unblocks it;
+  - repair-worthy and inside the PR's intent → keep the ID open and escalate: the closed window authorizes no repair;
+  - below the repair threshold → report-only, recorded as evidence and never deferred.
 
-Verification **confirms, denies, or regresses; it never discovers.** A verifier that returns new work as repair scope is out of contract; route that output to the deferred list without repairing it. Required checks still run mechanically at every delivered head, and a check failure traceable to a repair commit is a regression, not a deferral.
+Verification **confirms, denies, or regresses; it never discovers.** A verifier that returns new work as repair scope is out of contract; route that output through the classification above without repairing it. Required checks still run mechanically at every delivered head, and a check failure traceable to a repair commit is a regression, not a deferral. An unrelated or environmental check failure is a material limitation on the evidence, never deferred work.
 
 ## Evidence reuse
 
