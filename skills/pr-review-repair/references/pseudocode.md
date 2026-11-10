@@ -5,11 +5,11 @@ This is the transition authority. Delegate stages and boundary checks; the orche
 - [SKILL.md](../SKILL.md): stage contracts, shared guards, completion gates.
 - [Preparation](./prepare.md): sticky run contract and reconciled state.
 - [Review scope](./review-scope.md): reviewer inputs, delta eligibility, evidence reuse.
-- [Repair policy](./policy.md): threshold, amendment eligibility, human decisions.
+- [Repair policy](./policy.md): intent grounding, deferred findings, threshold, amendment eligibility, human decisions.
 - [Report contracts](./report-contracts.md): complete reports/ledger, visible summary plus collapsed audit layers, receipts, and final response.
 
 ```text
-contract = PREPARE requested PR with requirements/standards and paginated history
+contract = PREPARE requested PR with requirements/standards, pinned intent contract, and paginated history
 IF preparation is blocked: PAUSE with exact required input
 IF an authorized attempt is incomplete:
   RECONCILE and FINISH only that attempt before reviewing
@@ -31,14 +31,18 @@ LOOP:
   IF review is incomplete: ESCALATE
 
   GUARD expected state
-  judgment = JUDGE current reports and complete prior ledger/history
-  INVESTIGATE uncertain classifications
-  ACCEPT reports/judgment only with every prior actionable ID accounted for
+  judgment = JUDGE current reports, pinned intent contract, and complete prior ledger/history
+  GROUND each finding as in-intent actionable, report-only, or deferred
+  IF an in-intent finding's only viable correction is overarching:
+    DEFER it when its consequence permits; otherwise ESCALATE a scope decision
+  INVESTIGATE uncertain classifications and intent grounding
+  ACCEPT reports/judgment only with every prior actionable and deferred ID accounted for
   IF judgment is incomplete OR uncertainty remains OR policy requires human input:
     ESCALATE
   ACCEPT coverage; update last reviewed SHA and, for FULL, last full-review SHA
 
   IF no repair-worthy findings:
+    RECORD deferred findings in the ledger and report
     IF mode == DELTA:
       POST and VERIFY intermediate summary with complete reports, judgment, and coverage chain
       IF recording fails: ESCALATE
@@ -55,7 +59,7 @@ LOOP:
   POST and VERIFY repair-start reserving repairs used + 1
   IF reservation is unverified: ESCALATE before edits
   INCREMENT repairs used
-  repair = REPAIR authorized findings and run checks
+  repair = REPAIR authorized in-intent findings and run checks
   VALIDATE actual changes independently and complete required checks
   WHILE this attempt's required validation finds an eligible additional finding:
     SCOPE-AMENDMENT
@@ -70,7 +74,7 @@ LOOP:
   CONTINUE at delivered head
 
 SCOPE-AMENDMENT:
-  REQUIRE all amendment conditions from repair policy
+  REQUIRE the finding is in-intent, non-overarching, and meets all amendment conditions from repair policy
   IF eligibility is uncertain: ESCALATE
   POST and VERIFY append-only scope-amendment linked to active repair-start before editing
   KEEPS repairs used unchanged
@@ -83,4 +87,4 @@ ESCALATE:
     human decision/recovery action; PAUSE until answer and state reconciliation
 ```
 
-A clean initial full review can finish directly. Findings in any full review, including final review, fall through to repair when budget permits; the delivered changes then follow the same scope-selection branch. After attempt ten that branch selects full review: success or escalation, never repair eleven. Retries/resumes complete the same reservation; eligible amendments are orchestrator-owned work, not human-input branches.
+A clean initial full review can finish directly. Findings in any full review, including final review, fall through to repair when budget permits; the delivered changes then follow the same scope-selection branch. After attempt ten that branch selects full review: success or escalation, never repair eleven. Retries/resumes complete the same reservation; eligible amendments are orchestrator-owned work, not human-input branches. Deferred findings never authorize repair and remain terminal across resumes; a concern that becomes in-scope again is a new open finding.
