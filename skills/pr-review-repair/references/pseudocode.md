@@ -69,7 +69,9 @@ LOOP:
     REPEAT repair/validation for the amended scope
   IF repair or validation is blocked/incomplete: ESCALATE
   IF no authorized edits remain after deferral:
-    RECORD the deferred findings in the ledger and report; SKIP delivery; CONTINUE at the unchanged head to the next review round with the reserved attempt count unchanged
+    POST and VERIFY append-only summary record linked to the active repair-start listing the deferred IDs with one-line descriptions, grounding, and suggested follow-up, stating that no authorized edits remain and no delivery occurred, and recording the unchanged head with the reserved attempt count kept
+    IF recording fails: ESCALATE
+    RECORD the deferred findings in the ledger and report; SKIP delivery; CONTINUE at the unchanged head to the next review round with the reserved attempt count consumed, not refunded and not re-reserved
 
   GUARD expected state
   delivery = DELIVER authorized signed commits, push, and summary comment

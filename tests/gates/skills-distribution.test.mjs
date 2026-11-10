@@ -588,7 +588,10 @@ test("findings are grounded in PR intent and out-of-scope work is deferred", () 
     "DEFER it when its consequence permits; RECORD it as deferred with no repair-start ID and EXCLUDE or REVERT any edits already made for it; CONTINUE the attempt without editing for that finding; ESCALATE a scope decision when it blocks the PR's stated intent",
     "REVALIDATE actual changes and complete required checks",
     "IF no authorized edits remain after deferral:",
-    "RECORD the deferred findings in the ledger and report; SKIP delivery; CONTINUE at the unchanged head to the next review round with the reserved attempt count unchanged",
+    "POST and VERIFY append-only summary record linked to the active repair-start",
+    "stating that no authorized edits remain and no delivery occurred",
+    "recording the unchanged head with the reserved attempt count kept",
+    "RECORD the deferred findings in the ledger and report; SKIP delivery; CONTINUE at the unchanged head to the next review round with the reserved attempt count consumed, not refunded and not re-reserved",
     "ACCEPT reports/judgment only with every prior actionable and deferred ID accounted for",
     "RECORD deferred findings in the ledger and report",
     "REPAIR authorized in-intent findings and run checks",
@@ -604,6 +607,11 @@ test("findings are grounded in PR intent and out-of-scope work is deferred", () 
       ) ?? []
     ).length >= 2,
     "judgment and repair validation must both defer a non-blocking overarching finding and escalate a blocking one",
+  );
+  assert.match(
+    prReviewPseudocode,
+    /IF no authorized edits remain after deferral:\s+POST and VERIFY append-only summary record linked to the active repair-start[^\n]*\n\s+IF recording fails: ESCALATE\n\s+RECORD the deferred findings in the ledger and report; SKIP delivery; CONTINUE at the unchanged head to the next review round with the reserved attempt count consumed, not refunded and not re-reserved/,
+    "the deferral exit must publish and verify its record, escalate when recording fails, and keep the consumed attempt before continuing",
   );
   for (const requirement of [
     "| Intent grounding |",
