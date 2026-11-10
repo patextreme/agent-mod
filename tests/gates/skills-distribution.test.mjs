@@ -410,10 +410,19 @@ test("report contracts require complete collapsed audits without new storage", (
     "ten attempts",
     "coverage chain",
   ]) {
-    assert.ok(
-      !reportContracts.includes(retired),
-      `retired accounting must not survive in report contracts: ${retired}`,
-    );
+    for (const [file, content] of [
+      ["SKILL.md", prReviewSkill],
+      ["references/report-contracts.md", reportContracts],
+      ["references/pseudocode.md", prReviewPseudocode],
+      ["references/policy.md", repairPolicy],
+      ["references/prepare.md", preparationContract],
+      ["references/review-scope.md", reviewScope],
+    ]) {
+      assert.ok(
+        !content.includes(retired),
+        `retired accounting must not survive in ${file}: ${retired}`,
+      );
+    }
   }
 });
 
@@ -532,6 +541,10 @@ test("verification fixes recorded IDs and defers everything else", () => {
     "verification must re-check resolved IDs so a later fix cannot undo one",
   );
   assert.ok(
+    reviewScope.includes("the recorded IDs (open and already resolved)"),
+    "the verifier brief must include resolved IDs, or it cannot check that they stayed resolved",
+  );
+  assert.ok(
     repairPolicy.includes("A previously resolved ID regressed"),
     "reopening a resolved ID belongs to the repair threshold, not deferral",
   );
@@ -556,6 +569,12 @@ test("stalls escalate without reopening discovery", () => {
       "stalled >= 2 OR any open ID has failed verification 3 times",
     ),
     "the fix loop needs a progress guard",
+  );
+  assert.ok(
+    prReviewPseudocode.includes(
+      "verification_failures = per-ID failed verification counts",
+    ),
+    "the per-ID failed-verification guard needs a declared counter to evaluate",
   );
   assert.ok(
     prReviewPseudocode.includes(

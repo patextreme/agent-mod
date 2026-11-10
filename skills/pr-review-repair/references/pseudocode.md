@@ -13,12 +13,15 @@ contract = PREPARE requested PR with requirements/standards and paginated histor
 IF preparation is blocked: PAUSE with exact required input
 IF an authorized repair is incomplete: RECONCILE and FINISH only that repair
 
-RECOVER rounds used, open IDs, deferred IDs, and last delivered SHA from PR records
+RECOVER rounds used, repair cycles, open IDs, deferred IDs, and last delivered SHA from PR records
 rounds = rounds used
 window = 3
 open = recorded unresolved repair-worthy IDs
 deferred = recorded deferred IDs
 stalled = 0
+verification_failures = per-ID failed verification counts, recovered from PR records
+repair_cycles = recorded repair cycles
+# One repair cycle is one REPAIR -> DELIVER iteration, counted when repair starts.
 
 LOOP:
   GUARD expected phase-specific git/PR state; recheck sources and required checks
@@ -35,6 +38,7 @@ LOOP:
     IF open is empty:
       POST and VERIFY round summary
       FINISH verified
+    repair_cycles = repair_cycles + 1
     REPAIR open IDs and run required checks
     VALIDATE actual changes independently and complete required checks
     IF repair or validation is blocked/incomplete: ESCALATE
@@ -49,10 +53,11 @@ LOOP:
     FINISH limited coverage
 
   verify = VERIFY every recorded ID at the current head, plus required checks
-  RESOLVED   -> remove from open
-  UNRESOLVED -> keep the ID open
-  REGRESSION -> keep the ID open; a fix broke what it touched, a required check,
-                or a previously resolved ID
+  RESOLVED   -> remove from open; reset that ID's verification_failures to 0
+  UNRESOLVED -> keep the ID open; increment that ID's verification_failures
+  REGRESSION -> keep the ID open; increment that ID's verification_failures; a
+                fix broke what it touched, a required check, or a previously
+                resolved ID
   NEW ISSUE  -> add to deferred; never repair
   IF any ID moved to deferred: record it in the ledger and the pending summary
   IF open is empty:
@@ -63,6 +68,7 @@ LOOP:
   IF progress: stalled = 0 ELSE stalled = stalled + 1
   IF stalled >= 2 OR any open ID has failed verification 3 times: ESCALATE
 
+  repair_cycles = repair_cycles + 1
   REPAIR remaining open IDs and run required checks
   VALIDATE actual changes independently and complete required checks
   IF repair or validation is blocked/incomplete: ESCALATE

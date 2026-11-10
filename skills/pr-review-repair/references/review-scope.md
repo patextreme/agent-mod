@@ -14,7 +14,7 @@ Verification-sourced issues are not reviewers' business during discovery; report
 
 ## Verifier brief
 
-Verification runs only after the discovery window closes. Use a fresh, read-only Agent with the open IDs, each ID's fixing commits, the affected files/contracts, and the required check definitions. Give it no license to survey the PR.
+Verification runs only after the discovery window closes. Use a fresh, read-only Agent with the recorded IDs (open and already resolved), each ID's fixing commits, the affected files/contracts, and the required check definitions. Give it no license to survey the PR.
 
 Its question is narrow: **does the current head resolve each open ID, keep every resolved ID resolved, and did the fix break what it touched?** Checking already-resolved IDs is what stops one repair from silently undoing an earlier one.
 
