@@ -152,7 +152,7 @@ test(
   () => checkSkillNotice(process.env.PI_SKILLS_OUTPUT),
 );
 
-// --- pr-review-repair report-presentation documentation contract ------
+// --- pr-review-repair contract: capped discovery, verification, records ------
 
 const reportContracts = readFileSync(
   join(repoRoot, "skills/pr-review-repair/references/report-contracts.md"),
@@ -174,7 +174,6 @@ const preparationContract = readFileSync(
   join(repoRoot, "skills/pr-review-repair/references/prepare.md"),
   "utf8",
 );
-
 const reviewScope = readFileSync(
   join(repoRoot, "skills/pr-review-repair/references/review-scope.md"),
   "utf8",
@@ -228,7 +227,7 @@ const auditPreservations = [
 for (const [name, kind] of [
   ["clean round", "summary"],
   ["repaired round", "summary"],
-  ["incremental round", "summary"],
+  ["capped round", "summary"],
   ["escalated round", "escalation"],
 ]) {
   test(`${name} example preserves identity, audit, and bookkeeping`, () => {
@@ -248,16 +247,16 @@ for (const [name, kind] of [
         `${name} collapsed audit must preserve: ${preserved}`,
       );
     }
-    assert.ok(
-      /repair-start|Audit record/.test(example.audit),
-      `${name} collapsed audit must retain repair links/bookkeeping`,
-    );
     assert.doesNotMatch(
       example.visible,
       /\/tmp\/|\/home\//,
       `${name} visible summary must not expose local paths`,
     );
-    assert.match(example.visible, /\b\d+\/10\b/, `${name} must show budget`);
+    assert.match(
+      example.visible,
+      /Rounds:\*\* \d\/3/,
+      `${name} must show the three-round window`,
+    );
   });
 }
 
@@ -292,6 +291,10 @@ test("clean-round example is outcome-first, near 150 words, without repeated rep
     example.visible.includes("**No findings or unresolved investigations.**"),
     "clean round must report finding counts including investigations",
   );
+  assert.ok(
+    example.visible.includes("Discovery converged in round one"),
+    "a converged round must state that no further rounds run",
+  );
 });
 
 test("repaired example uses stable IDs, commits, and truthful validation", () => {
@@ -303,6 +306,10 @@ test("repaired example uses stable IDs, commits, and truthful validation", () =>
   assert.match(example.visible, /`abc1234`/);
   assert.match(example.visible, /`def5678`/);
   assert.match(example.visible, /regression test/);
+  assert.ok(
+    example.visible.includes("In progress"),
+    "a mid-window repair round is in progress",
+  );
   assert.ok(
     example.visible.includes("cached evidence"),
     "repaired round must attribute cached validation truthfully",
@@ -320,10 +327,31 @@ test("repaired example uses stable IDs, commits, and truthful validation", () =>
     reviewed < delivered,
     "delivered head must be shown when it differs from the reviewed head",
   );
+});
+
+test("capped example reports deferred findings and closed discovery", () => {
+  const example = recordExample("capped round");
+  assert.match(
+    example.visible,
+    /## Review complete — limited coverage/,
+    "a capped run finishes as limited coverage",
+  );
   assert.ok(
-    example.audit.includes("repair-start link") ||
-      example.audit.includes("Repair-start link"),
-    "repaired round audit must link its repair-start record",
+    example.visible.includes("Deferred (not repaired in this run):"),
+    "deferred findings must be listed visibly",
+  );
+  assert.ok(
+    example.visible.includes("F-005") && example.visible.includes("F-006"),
+    "each deferred finding needs a stable ID",
+  );
+  assert.ok(
+    example.visible.includes("no fourth review round"),
+    "the visible summary must state the closed-window limitation",
+  );
+  assert.match(example.visible, /Deferred:\*\* 2/);
+  assert.ok(
+    example.audit.includes("deferred (verification-sourced, never repaired)"),
+    "the ledger must record deferred dispositions as never repaired",
   );
 });
 
@@ -338,7 +366,7 @@ test("escalated example places blockers and recovery before routine details", ()
   );
   assert.match(
     example.visible,
-    /recovery action/,
+    /recovery action/i,
     "escalation must state the specific recovery action",
   );
   assert.ok(
@@ -358,159 +386,44 @@ test("report contracts require complete collapsed audits without new storage", (
     "Complete original Standards and Spec reports",
     "full finding ledger",
     "Run identity, pinned refs",
-    "repair-start and any scope-amendment record links",
     "delivery state and receipts",
-    "incomplete-operation/recovery state",
+    "Nothing is replaced by a digest, external storage, or local-file links",
+    "only as non-public audit references",
+    "never label unknown or unavailable checks as green",
+    "never move them into collapsed details",
+    "readability target, not a hard cap",
+    "kind=<summary|escalation>",
+    "report the unrecorded state directly to the user",
+    "never invent a receipt or link",
+    "`Rounds: n/3`",
+    "`Repair cycles: n`",
   ]) {
     assert.ok(
       reportContracts.includes(required),
-      `collapsed audit contract must require: ${required}`,
+      `report contract must require: ${required}`,
     );
   }
-  assert.ok(
-    reportContracts.includes(
-      "Nothing is replaced by a digest, external storage, or local-file links",
-    ),
-    "contract must forbid digest/external/local-file substitutes",
-  );
-  assert.ok(
-    reportContracts.includes("only as non-public audit references"),
-    "local paths must be confined to non-public audit references",
-  );
-  assert.ok(
-    reportContracts.includes(
-      "never label unknown or unavailable checks as green",
-    ),
-    "check truthfulness requirement must be explicit",
-  );
-  assert.ok(
-    reportContracts.includes("never move them into collapsed details"),
-    "material limitations must stay out of collapsed details",
-  );
-  assert.ok(
-    reportContracts.includes("readability target, not a hard cap"),
-    "word target must remain a soft readability goal",
-  );
-  assert.ok(
-    reportContracts.includes(
-      "kind=<repair-start|scope-amendment|summary|escalation>",
-    ),
-    "record identity marker template must be retained",
-  );
-  for (const reservationField of [
-    "- PR / run / round:",
-    "- Pinned base / merge-base:",
-    "- Expected local and remote head:",
-    "- Repairs used:",
-    "- Authorized actionable IDs:",
-    "- Intended scope:",
-    "- State: repair reserved; no delivery confirmed",
+  for (const retired of [
+    "repair-start",
+    "scope-amendment",
+    "n/10",
+    "ten attempts",
+    "coverage chain",
   ]) {
-    assert.ok(
-      reportContracts.includes(reservationField),
-      `repair-start reservation field must be retained: ${reservationField}`,
-    );
+    for (const [file, content] of [
+      ["SKILL.md", prReviewSkill],
+      ["references/report-contracts.md", reportContracts],
+      ["references/pseudocode.md", prReviewPseudocode],
+      ["references/policy.md", repairPolicy],
+      ["references/prepare.md", preparationContract],
+      ["references/review-scope.md", reviewScope],
+    ]) {
+      assert.ok(
+        !content.includes(retired),
+        `retired accounting must not survive in ${file}: ${retired}`,
+      );
+    }
   }
-  assert.ok(
-    reportContracts.includes("reservation sequencing is unchanged"),
-    "repair reservation contract must remain unchanged",
-  );
-  assert.ok(
-    reportContracts.includes(
-      "report the unrecorded state directly to the user",
-    ),
-    "publication failure must still be disclosed",
-  );
-  assert.ok(
-    reportContracts.includes("never invent a receipt or link"),
-    "fabricated receipts must stay forbidden",
-  );
-});
-
-test("in-attempt scope amendments keep their reservation and stay out of human-input branches", () => {
-  for (const required of [
-    "## Scope-amendment comment",
-    "- Active repair-start:",
-    "- Added actionable IDs:",
-    "- Added scope:",
-    "- In-scope rationale:",
-    "State: scope amended; no new reservation; no delivery confirmed",
-    "never increments `repairs used`",
-  ]) {
-    assert.ok(
-      reportContracts.includes(required),
-      `scope-amendment contract must require: ${required}`,
-    );
-  }
-  assert.ok(
-    repairPolicy.includes("The attempt count stays unchanged"),
-    "repair policy must keep amendments within the active reservation",
-  );
-  for (const boundary of [
-    "no new requirements",
-    "product behavior",
-    "public contract",
-    "security/custody policy",
-    "consequential design or architecture change",
-    "is not high-risk",
-    "Accounting is unambiguous",
-  ]) {
-    assert.ok(
-      repairPolicy.includes(boundary),
-      `amendment boundary must retain: ${boundary}`,
-    );
-  }
-  assert.ok(
-    repairPolicy.includes(
-      "consequential design, architecture or public-contract changes",
-    ),
-    "repair policy must require input for consequential architecture changes",
-  );
-  assert.ok(
-    repairPolicy.includes("security/custody policy changes"),
-    "repair policy must require input for security/custody policy changes",
-  );
-  assert.ok(
-    prReviewSkill.includes("amendments, or human-input decisions") &&
-      prReviewSkill.includes("[Repair policy](./references/policy.md)"),
-    "skill must load repair policy for amendment and human-input decisions",
-  );
-  assert.ok(
-    repairPolicy.includes("fails the in-attempt amendment conditions") &&
-      reportContracts.includes(
-        "Escalate ineligible or unresolved amendments",
-      ) &&
-      reportContracts.includes("[repair policy](./policy.md)"),
-    "records must defer ineligible amendments to the policy's human-input rules",
-  );
-  assert.ok(
-    prReviewPseudocode.includes("SCOPE-AMENDMENT") &&
-      prReviewPseudocode.includes("KEEPS repairs used unchanged"),
-    "pseudocode must record the amendment without a new reservation",
-  );
-  assert.ok(
-    prReviewPseudocode.includes(
-      "eligible amendments are orchestrator-owned work, not human-input branches",
-    ) && repairPolicy.includes("Record eligible amendments and continue"),
-    "orchestrator-owned amendments must not become human-input branches",
-  );
-  assert.ok(
-    repairPolicy.includes("## Repair threshold") &&
-      repairPolicy.includes("## In-attempt scope amendments") &&
-      repairPolicy.includes("The attempt count stays unchanged"),
-    "repair policy reference must keep thresholds and amendment rules",
-  );
-  assert.ok(
-    preparationContract.includes("sticky contract") &&
-      preparationContract.includes("paginated comments") &&
-      preparationContract.includes("Unpublished commits"),
-    "preparation contract must keep setup and reconciliation requirements",
-  );
-  assert.ok(
-    prReviewSkill.includes("./references/policy.md") &&
-      prReviewSkill.includes("./references/prepare.md"),
-    "skill must disclose detailed policy and preparation contracts",
-  );
 });
 
 test("skills keep concise user responses with complete internal handoffs", () => {
@@ -519,7 +432,7 @@ test("skills keep concise user responses with complete internal handoffs", () =>
     "pr-review skill must retain complete stage outputs",
   );
   assert.ok(
-    prReviewSkill.includes("full ledger remains in PR history"),
+    prReviewSkill.includes("ledger stays in PR history"),
     "ledger must stay in PR history, not the user response",
   );
   assert.ok(
@@ -546,7 +459,7 @@ test("skills keep concise user responses with complete internal handoffs", () =>
       "POST and VERIFY escalation record when possible",
     ) &&
       prReviewPseudocode.includes(
-        "REPORT missing receipts/history directly if recording fails",
+        "REPORT missing receipts directly if recording fails",
       ),
     "pseudocode publication gates must be preserved",
   );
@@ -557,73 +470,153 @@ test("skills keep concise user responses with complete internal handoffs", () =>
 });
 
 // Static documentation guards, not executable proof of agent control flow.
-test("repair loop requires full boundary reviews and impact-aware deltas", () => {
+test("discovery is capped at three full review rounds", () => {
   assert.ok(prReviewSkill.includes("./references/review-scope.md"));
+  assert.ok(
+    prReviewSkill.includes("Discovery is capped at three full review rounds"),
+    "skill must state the discovery cap up front",
+  );
+  assert.ok(
+    prReviewPseudocode.includes("window = 3") &&
+      prReviewPseudocode.includes("IF rounds < window:"),
+    "control flow must gate discovery on the round window",
+  );
+  assert.ok(
+    prReviewPseudocode.includes("IF rounds < window:") &&
+      prReviewPseudocode.includes("no fourth review ever runs"),
+    "a converged round must finish rather than start another",
+  );
+  assert.ok(
+    reviewScope.includes("there is no delta or changed-lines-only review"),
+    "review scope must drop delta mode explicitly",
+  );
+  assert.ok(
+    reviewScope.includes("the entire PR diff from the pinned merge-base"),
+    "every discovery round reviews the full PR diff",
+  );
+  for (const retired of ["last-reviewed-sha", "Delta eligibility"]) {
+    assert.ok(
+      !reviewScope.includes(retired),
+      `review scope must not retain delta machinery: ${retired}`,
+    );
+  }
+  assert.ok(
+    !prReviewPseudocode.includes("mode = DELTA") &&
+      !prReviewPseudocode.includes("SCOPE-AMENDMENT"),
+    "delta and amendment branches must be gone from the control flow",
+  );
+});
+
+test("verification fixes recorded IDs and defers everything else", () => {
+  assert.ok(
+    prReviewSkill.includes(
+      "confirms, denies, or regresses; it never discovers",
+    ),
+    "skill must state the verification boundary",
+  );
   for (const requirement of [
-    "callers, dependencies, tests, and contracts",
-    "Bound impact rather than stopping at changed lines",
-    "fresh, read-only, history-free reviewers",
-    "Supply only PR/worktree identity",
-    "Exclude prior reports, judgments, repair rationale/summaries, and history comments",
-    "from the review delegate and both axis prompts",
-    "separate judge owns prior-finding reconciliation",
-    "not whole-PR verification",
-    "git diff <last-reviewed-sha> <current-head> --",
-    "git log <last-reviewed-sha>..<current-head> --oneline",
-    "verify ancestry first",
-    "replace `code-review`'s fixed-point/three-dot diff",
-    "rather than treating unchanged PR work as missing",
+    "Verification **confirms, denies, or regresses; it never discovers.**",
+    "does the current head resolve each open ID, keep every resolved ID resolved, and did the fix break what it touched?",
+    "**Resolved:**",
+    "**Unresolved:**",
+    "**Regression:**",
+    "**New issue:**",
+    "Never repaired after the window",
+    "a check failure traceable to a repair commit is a regression, not a deferral",
   ]) {
     assert.ok(reviewScope.includes(requirement), requirement);
   }
-  assert.match(
-    prReviewPseudocode,
-    /IF no repair-worthy findings:\s+IF mode == DELTA:\s+POST and VERIFY intermediate summary with complete reports, judgment, and coverage chain\s+IF recording fails: ESCALATE\s+mode = FULL \(final\); CONTINUE at the same unchanged head/,
-  );
-  assert.match(
-    prReviewPseudocode,
-    /IF DELTA impact cannot be bounded:[\s\S]*?CONTINUE without accepting coverage/,
+  assert.ok(
+    prReviewPseudocode.includes("NEW ISSUE  -> add to deferred; never repair"),
+    "new work must route to deferral, not repair",
   );
   assert.ok(
-    prReviewPseudocode.includes("mode = FULL\nIF resuming") &&
-      prReviewPseudocode.includes(
-        "A clean initial full review can finish directly",
-      ) &&
-      prReviewPseudocode.includes(
-        "including final review, fall through to repair",
-      ),
+    prReviewPseudocode.includes("REGRESSION -> keep the ID open"),
+    "a fix-induced regression keeps its ID open",
   );
-  assert.doesNotMatch(prReviewPseudocode, /review = REVIEW full PR diff/);
-});
-
-test("delta coverage invalidates safely and survives only evidenced resumes", () => {
+  assert.ok(
+    prReviewPseudocode.includes(
+      "VERIFY every recorded ID at the current head",
+    ) && reviewScope.includes("keep every resolved ID resolved"),
+    "verification must re-check resolved IDs so a later fix cannot undo one",
+  );
+  assert.ok(
+    reviewScope.includes("the recorded IDs (open and already resolved)"),
+    "the verifier brief must include resolved IDs, or it cannot check that they stayed resolved",
+  );
+  assert.ok(
+    repairPolicy.includes("A previously resolved ID regressed"),
+    "reopening a resolved ID belongs to the repair threshold, not deferral",
+  );
   for (const requirement of [
-    "intervening accepted review/judgment chain",
-    "all intervening changes belong to verified, authorized repair deliveries",
-    "Unchanged PR identity, pinned base/merge-base, requirements, standards, project instructions, and required-check definitions",
-    "unexpected commits",
-    "rewritten history",
-    "unbounded/cross-cutting impact",
-    "Reconcile unexpected state under the shared guards first",
-    "Older records lacking scope/chain evidence require full review",
-    "delivery alone never advances the reviewed SHA",
-    "preserving the ledger and budget",
-    "including added or removed requirements/standards files",
-    "Every reviewer still reads required sources",
+    "## Closed discovery",
+    "repair only IDs already open and defer everything else",
+    "Deferred findings are posted, never silently dropped",
+    "Deferral is a recording decision, not a human-input branch",
   ]) {
-    assert.ok(reviewScope.includes(requirement), requirement);
+    assert.ok(repairPolicy.includes(requirement), requirement);
   }
   assert.ok(
-    preparationContract.includes("coverage recovery") &&
-      preparationContract.includes("[review scope](./review-scope.md)"),
+    reportContracts.includes("## Deferred findings") &&
+      reportContracts.includes("never blocks a `limited coverage` finish"),
+    "deferred findings need a recording contract that does not block finishing",
   );
-  assert.ok(prReviewPseudocode.includes("revalidate review inputs"));
 });
 
-test("incremental reviews preserve checks, reservations, and the final attempt limit", () => {
+test("stalls escalate without reopening discovery", () => {
   assert.ok(
-    reviewScope.includes("delta review preserves all required quality gates"),
+    prReviewPseudocode.includes(
+      "stalled >= 2 OR any open ID has failed verification 3 times",
+    ),
+    "the fix loop needs a progress guard",
   );
+  assert.ok(
+    prReviewPseudocode.includes(
+      "verification_failures = per-ID failed verification counts",
+    ),
+    "the per-ID failed-verification guard needs a declared counter to evaluate",
+  );
+  assert.ok(
+    prReviewPseudocode.includes("lost at least one ID this cycle"),
+    "progress must require a net loss of open IDs so alternating regressions stall",
+  );
+  assert.ok(
+    prReviewPseudocode.includes(
+      "Deferred findings never justify another review round or an escalation",
+    ),
+    "deferral must not become an escalation trigger",
+  );
+  assert.ok(
+    prReviewSkill.includes(
+      "never repaired — escalate them before the window closes",
+    ),
+    "unrelated check failures must escalate inside the window and defer after it",
+  );
+  assert.ok(
+    prReviewSkill.includes("A resume never restarts the review window"),
+    "resumes must not reopen discovery",
+  );
+  assert.ok(
+    prReviewPseudocode.includes(
+      "a clean verification is `limited coverage`, not `verified`",
+    ),
+    "capped runs must not claim verification",
+  );
+  for (const outcome of [
+    "**`verified`**",
+    "**`limited coverage`**",
+    "**`escalated`**",
+  ]) {
+    assert.ok(prReviewSkill.includes(outcome), `skill must define ${outcome}`);
+  }
+  assert.ok(
+    !prReviewSkill.includes("ten attempts") &&
+      !prReviewSkill.includes("repairs used"),
+    "the numeric repair budget must not survive",
+  );
+});
+
+test("incremental reviews preserve checks and reuse rules", () => {
   assert.ok(
     reviewScope.includes(
       "matching source, configuration, dependencies, and relevant environment",
@@ -635,57 +628,37 @@ test("incremental reviews preserve checks, reservations, and the final attempt l
     ),
   );
   assert.ok(
-    repairPolicy.includes(
-      "Findings from fresh full/delta review or judgment start the next repair cycle",
+    reviewScope.includes(
+      "Every reviewer and verifier still reads required sources",
     ),
   );
   assert.ok(
-    repairPolicy.includes(
-      "post-delivery delta review cannot retroactively amend a reservation",
-    ),
-  );
-  assert.ok(prReviewPseudocode.includes("repairs used < 10, otherwise FULL"));
-  assert.ok(
-    prReviewPseudocode.includes(
-      "After attempt ten that branch selects full review: success or escalation, never repair eleven",
-    ),
+    preparationContract.includes("sticky contract") &&
+      preparationContract.includes("paginated comments") &&
+      preparationContract.includes("Unpublished commits"),
+    "preparation contract must keep setup and reconciliation requirements",
   );
   assert.ok(
-    prReviewSkill.includes(
-      "Each verified repair-start reserves one of ten attempts",
-    ),
+    preparationContract.includes("per-ID failed-verification counts"),
+    "preparation must recover the guard's per-ID verification failures",
   );
-  assert.ok(prReviewSkill.includes("complete full review/judgment"));
-});
-
-test("reports expose incremental scope and preserve the accepted coverage chain", () => {
-  for (const requirement of [
-    "## Review coverage record",
-    "Last accepted full-review SHA and last accepted reviewed SHA",
-    "durable links to complete reports/judgments",
-    "input fingerprints",
-    "invalidation/fallback reason",
-    "final-full-review status",
-    "Include earlier complete reports by durable link rather than replacing them with the delta report",
-    "A clean delta alone is in progress, not a final decision",
-  ]) {
-    assert.ok(reportContracts.includes(requirement), requirement);
-  }
-  for (const name of ["repaired round", "incremental round"]) {
-    const example = recordExample(name);
-    assert.match(example.visible, /In progress/);
-    assert.match(example.visible, /final full review pending/);
-    assert.doesNotMatch(example.visible, /## Review complete/);
-    assert.match(example.audit, /complete Review coverage record/);
-  }
-  const delta = recordExample("incremental round");
-  assert.match(delta.visible, /abc1234\.\.def5678/);
-  assert.match(delta.visible, /not whole-PR verification/);
-  assert.match(delta.audit, /last full-review SHA abc1234/);
-  assert.match(delta.audit, /last reviewed SHA def5678/);
-  assert.match(
-    recordExample("clean round").visible,
-    /clean initial full review also completes the final review/,
+  assert.ok(
+    preparationContract.includes("coverage limitation"),
+    "an authorized missing issue/spec must be reported as a coverage limitation",
+  );
+  assert.ok(
+    preparationContract.includes("[review scope](./review-scope.md)"),
+    "preparation must defer reuse and state recovery to review scope",
+  );
+  assert.ok(
+    repairPolicy.includes("## Repair threshold") &&
+      repairPolicy.includes("## Human input"),
+    "repair policy must keep thresholds and human-input rules",
+  );
+  assert.ok(
+    prReviewSkill.includes("./references/policy.md") &&
+      prReviewSkill.includes("./references/prepare.md"),
+    "skill must disclose detailed policy and preparation contracts",
   );
 });
 

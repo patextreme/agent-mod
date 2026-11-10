@@ -40,7 +40,7 @@ Each extension is a Nix flake output named `pi-<name>` and is not installed by `
 
 | Skill | Description |
 |-------|-------------|
-| [`pr-review-repair`](./skills/pr-review-repair/SKILL.md) | Coordinate full two-axis PR reviews, incremental repair reviews, judgment, and publication |
+| [`pr-review-repair`](./skills/pr-review-repair/SKILL.md) | Coordinate three rounds of full two-axis PR review, then a bounded fix-and-verify loop that defers new findings |
 
 ## Nix Packages
 
@@ -73,7 +73,7 @@ Pi must be installed separately and available on `PATH`, or selected with `PI_AC
 - **External skill** — supply `code-review` yourself; it is not bundled. Resolve its real location and pass the absolute path plus repository/worktree context to delegates.
 - **Delivery access** — Git and authenticated `gh` access to PRs, issues, checks, pushes, and comments, plus commit signing and DCO sign-off. Target-project policy stays controlling.
 
-Invocation authorizes qualifying edits and publication — commits, normal pushes, and verified PR history comments — not merges or a tool-permission bypass. Read [the skill](./skills/pr-review-repair/SKILL.md) for prerequisites, round boundaries, and the ten-attempt budget; it ships the complete [MIT notice](./skills/LICENSE). Frontmatter, packaging, and discovery checks give static distribution assurance only — not live operational safety, model obedience, or stock-Pi runtime support.
+Invocation authorizes qualifying edits and publication — commits, normal pushes, and verified PR history comments — not merges or a tool-permission bypass. Read [the skill](./skills/pr-review-repair/SKILL.md) for prerequisites, the three-round discovery window, and the fix-and-verify loop; it ships the complete [MIT notice](./skills/LICENSE). Frontmatter, packaging, and discovery checks give static distribution assurance only — not live operational safety, model obedience, or stock-Pi runtime support.
 
 ## Development
 
