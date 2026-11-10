@@ -34,7 +34,7 @@ Delegate state checks at every stage boundary:
 
 - Verify expected base and phase state. Review and verify require aligned local/remote heads; repair permits authorized working-tree changes; delivery may advance local HEAD before the remote.
 - Track rounds used, open and deferred finding IDs, local and delivered SHAs, and repair-owned changes. Unexpected state pauses for reconciliation.
-- Accept actual code/diffs and check results, not agent summaries alone. Incomplete coverage, unresolved investigation, or failed or unavailable required checks cannot establish success. PR-caused failures are repairable; unrelated or environmental failures require escalation rather than unrelated edits.
+- Accept actual code/diffs and check results, not agent summaries alone. Incomplete coverage, unresolved investigation, or failed or unavailable required checks cannot establish success. PR-caused failures are repairable; unrelated or environmental failures are never repaired — escalate them before the window closes, and afterwards record them as deferred and report them as limitations.
 
 ## Stages
 
@@ -46,7 +46,7 @@ Delegate state checks at every stage boundary:
 
 ## Finish
 
-Post and verify a summary for every round that changes state, including the final decision, so the ledger stays in PR history. Finish only at an unchanged current head with every open ID resolved and verified, required checks passing, the deferred list published, and delivery receipts complete.
+Post and verify a summary for every round that changes state, including the final decision, so the ledger stays in PR history. Finish only at an unchanged current head with every open ID resolved and verified, the deferred list published, delivery receipts complete, and required checks passing — except an unrelated failure recorded as deferred, which is reported as a limitation and never counted as passing.
 
 Three outcomes:
 

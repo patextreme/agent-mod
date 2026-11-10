@@ -583,6 +583,12 @@ test("stalls escalate without reopening discovery", () => {
     "deferral must not become an escalation trigger",
   );
   assert.ok(
+    prReviewSkill.includes(
+      "never repaired — escalate them before the window closes",
+    ),
+    "unrelated check failures must escalate inside the window and defer after it",
+  );
+  assert.ok(
     prReviewSkill.includes("A resume never restarts the review window"),
     "resumes must not reopen discovery",
   );
