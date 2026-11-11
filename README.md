@@ -40,7 +40,7 @@ Each extension is a Nix flake output named `pi-<name>` and is not installed by `
 
 | Skill | Description |
 |-------|-------------|
-| [`pr-review-repair`](./skills/pr-review-repair/SKILL.md) | Coordinate three rounds of full two-axis PR review, then a bounded fix-and-verify loop that defers new findings |
+| [`pr-review-repair`](./skills/pr-review-repair/SKILL.md) | Coordinate three rounds of full two-axis PR review, then a bounded fix-and-verify loop that classifies new findings |
 
 ## Nix Packages
 

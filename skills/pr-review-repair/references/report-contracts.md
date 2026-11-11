@@ -15,7 +15,7 @@ Keep PR history append-only: post a new comment, never rewrite an earlier one. E
 - State the outcome first: `verified`, `limited coverage`, or `escalated` for a final decision; `In progress` for a round summary.
 - Put blockers, required human decisions, and deferred findings immediately below the outcome.
 - Give finding counts, including unresolved investigations. Repair bullets carry stable IDs, fixing commits, and validation attribution.
-- Report checks, including failures, pending/unknown/unavailable results, skips, and material caveats. Attribute fresh versus cached evidence to its source; never label unknown or unavailable checks as green.
+- Report checks, including failures, pending/unknown/unavailable results, skips, and material caveats. Attribute fresh versus cached evidence to its source; never label unknown or unavailable checks as green. An unrelated or environmental failure is a material limitation, never a deferral.
 - Keep material coverage/scope limitations visible; never move them into collapsed details.
 - Show reviewed commit, `Rounds: n/3`, `Repair cycles: n`, and the delivered head when it differs from the reviewed head.
 - Omit empty headings; retain their values in the audit.
@@ -23,9 +23,13 @@ Keep PR history append-only: post a new comment, never rewrite an earlier one. E
 
 ## Deferred findings
 
-After the discovery window closes, new issues are deferred, not repaired. Give each a stable ID, a one-line description, the file or area, and why it was not repaired (usually "not repaired in this run"). Deferred findings stay in the visible summary because a reader deciding whether to merge needs them.
+Deferred findings are repair-worthy *and* outside this PR's intended scope: follow-up work, not minor findings. A finding defers only when it meets the repair threshold and is outside that scope: either the diff neither introduced nor materially changed it and the originating issue/spec and triage decisions do not require it, or an external dependency or ticket blocks the repair.
 
-Deferral is not ambiguity and not an escalation: it changes no count, adds no round, and never blocks a `limited coverage` finish.
+Give each a stable ID, a one-line description, the file or area, why it was not repaired, and the ticket, decision, or measurement that unblocks it. Deferred findings stay in the visible summary because they are real follow-up work.
+
+Report-only findings are recorded evidence, not work: keep them in the collapsed audit ledger with their evidence and disposition, and let them contribute at most one visible count. Never enumerate report-only findings in the visible summary or describe them as deferred.
+
+Deferral is not ambiguity and not an escalation: it adds no round and never blocks a `limited coverage` finish.
 
 ## Collapsed audit contract
 
@@ -99,19 +103,18 @@ receipts: commit `def5678`, push to PR head, comment posted; deferred: none
 
 ```markdown
 <!-- pr-review-repair run=a1b2c3d round=3 kind=summary -->
-## Review complete — limited coverage, repairs verified, 2 findings deferred
+## Review complete — limited coverage, repairs verified, 1 finding deferred
 
-Discovery closed after round three. All four recorded findings are resolved and verified at `def5678`; required checks pass. Two issues noticed during verification were deferred because no review round remains.
+Discovery closed after round three. All four recorded findings are resolved and verified at `def5678`; required checks pass. One issue noticed during verification is a significant bug outside this PR's scope, recorded as a deferred follow-up.
 
-**Deferred (not repaired in this run):**
-- F-005 `extensions/permission/rules.ts`: an `allow` rule shadows a later `deny` rule when both match. Precedence needs a product decision.
-- F-006 `extensions/notify-me/index.ts`: retry backoff ignores `Retry-After`. Hardening only; no demonstrated consequence.
+**Deferred (repair-worthy, outside this PR's scope):**
+- F-005 `extensions/permission/rules.ts`: an `allow` rule shadows a later `deny` rule when both match. Pre-existing and outside this diff; follow-up tracked in `PERM-12`.
 
 **Repairs:** F-001 commit-subject injection (`abc1234`); F-002 retry cap (`abc1234`); F-003 missing directory-rename test (`def5678`); F-004 stale help text (`def5678`).
 
-**Validation:** full suite passed at `def5678`; lint, typecheck, and format passed fresh. Nix acceptance was unavailable and is not counted as passing.
+**Validation:** full suite passed at `def5678`; lint, typecheck, and format passed fresh. Nix acceptance was unavailable and is reported as a material limitation, not counted as passing.
 
-**Rounds:** 3/3 · **Repair cycles:** 2 · **Deferred:** 2 · **Scope:** full PR diff `a1b2c3d..def5678`; no fourth review round ran, so anything outside the recorded IDs is unreviewed.
+**Rounds:** 3/3 · **Repair cycles:** 2 · **Deferred:** 1 · **Report-only:** 1 · **Scope:** full PR diff `a1b2c3d..def5678`; no fourth review round ran, so anything outside the recorded IDs is unreviewed.
 
 <details>
 <summary>Full reports and audit details</summary>
@@ -120,11 +123,11 @@ Complete original Standards report: [round 3 report verbatim]
 
 Complete original Spec report: [round 3 report verbatim]
 
-Complete ledger: F-001..F-004 repaired and verified; F-005, F-006 deferred (verification-sourced, never repaired); no report-only findings.
+Complete ledger: F-001..F-004 repaired and verified; F-005 deferred (verification-sourced, never repaired, repair-worthy and outside this PR's scope); F-006 report-only (hardening, no demonstrated consequence).
 
 [A] run=a1b2c3d; pinned merge-base a1b2c3d; reviewed `abc1234`; delivered `def5678`;
-rounds 3/3; repair cycles 2; checks: fresh lint/typecheck/format/tests, nix unavailable;
-deferred dispositions recorded; no incomplete-operation state
+rounds 3/3; repair cycles 2; checks: fresh lint/typecheck/format/tests, nix unavailable
+(material limitation); deferred dispositions recorded; no incomplete-operation state
 </details>
 ```
 
@@ -140,7 +143,7 @@ deferred dispositions recorded; no incomplete-operation state
 
 **Validation:** suite green at `def5678` except the F-002 regression test added in `abc1234`, which fails by design until the decision lands.
 
-**Rounds:** 3/3 · **Repair cycles:** 2 · **Deferred:** 1 · **Human input:** required
+**Rounds:** 3/3 · **Repair cycles:** 2 · **Deferred:** none · **Human input:** required
 
 <details>
 <summary>Full reports and audit details</summary>
@@ -149,7 +152,7 @@ Complete original Standards report: [round 3 report verbatim]
 
 Complete original Spec report: [round 3 report verbatim]
 
-Complete ledger: F-001 repaired `abc1234`; F-002 awaiting human input; F-003 deferred.
+Complete ledger: F-001 repaired `abc1234`; F-002 awaiting human input; F-003 report-only.
 
 [A] run=a1b2c3d; pinned merge-base a1b2c3d; rounds 3/3; repair cycles 2; incomplete-operation state: F-002 fix not delivered, worktree at `def5678`; recovery input: F-002
 behavior decision
@@ -169,6 +172,6 @@ Record: <verified PR comment link>
 
 Keep the full reports/ledger in PR history and the internal handoff. If required publication failed, disclose the missing record, exact operation state, and recovery action; never invent a receipt or link.
 
-- **Verified:** a review round converged with no repair-worthy findings, checks pass, nothing deferred.
-- **Limited coverage:** the discovery window closed with repairs; every open ID is resolved and verified, and any deferred findings are listed.
+- **Verified:** a review round converged with no repair-worthy findings, checks pass, and that round repaired and deferred nothing.
+- **Limited coverage:** the discovery window closed with repairs; every open ID is resolved and verified, and any deferred findings are repair-worthy and outside the PR's scope.
 - **Escalated:** a fix stalled or is blocked, human input is needed, or evidence/receipts are incomplete.
