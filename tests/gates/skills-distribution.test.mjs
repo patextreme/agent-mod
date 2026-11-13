@@ -31,6 +31,8 @@ const packagedSkills = {
   "pr-review-repair": [
     "references/pseudocode.md",
     "references/report-contracts.md",
+    "references/audit-publication.md",
+    "references/audit-publication.mjs",
     "references/policy.md",
     "references/prepare.md",
     "references/review-scope.md",
@@ -101,10 +103,23 @@ function checkInstalledSkill(installedRoot, name, references) {
     `${name} must stay model-invocable`,
   );
 
+  // Progressive disclosure may reach a bundled resource through a reference.
+  const reachable = new Set([skillPath]);
+  for (const path of reachable) {
+    if (!path.endsWith(".md")) continue;
+    for (const target of localMarkdownTargets(readFileSync(path, "utf8"))) {
+      const destination = resolve(
+        dirname(path),
+        decodeURIComponent(target.split(/[?#]/)[0]),
+      );
+      assertWithin(join(installedRoot, "skills"), destination);
+      reachable.add(destination);
+    }
+  }
   for (const reference of references) {
     assert.ok(
-      content.includes(reference),
-      `${name} must reference ${reference}`,
+      reachable.has(resolve(skillDir, reference)),
+      `${name} must reach ${reference} from SKILL.md`,
     );
     assert.ok(lstatSync(join(skillDir, reference)).isFile());
   }
