@@ -10,6 +10,15 @@ Keep PR history append-only: post a new comment, never rewrite an earlier one. E
 
 `kind=summary` covers round summaries and the final decision; `kind=escalation` covers pauses. Post and read-back verify every record. If posting fails, report the unrecorded state directly to the user; never invent a receipt or link.
 
+## Publication budget
+
+One record is one comment, and a comment body is capped at 65,536 characters. The first publication carries the complete audit in that single comment — both axis reports, every finding, the ledger, checks, the full lifecycle journal and state, and the operation — so the ceiling constrains what the stages produce. It is never permission to truncate at publication time.
+
+- Axis and verifier reports follow the [review-scope report budget](./review-scope.md#reviewer-brief): findings, conclusions and evidence pointers, complete by conclusion rather than by inventory.
+- Keep each `finding` item compact: stable ID, disposition, severity, one-line consequence, evidence locator, and for a deferral the input that unblocks it. The ledger indexes them; the axis report already carries the reasoning.
+- Lifecycle events are accounting, not narrative: `pause` reasons, `resume` authorizations and `progress` units state exactly what happened and what recovers it, because the complete journal prefix is republished inline in every record.
+- A record that still cannot fit is a material publication gap: report the measured size and the oversized items, and fix the report budget upstream. Never post a shortened audit, split one record across comments, or move audit material to external storage.
+
 ## Publication and recovery gate
 
 Maintain **one logical audit**: the latest verified state record inventories all accepted material, inline or through verified links to its immutable originals in this PR's history. Later summaries publish only new material and explicit changes, not repeated accepted reports. The default remains a same-comment collapsed audit when no reusable record exists.
@@ -60,7 +69,7 @@ Deferral is not ambiguity and not an escalation: it adds no round and never bloc
 
 Include complete records in `<details>`:
 
-- Collapsed audit details: Complete original Standards and Spec reports for every accepted round, including clean reports and explicit skips; later records may use verified stable links to those complete originals.
+- Collapsed audit details: Complete original Standards and Spec reports for every accepted round, including clean reports and explicit skips (complete by conclusion and evidence pointer under the publication budget, not a restatement of `coverage.json`); later records may use verified stable links to those complete originals.
 - The full finding ledger: every disposition — repaired, unresolved, regression, report-only, deferred — with resolution evidence and prior-ID reconciliation. Inventory every finding, retain unchanged entries by verified reference, and publish new findings or changed dispositions inline with explicit change notes. No prior finding silently disappears.
 - Check commands/results at reviewed and delivered SHAs, fresh/cached provenance, skips with reasons, and evidence receipts. Local log paths and hashes appear only as non-public audit references, alongside actual results and limitations.
 - Run identity, pinned refs and merge-base, reviewed/local/delivered SHAs, rounds used, repair cycles, per-ID failed-verification counts, delivery state and receipts. Include the complete lifecycle journal prefix and replayed state: effective limit/remaining rounds, frozen budgets, all attempts, stage and active operation, not just display counts.

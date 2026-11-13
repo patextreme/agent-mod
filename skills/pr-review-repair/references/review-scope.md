@@ -12,6 +12,7 @@ Use fresh, read-only, history-free reviewers, with parallel Standards and Spec a
 - **Optional context:** historical source versions, superseded documents, and unrelated discussions are not automatically required. Add a mandatory source only for an identifiable requirement, instruction, or concrete impact rationale. An expanding source/version inventory is not a completion criterion; selected current sources plus relevant impact define a demanding but finite review surface. Prior review reports remain excluded even as optional context.
 - **No partial mode:** there is no delta or changed-lines-only review, no fourth round, and no review beyond the effective accepted limit (default three, optionally one or two). The cap replaces incremental review: rounds are few and complete, rather than many and narrow.
 - **Return** complete axis reports with reviewed SHA/range, sources and inspected impact, substantive conclusions, checks/results, justified scope additions, skipped coverage, and uncertainties, plus the evidence handoff below. Unread required material, a mid-file stop, unfinished semantic inspection, or unresolved investigation is incomplete coverage, never a clean pass.
+- **Report budget:** the report is published inline as the round's audit item, next to `coverage.json`, the saved originals, the check evidence and the ledger. Keep it under roughly 10 KB of Markdown (1,200–1,800 words) and complete by conclusion, not by inventory: per-finding severity, `file:line`, quoted hunk or spec line, consequence and verification, plus the axis verdict. Do not restate the per-source fingerprints and coverage accounts (they belong in `coverage.json`), the check commands and results (the checks item), or the dispositions (the ledger). A report that duplicates those artifacts bloats every later record and can exceed the publication limit; verbosity is not thoroughness.
 
 Verification-sourced issues are not reviewers' business during discovery; report everything Standards and Spec find, and let judgment classify it.
 
@@ -28,6 +29,8 @@ Its question is narrow: **does the current head resolve each open ID, keep every
   - repair-worthy and outside the PR's intended scope → deferred under Report contracts; name the ticket, decision, or measurement that unblocks it;
   - repair-worthy and inside the PR's intent → keep the ID open and escalate: the closed window authorizes no repair;
   - below the repair threshold → report-only, recorded as evidence and never deferred.
+
+- **Budget:** a verifier report is published inline with the next record too. Keep it to the per-ID verdicts and their evidence pointers (well under 6 KB), not a second pass over the PR.
 
 Verification **confirms, denies, or regresses; it never discovers.** A verifier that returns new work as repair scope is out of contract; route that output through the classification above without repairing it. Required checks still run mechanically at every delivered head, and a check failure traceable to a repair commit is a regression, not a deferral. An unrelated or environmental check failure is a material limitation on the evidence, never deferred work.
 

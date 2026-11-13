@@ -19,8 +19,6 @@ export interface Usage {
  * decimal place. Unknown windows render as `?` so a partial or failed response
  * keeps the slot visible (e.g. `opencode-go: 3.0% / ? / 0.0%`, or
  * `opencode-go: ? / ? / ?` on failure).
- *
- * @internal Exported for testing only.
  */
 export function formatUsage(usage: Usage): string {
   return `opencode-go: ${formatPercent(usage.rolling)} / ${formatPercent(usage.weekly)} / ${formatPercent(usage.monthly)}`;

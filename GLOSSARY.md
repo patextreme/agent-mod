@@ -31,3 +31,19 @@ _Avoid_: Session, five-hour session
 **Status slot**:
 A named footer cell owned by one extension through `ctx.ui.setStatus`, cleared or replaced only by that extension.
 _Avoid_: Status bar, badge
+
+**Peak window**:
+A recurring time range, expressed in UTC weekdays and hours, during which a model's published pricing multiplier applies; the catalog's base price is the off-peak price.
+_Avoid_: Surge window, busy hour
+
+**Off-peak**:
+Every instant outside the model's recurring peak windows, including all weekend; the effective multiplier is at most one.
+_Avoid_: Normal price, baseline
+
+**Peak schedule**:
+The recurring pricing multipliers of one catalog model; each multiplier's `when` predicate covers UTC weekdays and hours, and together they determine that model's peak windows and transitions.
+_Avoid_: Peak table, hardcoded schedule
+
+**Pricing multiplier**:
+A catalog rule with a `when` predicate and a `factor`; the effective multiplier is the product of the rules matching an instant, and a factor greater than one means peak pricing.
+_Avoid_: Price tier, surcharge

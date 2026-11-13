@@ -27,17 +27,6 @@
         '';
       };
 
-      pi-ollama-usage = pkgs.stdenv.mkDerivation {
-        name = "pi-ollama-usage";
-        src = ./../../extensions/ollama-usage;
-        phases = [ "installPhase" ];
-        installPhase = ''
-          mkdir -p $out
-          cp $src/index.ts $out/index.ts
-          cp $src/parse.ts $out/parse.ts
-        '';
-      };
-
       pi-opencode-usage = pkgs.stdenv.mkDerivation {
         name = "pi-opencode-usage";
         src = ./../../extensions/opencode-usage;
@@ -46,6 +35,7 @@
           mkdir -p $out
           cp $src/index.ts $out/index.ts
           cp $src/parse.ts $out/parse.ts
+          cp $src/peak.ts $out/peak.ts
         '';
       };
 
@@ -142,11 +132,11 @@
     in
     {
       packages = {
-        inherit pi-permission pi-ollama-usage pi-opencode-usage pi-codex-alias pi-notify-me pi-prompts pi-skills;
+        inherit pi-permission pi-opencode-usage pi-codex-alias pi-notify-me pi-prompts pi-skills;
       };
 
       checks = {
-        inherit pi-permission pi-ollama-usage pi-opencode-usage pi-codex-alias pi-notify-me pi-prompts pi-skills;
+        inherit pi-permission pi-opencode-usage pi-codex-alias pi-notify-me pi-prompts pi-skills;
         inherit biome-check tsc-check node-tests;
       };
     };
