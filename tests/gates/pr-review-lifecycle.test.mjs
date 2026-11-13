@@ -117,6 +117,55 @@ test("a clean first round converges without spending a second round", () => {
   assert.throws(() => event(journal, "start", { stage: "review" }), /finished/);
 });
 
+test("a deferred-only converged round reports limited coverage, never verified", () => {
+  let journal = stage(stage(prepared(), "review", reviewEvidence), "judge", {
+    findings: [
+      {
+        id: "F1",
+        status: "deferred",
+        evidence: "pre-existing bug outside this PR's scope",
+      },
+    ],
+    checks: "pass",
+  });
+  const judged = replay(journal);
+  assert.equal(judged.stage, "deliver");
+  assert.equal(judged.pending.outcome, "limited coverage");
+  assert.equal(judged.repairCycles, 0);
+  assert.equal(judged.remaining, 2);
+  journal = event(journal, "start", { stage: "deliver", effect: "comment" });
+  journal = event(journal, "result", {
+    complete: true,
+    record: "read-back",
+    receipt: "https://example/comment/deferred",
+  });
+  journal = event(journal, "finish");
+  assert.equal(replay(journal).outcome, "limited coverage");
+});
+
+test("an unrelated required check keeps a converged round at limited coverage", () => {
+  let journal = stage(prepared(), "review", reviewEvidence);
+  journal = event(journal, "limit", {
+    limit: 1,
+    authorization: "maintainer: one total round",
+  });
+  journal = stage(journal, "judge", { findings: [], checks: "unrelated" });
+  const judged = replay(journal);
+  assert.equal(judged.stage, "deliver");
+  assert.equal(judged.pending.outcome, "limited coverage");
+  assert.equal(judged.evidence.checks, "unrelated");
+  journal = event(journal, "start", { stage: "deliver", effect: "comment" });
+  journal = event(journal, "result", {
+    complete: true,
+    record: "read-back",
+    receipt: "https://example/comment/limitation",
+  });
+  journal = event(journal, "finish");
+  const finished = replay(journal);
+  assert.equal(finished.outcome, "limited coverage");
+  assert.equal(finished.evidence.checks, "unrelated");
+});
+
 const openFinding = {
   id: "F1",
   status: "open",
@@ -425,6 +474,79 @@ test("PR-caused check failures authorize repair, never a clean completion", () =
       }),
     /required checks/,
   );
+});
+
+test("an unrelated required check is accepted mid-window without closing discovery", () => {
+  let journal = found();
+  assert.equal(replay(journal).stage, "repair");
+  journal = stage(journal, "repair", { files: ["owned.ts"] });
+  journal = stage(journal, "validate", {
+    evidence: { head: "h1", checks: "unrelated" },
+    inspected: true,
+  });
+  const delivered = replay(journal);
+  assert.equal(delivered.stage, "deliver");
+  assert.equal(delivered.limit, 3);
+  assert.equal(delivered.rounds, 1);
+  assert.equal(delivered.remaining, 2);
+  assert.equal(delivered.evidence.checks, "unrelated");
+});
+
+test("an answered environmental escalation re-enters the same window honestly", () => {
+  const answer = "human: environmental, proceed and report the limitation";
+  let journal = stage(prepared(), "review", reviewEvidence);
+  journal = event(journal, "pause", {
+    reason: "unrelated required check: CI runner image unavailable",
+  });
+  journal = event(journal, "notice-start");
+  journal = event(journal, "notice-result", {
+    complete: true,
+    record: "escalation read-back",
+    receipt: "https://example/comment/escalation-1",
+  });
+  journal = event(journal, "reconcile", {
+    authorization: answer,
+    observed: { base: "base", head: "h1", remoteHead: "h1" },
+  });
+  const reconciled = replay(journal);
+  assert.equal(reconciled.stage, "review");
+  assert.equal(reconciled.limit, 3);
+  journal = event(journal, "pause", {
+    reason: "post-reconcile recovery boundary",
+  });
+  journal = event(journal, "resume", {
+    runId: reconciled.runId,
+    counts: reconciled.counts,
+    limit: reconciled.limit,
+    stage: reconciled.stage,
+    authorization: answer,
+  });
+  journal = stage(journal, "review", reviewEvidence);
+  journal = stage(journal, "judge", { findings: [], checks: "unrelated" });
+  const judged = replay(journal);
+  assert.equal(judged.stage, "deliver");
+  assert.equal(judged.limit, 3);
+  assert.equal(judged.rounds, 1);
+  assert.equal(judged.remaining, 2);
+  assert.equal(judged.pending.outcome, "limited coverage");
+  assert.ok(
+    journal.events.some((e) => e.authorization === answer),
+    "the human answer is recorded in the journal",
+  );
+  assert.ok(
+    journal.events.every((e) => e.type !== "limit"),
+    "recovery never shortens the window",
+  );
+  journal = event(journal, "start", { stage: "deliver", effect: "comment" });
+  journal = event(journal, "result", {
+    complete: true,
+    record: "final read-back",
+    receipt: "https://example/comment/final-limitation",
+  });
+  journal = event(journal, "finish");
+  const finished = replay(journal);
+  assert.equal(finished.outcome, "limited coverage");
+  assert.equal(finished.evidence.checks, "unrelated");
 });
 
 test("a repair-caused check regression stays repairable after discovery closes", () => {

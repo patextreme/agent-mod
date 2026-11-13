@@ -34,7 +34,7 @@ Delegate state checks at every stage boundary:
 
 - Verify expected base and phase state. Review and verify require aligned local/remote heads; repair permits authorized working-tree changes; delivery may advance local HEAD before the remote.
 - Track rounds used, all attempts and repair cycles, open and deferred finding IDs, local and delivered SHAs, and repair-owned changes. Charge a persisted `start` before dispatch; accept a `result` only against actual evidence. Every attempt uses the recorded finite turn bound. Unexpected state pauses for reconciliation without resetting accounting.
-- Accept actual code/diffs and check results, not agent summaries alone. Incomplete coverage, unresolved investigation, or failed or unavailable required checks cannot establish success. PR-caused failures are repairable; unrelated or environmental failures are never repaired — escalate them before the window closes, and afterwards report them as material limitations, never as deferred findings.
+- Accept actual code/diffs and check results, not agent summaries alone. Incomplete coverage, unresolved investigation, or failed or unavailable required checks cannot establish success. PR-caused failures are repairable; unrelated or environmental failures are never repaired — escalate them before the window closes, and afterwards report them as material limitations, never as deferred findings. An escalation answered as environmental (for example "environmental, proceed") authorizes continuing in the same run at that same limit: record the answer in the `reconcile`/`resume` authorization, keep the failure visible as a material limitation, and never count it as passing. Acceptance changes no accounting, closes no discovery, and buys no round.
 
 ## Stages
 
@@ -50,8 +50,8 @@ Post and verify a summary for every round that changes state, including the fina
 
 Three outcomes:
 
-- **`verified`**: a review round converged with no repair-worthy findings, and that round repaired and deferred nothing.
-- **`limited coverage`**: the window closed with repair work; every open ID is resolved and verified, any deferred findings are repair-worthy and outside the PR's scope, and no review beyond the accepted window ran. Closing discovery alone is not a clean review and waives no finish gate.
+- **`verified`**: a review round converged with no repair-worthy findings, required checks passed, and that round repaired and deferred nothing.
+- **`limited coverage`**: discovery ended with repair work, deferred findings, or a required check that did not pass; every open ID is resolved and verified, any deferred findings are repair-worthy and outside the PR's scope, and no review beyond the accepted window ran. Closing discovery alone is not a clean review and waives no finish gate.
 - **`escalated`**: a fix stalled or is blocked, human input is required, or evidence is incomplete.
 
 Deferred findings never block a finish and never justify another review round. State deferred findings and the closed-window limitation in the visible summary, not buried in details.

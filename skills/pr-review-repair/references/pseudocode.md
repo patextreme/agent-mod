@@ -90,6 +90,8 @@ CONTINUE saved stage through the following accepted boundaries:
       ESCALATE
     IF open is empty:
       accept current-head checks; preserve report-only/deferred dispositions
+      # verified needs passing required checks and no deferred findings;
+      # a deferred finding or an unrelated check makes the outcome limited coverage
       DELIVER summary only, with appropriate verified/limited outcome
       POST and VERIFY round summary; APPLY finish only if all finish gates pass
       STOP # remaining rounds are not a quota
@@ -155,6 +157,11 @@ ESCALATE:
   REPORT concise escalation summary, verified record link, and the specific
     human decision or recovery action; PAUSE until answer and state reconciliation
   # Any retry still spends the frozen budget; exhausted stages cannot start again.
+  # An answered escalation re-enters the SAME run and the SAME effective limit:
+  # APPLY reconcile with the answer as authorization, APPLY pause for the recovery
+  # boundary, APPLY resume with exact counts/stage, then continue from state.stage.
+  # The guard accepts the recorded unrelated check at any boundary; that answer
+  # closes no discovery, and the finish stays limited coverage, never verified.
 ```
 
 Rules the flow depends on:
@@ -162,7 +169,7 @@ Rules the flow depends on:
 - A complete clean round finishes `verified`; no fourth review ever runs, nor any review beyond a smaller accepted window. Only a complete full-diff round supplies accepted discovery evidence. Starting an interrupted round still consumes its slot; incomplete coverage never establishes success.
 - Verification **confirms, denies, or regresses; it never discovers.** Deferral is the release valve for repair-worthy work outside the PR's scope: it is recorded and reported, not repaired. Below-threshold findings are report-only; an in-scope repair-worthy new one stays open and escalates.
 - Verification covers every recorded ID, not just the open ones. A repair that undoes an earlier fix is a regression on that ID, not new work.
-- An unrelated or environmental check failure is a material limitation on the evidence, never deferred work. Required checks remain mandatory; unrelated failures are never labeled passing.
+- An unrelated or environmental check failure is a material limitation on the evidence, never deferred work. Required checks remain mandatory; unrelated failures are never labeled passing. An escalation answered as environmental resumes the same run and the same window with that limitation recorded; it counts no check as passing and never produces `verified`.
 - Deferred findings never justify another review round or an escalation. Escalation is for stalls, blockers, incomplete evidence or exhausted budgets — including an open ID the closed window cannot repair.
 - Repairs may not add scope. Recorded authorized open IDs are the entire queue after closure. A shorter window closes discovery without waiving resolution, current-head evidence, signing or delivery gates.
 - Resumes and retries keep original identity, effective limit, all attempts, round and repair-cycle counts, findings and receipts; a clean verification is `limited coverage`, not `verified`.

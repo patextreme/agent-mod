@@ -203,6 +203,6 @@ Record: <verified PR comment link>
 
 Keep the full reports/ledger in PR history and the internal handoff. If required publication failed, disclose the missing record, exact operation state, and recovery action; never invent a receipt or link.
 
-- **Verified:** a review round converged with no repair-worthy findings, checks pass, and that round repaired and deferred nothing.
-- **Limited coverage:** the discovery window closed with repairs; every open ID is resolved and verified, and any deferred findings are repair-worthy and outside the PR's scope.
+- **Verified:** a review round converged with no repair-worthy findings, required checks pass, and that round repaired and deferred nothing.
+- **Limited coverage:** discovery ended with repairs, deferred findings, or a required check that did not pass; every open ID is resolved and verified, and any deferred findings are repair-worthy and outside the PR's scope.
 - **Escalated:** a fix stalled or is blocked, human input is needed, or evidence/receipts are incomplete.

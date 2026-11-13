@@ -105,10 +105,6 @@ function checkEvidence(s, evidence) {
     ["pass", "unrelated"].includes(evidence.checks),
     "required checks incomplete or PR-caused failure",
   );
-  requireThat(
-    evidence.checks !== "unrelated" || s.rounds >= s.limit,
-    "unrelated check failures escalate before window closes",
-  );
 }
 function ledger(s, findings, verification) {
   requireThat(Array.isArray(findings), "complete finding ledger required");
@@ -413,7 +409,8 @@ function transition(s, e, revision) {
         else
           summary(
             s,
-            e.findings.some((f) => f.status === "deferred")
+            e.checks === "unrelated" ||
+              e.findings.some((f) => f.status === "deferred")
               ? "limited coverage"
               : "verified",
           );
