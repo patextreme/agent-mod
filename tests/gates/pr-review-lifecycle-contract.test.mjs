@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { DEFAULT_BUDGETS } from "../../skills/pr-review-repair/references/lifecycle.mjs";
+
 const read = (name) =>
   readFileSync(
     new URL(`../../skills/pr-review-repair/${name}`, import.meta.url),
@@ -50,4 +51,28 @@ test("the real procedure requires persisted guarded dispatches and cumulative re
     );
   assert.match(lifecycle, /never call `init` to resume/);
   assert.match(lifecycle, /They do not demonstrate live model adherence/);
+});
+
+test("recovery returns terminal outcomes and records interruption before receipt recovery and guarded resume", () => {
+  const flow = read("references/pseudocode.md");
+  const recovery = flow.slice(
+    flow.indexOf("ELSE:\n  RECOVER publication"),
+    flow.indexOf("contract = RUN prepare"),
+  );
+  assert.match(
+    recovery,
+    /SHOW\/replay[\s\S]*IF state\.outcome: RETURN reconciled existing outcome[\s\S]*IF not state\.paused: APPLY pause[^\n]*actual observed heads/,
+  );
+  assert.match(
+    recovery,
+    /APPLY pause[\s\S]*RECOVER any completed but unacknowledged delivery effect[\s\S]*notice-start[\s\S]*RECONCILE external heads[\s\S]*IF not state\.paused: APPLY pause[\s\S]*APPLY resume with original identity, current effective limit, exact current counts\/stage/,
+  );
+  assert.match(
+    read("SKILL.md"),
+    /Follow \[Lifecycle guard\].*terminal return, interruption\/pause/,
+  );
+  assert.match(
+    read("references/audit-publication.md"),
+    /Follow \[Lifecycle guard recovery\]/,
+  );
 });

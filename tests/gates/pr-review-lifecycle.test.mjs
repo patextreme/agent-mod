@@ -3,8 +3,8 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import {
   append,
   createRun,
@@ -207,9 +207,14 @@ test("a shorter total window preserves consumed rounds and requires bounded veri
   assert.equal(replay(journal).counts.repair, 1);
 });
 
-test("an interrupted round resumes its original attempt and cumulative counts", () => {
-  let journal = event(prepared({ limit: 1 }), "start", { stage: "review" });
-  journal = event(journal, "pause", { reason: "worker interrupted" });
+test("a crash-reloaded round resumes its original attempt and cumulative counts", () => {
+  const persisted = event(prepared({ limit: 1 }), "start", { stage: "review" });
+  let journal = JSON.parse(JSON.stringify(persisted));
+  const interrupted = replay(journal);
+  assert.equal(interrupted.paused, null);
+  journal = event(journal, "pause", {
+    reason: "worker interrupted before result",
+  });
   const snapshot = replay(journal);
   assert.throws(
     () =>
@@ -229,6 +234,9 @@ test("an interrupted round resumes its original attempt and cumulative counts", 
     stage: "review",
     authorization: "maintainer",
   });
+  assert.deepEqual(replay(journal).active, interrupted.active);
+  assert.deepEqual(replay(journal).counts, interrupted.counts);
+  assert.equal(replay(journal).rounds, 1);
   journal = event(journal, "result", {
     complete: false,
     record: "Standards done, Spec missing",
@@ -238,6 +246,124 @@ test("an interrupted round resumes its original attempt and cumulative counts", 
   assert.equal(replay(journal).rounds, 1);
   assert.equal(replay(journal).counts.review, 2);
   assert.equal(replay(journal).limit, 1);
+});
+
+test("crash reload resumes the persisted repair attempt without allocating another cycle", () => {
+  const persisted = event(found({ limit: 1 }), "start", { stage: "repair" });
+  let journal = JSON.parse(JSON.stringify(persisted));
+  const saved = replay(journal);
+  assert.equal(saved.paused, null);
+  assert.equal(saved.repair.id, "run-100:repair:1");
+  assert.equal(saved.rounds, 1);
+  assert.equal(saved.counts.repair, 1);
+  assert.equal(saved.repairCycles, 1);
+  assert.throws(
+    () =>
+      event(journal, "resume", {
+        runId: saved.runId,
+        counts: saved.counts,
+        limit: saved.limit,
+        stage: saved.stage,
+        authorization: "history inspected but interruption not recorded",
+      }),
+    /resume requires/,
+  );
+  journal = event(journal, "pause", {
+    reason:
+      "process crashed after persisted repair start; recover owned artifacts",
+  });
+  assert.deepEqual(replay(journal).active, saved.active);
+  assert.deepEqual(replay(journal).counts, saved.counts);
+
+  journal = event(journal, "resume", {
+    runId: saved.runId,
+    counts: saved.counts,
+    limit: saved.limit,
+    stage: saved.stage,
+    authorization: "reloaded journal and repair-owned diff inspected",
+  });
+  const resumed = replay(journal);
+  assert.deepEqual(resumed.active, saved.active);
+  assert.deepEqual(resumed.repair, saved.repair);
+  assert.deepEqual(resumed.counts, saved.counts);
+  assert.equal(resumed.rounds, 1);
+  assert.equal(resumed.repairCycles, 1);
+  assert.equal(resumed.remaining, 0);
+  assert.deepEqual(resumed.budgets, saved.budgets);
+  journal = event(journal, "result", {
+    complete: true,
+    record: "recovered repair artifacts independently inspected",
+    files: ["owned.ts"],
+  });
+  journal = stage(journal, "validate", {
+    evidence: { head: "h1", checks: "pass" },
+    inspected: true,
+  });
+  assert.equal(replay(journal).stage, "deliver");
+  assert.equal(replay(journal).counts.repair, 1);
+  assert.equal(replay(journal).repairCycles, 1);
+});
+
+test("crash reload recovers an outstanding comment receipt without duplicate delivery or charging", () => {
+  let journal = stage(stage(prepared(), "review", reviewEvidence), "judge", {
+    findings: [],
+    checks: "pass",
+  });
+  journal = event(journal, "start", { stage: "deliver", effect: "comment" });
+  journal = JSON.parse(JSON.stringify(journal));
+  const saved = replay(journal);
+  assert.equal(saved.paused, null);
+  assert.equal(saved.counts.deliver, 1);
+  const receipt = "https://example/comment/recovered";
+
+  journal = event(journal, "pause", {
+    reason: "crash after publication; verified comment read-back available",
+  });
+  assert.deepEqual(replay(journal).active, saved.active);
+  journal = event(journal, "result", {
+    complete: true,
+    record: "verified publication recovery manifest",
+    receipt,
+  });
+  const recovered = replay(journal);
+  assert.equal(recovered.stage, "finish");
+  assert.equal(recovered.pending.id, saved.pending.id);
+  assert.equal(recovered.pending.receipts.comment, receipt);
+  assert.equal(recovered.deliveries.length, 1);
+  assert.deepEqual(recovered.counts, saved.counts);
+  assert.throws(
+    () =>
+      event(journal, "resume", {
+        runId: saved.runId,
+        counts: saved.counts,
+        limit: saved.limit,
+        stage: saved.stage,
+        authorization: "stale stage before receipt recovery",
+      }),
+    /accounting/,
+  );
+  journal = event(journal, "resume", {
+    runId: recovered.runId,
+    counts: recovered.counts,
+    limit: recovered.limit,
+    stage: recovered.stage,
+    authorization: "verified recovered publication and journal suffix",
+  });
+  assert.throws(
+    () => event(journal, "start", { stage: "deliver", effect: "comment" }),
+    /boundary/,
+  );
+  journal = event(journal, "finish");
+  const terminal = replay(JSON.parse(JSON.stringify(journal)));
+  assert.equal(terminal.outcome, "verified");
+  assert.equal(terminal.rounds, 1);
+  assert.equal(terminal.repairCycles, 0);
+  assert.deepEqual(terminal.counts, saved.counts);
+  assert.equal(terminal.deliveries.length, 1);
+  assert.throws(
+    () => event(journal, "pause", { reason: "reload" }),
+    /finished/,
+  );
 });
 
 test("non-advancing continuations and exhausted preparation cannot loop on resume", () => {
@@ -604,29 +730,7 @@ test("regressed IDs are reopened and alternating regressions cannot extend the r
   assert.equal(replay(journal).failures.F2, 1);
   assert.equal(replay(journal).stalled, 1);
   journal = repaired(journal);
-  // Use another signed head for the second repair.
-  journal = event(journal, "start", { stage: "deliver", effect: "commit" });
-  journal = event(journal, "result", {
-    complete: true,
-    record: "signed",
-    receipt: "commit",
-    commitHead: "h3",
-    signed: true,
-    outgoingVerified: true,
-  });
-  journal = event(journal, "start", { stage: "deliver", effect: "push" });
-  journal = event(journal, "result", {
-    complete: true,
-    record: "push",
-    receipt: "push",
-    remoteHead: "h3",
-  });
-  journal = event(journal, "start", { stage: "deliver", effect: "comment" });
-  journal = event(journal, "result", {
-    complete: true,
-    record: "summary",
-    receipt: "comment",
-  });
+  journal = deliverRepair(journal, "h3");
   journal = stage(journal, "verify", {
     findings: [
       openFinding,

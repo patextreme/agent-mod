@@ -1,6 +1,7 @@
 // Offline publication contract, not a GitHub client or a lifecycle authority.
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
+
 const auditStart = "<!-- pr-review-repair-audit -->";
 const auditEnd = "<!-- /pr-review-repair-audit -->";
 const nonempty = (value) =>

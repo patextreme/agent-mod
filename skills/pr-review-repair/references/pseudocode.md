@@ -41,8 +41,17 @@ ELSE:
   RECOVER original full journal prefix from its inline accounting item and local state
   RECONCILE unpublished suffix; ambiguous identity/accounting -> ESCALATE
   SHOW/replay journal; never initialize a replacement or reset counts
+  IF state.outcome: RETURN reconciled existing outcome without any new events/run
+  IF not state.paused: APPLY pause with interruption/recovery reason and actual observed heads
+  # Existing pauses retain their boundary; active attempts/operations and counts survive.
   RECOVER any completed but unacknowledged delivery effect by actual read-back
-  APPLY resume with original identity, effective limit, exact counts/current stage
+    APPLY result against its outstanding start, or notice-result against notice-start
+    # No new dispatch/attempt for an already-produced authorized effect.
+  RECONCILE external heads beyond authorized effects under Lifecycle guard, or ESCALATE
+  SHOW/replay updated journal; receipt recovery/reconciliation may change stage/heads
+  IF not state.paused: APPLY pause with reconciled recovery reason and actual observed heads
+  # reconcile clears the pause; resume still requires an explicit paused boundary.
+  APPLY resume with original identity, current effective limit, exact current counts/stage
   IF user requested a shorter total: APPLY limit; keep all consumed effort
 
 contract = RUN prepare with requirements/standards and paginated history, if pending
