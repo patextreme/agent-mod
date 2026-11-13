@@ -36,9 +36,8 @@ nix flake check
 - `extensions/codex-alias/` — Codex provider alias (`index.ts` imports `./alias.js`). Registers `openai-codex-secondary` ("OpenAI Codex — Secondary") as an independently authenticated alias of the built-in `openai-codex` provider, reusing its OAuth flow and catalog so two Codex accounts share one agent directory; unit-tested in `alias.test.ts`
 - `extensions/notify-me/` — One-shot Discord reminders (`index.ts` with configuration, pending-state, lifecycle, payload, and delivery helpers); registers `/notify-me <message>` and the separate `/notify-me-cancel` command. Ships as `pi-notify-me`; co-located tests use shared discovery.
 - `extensions/opencode-usage/` — OpenCode Go allowance meters (`index.ts` hooks the status slot, `parse.ts` parses the undocumented inference-gateway usage response). Registers `/opencode-usage-refresh` and, while an `opencode-go` model is selected, shows `opencode-go: <rolling>% / <weekly>% / <monthly>%` (each to one decimal place) in the footer; unit-tested in `parse.test.ts`.
-- `extensions/ollama-usage/` — Ollama Cloud allowance meter (`index.ts` hooks the status slot, `parse.ts` parses the undocumented balance response). Registers `/ollama-usage-refresh` and, while an `ollama-cloud` model is selected, shows `ollama: <session>% / <weekly>%` in the footer; unit-tested in `parse.test.ts`.
 - `extensions/<name>/README.md` — Per-extension documentation (behavior, configuration, caveats). The main README is an index and links each one.
-- `docs/retired-tooling.md` — Removed orchestration layers kept as a short migration pointer.
+- `docs/retired-tooling.md` — Removed orchestration layers and extensions kept as a short migration pointer.
 - `prompts/` — Pi prompt templates (Markdown + YAML frontmatter). Naming convention: `category-name.md`
 - `skills/` — Pi skills (`<name>/SKILL.md` with YAML frontmatter), packaged via the `pi` field and the `pi-skills` flake output
 - `tests/run.mjs` — discovery-based gate runner; the recognized roots are the whole manifest: `extensions/**/*.test.ts` plus `tests/gates/**/*.test.mjs`

@@ -17,8 +17,7 @@
  * non-throwing and stateless. A failed fetch renders the dim placeholder
  * (`opencode-go: ? / ? / ?`); a missing provider key silently clears the slot.
  * Nothing is cached and automatic refreshes never notify — only the explicit
- * `/opencode-usage-refresh` command reports failures, mirroring the ollama-usage
- * extension.
+ * `/opencode-usage-refresh` command reports failures.
  */
 
 import type {

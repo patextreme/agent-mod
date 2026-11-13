@@ -25,7 +25,6 @@ Each extension is a Nix flake output named `pi-<name>` and is not installed by `
 | Extension | What it does |
 |-----------|--------------|
 | [Permission](./extensions/permission/README.md) | Intercepts `bash` tool calls, asks before destructive commands, reports blocked panes to Herdr, and offers an opt-in session-scoped `/permission-yolo` bypass |
-| [Ollama Usage](./extensions/ollama-usage/README.md) | Shows Ollama Cloud session and weekly usage in the status bar |
 | [OpenCode Usage](./extensions/opencode-usage/README.md) | Shows OpenCode Go rolling, weekly, and monthly allowance usage in the status bar |
 | [Codex Alias](./extensions/codex-alias/README.md) | Registers `openai-codex-secondary` as an independently authenticated alias of the built-in `openai-codex` provider, so two Codex accounts share one agent directory |
 | [Notify Me](./extensions/notify-me/README.md) | Arms a session-scoped, one-shot Discord reminder for final handback, with its configuration, privacy, and retry contracts |
@@ -48,7 +47,6 @@ Extensions are distributed as flake outputs rather than through `pi install`:
 
 ```bash
 nix build .#pi-permission
-nix build .#pi-ollama-usage
 nix build .#pi-opencode-usage
 nix build .#pi-codex-alias
 nix build .#pi-notify-me
@@ -95,7 +93,7 @@ Before committing changes that touch `package*.json` or `nix/`, also run `nix fl
 
 ## Retired tooling
 
-The acpx flows and OpenSpec workflow skills are gone as breaking changes with no in-repo replacement; [`pr-review-repair`](./skills/pr-review-repair/SKILL.md) is the surviving skill. See [retired tooling](./docs/retired-tooling.md) for the removed names.
+The acpx flows, OpenSpec workflow skills, and the Ollama Usage extension are gone as breaking changes with no in-repo replacement; [`pr-review-repair`](./skills/pr-review-repair/SKILL.md) is the surviving skill. See [retired tooling](./docs/retired-tooling.md) for the removed names and the last revision that carries the extension.
 
 ## License
 
