@@ -16,18 +16,21 @@
  *
  * Refreshes on `session_start` when the current model is already opencode-go,
  * on `model_select` for opencode-go, and via `/opencode-usage-refresh`.
- * Switching to any other provider clears the slot and cancels the timer. One
- * self-rescheduling timer repaints at the earlier of the next boundary and the
- * next countdown change; it never fetches. The catalog is fetched at most once
- * per process and cached only on success, so a failure retries on the next
- * trigger. Reuses pi's resolved opencode-go provider key (`ctx.modelRegistry`),
- * so no separate configuration is needed.
+ * Automatic triggers clear the slot for any other provider. The explicit
+ * command always fetches and paints usage for the selected model, adding the
+ * peak tag only when that model is eligible. One self-rescheduling timer
+ * repaints at the earlier of the next boundary and the next countdown change;
+ * it never fetches. The catalog is fetched at most once per process and cached
+ * only on success, so a failure retries on the next trigger. Reuses pi's
+ * resolved opencode-go provider key (`ctx.modelRegistry`), so no separate
+ * configuration is needed.
  *
  * Both endpoints are undocumented and treated as unstable: every failure path
  * is non-throwing. A failed usage read still shows the peak tag; a failed
  * catalog read still shows the meters without a tag. A missing provider key
- * silently clears the slot. Automatic refreshes never notify — only the
- * explicit `/opencode-usage-refresh` command reports outcomes.
+ * silently clears the slot on automatic triggers. Automatic refreshes never
+ * notify; the explicit command reports usage once and adds at most one catalog
+ * warning.
  */
 
 import type {
@@ -72,99 +75,51 @@ const USER_AGENT = "pi-opencode-usage/1.0";
 /** Abort a hung fetch after this many milliseconds (don't block selection). */
 const FETCH_TIMEOUT_MS = 8_000;
 
-// ─── Usage fetch ────────────────────────────────────────────────────────────
+// ─── Shared request ─────────────────────────────────────────────────────────
 
-interface FetchResult {
+interface UsageRead {
   /** Parsed consumed percentages; null per window when unknown. */
   usage: Usage;
   /** Human-readable failure reason. `undefined` (not empty) means opencode-go is absent. */
   error?: string;
 }
 
-interface CatalogResult {
+interface CatalogRead {
   /** Parsed catalog, or null when unavailable. */
   catalog: Catalog | null;
   /** Human-readable failure reason. `undefined` (not empty) means no fetch was needed. */
   error?: string;
 }
 
-type NotificationLevel = "info" | "warning" | "error";
-
-/** Outcome for callers that asked explicitly (null = nothing to say). */
-type Notification = { message: string; level: NotificationLevel };
-
-interface RefreshOutcome {
-  usage: FetchResult;
-  catalog: CatalogResult;
+interface JsonTextResult {
+  text: string | null;
+  /** Failure reason for a key-resolution, HTTP, or transport failure. */
+  error?: string;
+  /** The provider has no resolved key; callers stay silent. */
+  missingKey?: boolean;
 }
 
 /**
- * Fetch the current rolling/weekly/monthly usage. Never throws: every failure
- * path returns null windows plus a reason when something was actually
- * attempted.
+ * Resolve the provider key and read one JSON response body as text. One key and
+ * error policy for both endpoints: a missing key is silent, everything else
+ * returns a reason. Never throws.
  */
-async function fetchUsage(ctx: ExtensionContext): Promise<FetchResult> {
-  const key = await ctx.modelRegistry.getApiKeyForProvider(PROVIDER_ID);
-  if (key === undefined) {
-    // Provider not configured: no key, no fetch, no error message.
-    return { usage: UNKNOWN_USAGE };
-  }
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-  try {
-    const response = await fetch(USAGE_API_URL, {
-      headers: {
-        Authorization: `Bearer ${key}`,
-        Accept: "application/json",
-        "User-Agent": USER_AGENT,
-      },
-      signal: controller.signal,
-    });
-    if (!response.ok) {
-      return {
-        usage: UNKNOWN_USAGE,
-        error: `HTTP ${response.status} ${response.statusText}`.trim(),
-      };
-    }
-    const usage = parseUsage(await response.text());
-    if (isUnknownUsage(usage)) {
-      return { usage: UNKNOWN_USAGE, error: "malformed response body" };
-    }
-    return { usage };
-  } catch (err) {
-    return {
-      usage: UNKNOWN_USAGE,
-      error: err instanceof Error ? err.message : String(err),
-    };
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-// ─── Catalog fetch ──────────────────────────────────────────────────────────
-
-/**
- * Fetch the model catalog with the same resolved opencode-go key. Never
- * throws: a missing key is silent, and every other failure returns null plus
- * a reason.
- */
-async function fetchCatalog(ctx: ExtensionContext): Promise<CatalogResult> {
+async function getJsonText(
+  ctx: ExtensionContext,
+  url: string,
+): Promise<JsonTextResult> {
   let key: string | undefined;
   try {
     key = await ctx.modelRegistry.getApiKeyForProvider(PROVIDER_ID);
   } catch (err) {
-    return {
-      catalog: null,
-      error: err instanceof Error ? err.message : String(err),
-    };
+    return { text: null, error: errorMessage(err) };
   }
-  if (key === undefined) return { catalog: null };
+  if (key === undefined) return { text: null, missingKey: true };
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
-    const response = await fetch(CATALOG_API_URL, {
+    const response = await fetch(url, {
       headers: {
         Authorization: `Bearer ${key}`,
         Accept: "application/json",
@@ -174,48 +129,133 @@ async function fetchCatalog(ctx: ExtensionContext): Promise<CatalogResult> {
     });
     if (!response.ok) {
       return {
-        catalog: null,
+        text: null,
         error: `HTTP ${response.status} ${response.statusText}`.trim(),
       };
     }
-    const catalog = parseCatalog(await response.text());
-    if (catalog === null) {
-      return { catalog: null, error: "malformed response body" };
-    }
-    return { catalog };
+    return { text: await response.text() };
   } catch (err) {
-    return {
-      catalog: null,
-      error: err instanceof Error ? err.message : String(err),
-    };
+    return { text: null, error: errorMessage(err) };
   } finally {
     clearTimeout(timeout);
   }
 }
 
+/**
+ * Fetch the current rolling/weekly/monthly usage. Never throws: every failure
+ * path yields null windows plus a reason when something was actually attempted.
+ */
+async function fetchUsage(ctx: ExtensionContext): Promise<UsageRead> {
+  const result = await getJsonText(ctx, USAGE_API_URL);
+  if (result.missingKey) return { usage: UNKNOWN_USAGE };
+  if (result.text === null) {
+    return { usage: UNKNOWN_USAGE, error: result.error };
+  }
+  const usage = parseUsage(result.text);
+  if (isUnknownUsage(usage)) {
+    return { usage: UNKNOWN_USAGE, error: "malformed response body" };
+  }
+  return { usage };
+}
+
+/**
+ * Fetch the model catalog with the same resolved key. Never throws: a missing
+ * key is silent, and every other failure yields null plus a reason.
+ */
+async function fetchCatalog(ctx: ExtensionContext): Promise<CatalogRead> {
+  const result = await getJsonText(ctx, CATALOG_API_URL);
+  if (result.missingKey) return { catalog: null };
+  if (result.text === null) {
+    return { catalog: null, error: result.error };
+  }
+  const catalog = parseCatalog(result.text);
+  if (catalog === null) {
+    return { catalog: null, error: "malformed response body" };
+  }
+  return { catalog };
+}
+
 // ─── Extension ──────────────────────────────────────────────────────────────
 
+type NotificationLevel = "info" | "warning" | "error";
+
+interface Notification {
+  message: string;
+  level: NotificationLevel;
+}
+
+/** Flattened result of one refresh, for the explicit command. */
+interface RefreshOutcome {
+  usage: Usage;
+  usageError?: string;
+  catalog: Catalog | null;
+  catalogError?: string;
+}
+
+/** Everything tied to the current selection; reset together on every trigger. */
+interface SelectionState {
+  modelId: string | undefined;
+  usage: Usage;
+  usageError: string | undefined;
+  usageSettled: boolean;
+  catalog: Catalog | null;
+}
+
+interface PeakStatus {
+  schedule: PeakSchedule;
+  peak: boolean;
+  countdown: string;
+}
+
+function emptySelection(): SelectionState {
+  return {
+    modelId: undefined,
+    usage: UNKNOWN_USAGE,
+    usageError: undefined,
+    usageSettled: false,
+    catalog: null,
+  };
+}
+
+/** Derive the catalog tag once for both footer rendering and refresh output. */
+function peakStatus(
+  catalog: Catalog | null,
+  modelId: string | undefined,
+  instant: Date,
+): PeakStatus | null {
+  if (catalog === null || modelId === undefined) return null;
+  const schedule = scheduleForModel(catalog, modelId);
+  if (schedule === null) return null;
+  const countdown = formatCountdown(schedule, instant);
+  if (countdown === null) return null;
+  return {
+    schedule,
+    peak: isPeakActive(schedule, instant),
+    countdown,
+  };
+}
+
 export default function opencodeUsageExtension(pi: ExtensionAPI): void {
-  // Bumped on every trigger so an in-flight fetches from a previous selection
-  // can never clobber a newer state (e.g. switching away from opencode-go
-  // while its fetch is still running).
+  // Bumped on every trigger so in-flight fetches from a previous selection can
+  // never clobber a newer state (e.g. switching away from opencode-go while its
+  // fetch is still running).
   let refreshGeneration = 0;
 
   // Latest state of the current selection, used by timer repaints.
-  let activeModelId: string | undefined;
-  let lastUsage: Usage = UNKNOWN_USAGE;
-  let usageError: string | undefined;
-  let usageSettled = false;
-  let catalog: Catalog | null = null;
+  let selection = emptySelection();
 
   // One success-only process cache plus a shared in-flight request. Failures
   // are never cached, so the next trigger retries.
   let catalogCache: Catalog | undefined;
-  let catalogInFlight: Promise<CatalogResult> | undefined;
+  let catalogInFlight: Promise<CatalogRead> | undefined;
 
   // One self-rescheduling repaint timer. It only redraws cached state.
   let timer: ReturnType<typeof setTimeout> | undefined;
   let timerCtx: ExtensionContext | undefined;
+
+  function resetSelection(): void {
+    selection = emptySelection();
+  }
 
   /** Idempotently stop the repaint timer. */
   function clearTimer(): void {
@@ -225,17 +265,11 @@ export default function opencodeUsageExtension(pi: ExtensionAPI): void {
     }
   }
 
-  function forgetUsage(): void {
-    lastUsage = UNKNOWN_USAGE;
-    usageError = undefined;
-    usageSettled = false;
-  }
-
   /**
    * Resolve the catalog, sharing one request and caching only success. A
    * failure leaves the cache empty and is retried by the next trigger.
    */
-  function ensureCatalog(ctx: ExtensionContext): Promise<CatalogResult> {
+  function ensureCatalog(ctx: ExtensionContext): Promise<CatalogRead> {
     if (catalogCache !== undefined) {
       return Promise.resolve({ catalog: catalogCache });
     }
@@ -248,7 +282,7 @@ export default function opencodeUsageExtension(pi: ExtensionAPI): void {
       })
       .catch((err: unknown) => ({
         catalog: null,
-        error: err instanceof Error ? err.message : String(err),
+        error: errorMessage(err),
       }));
     catalogInFlight = request;
     void request.finally(() => {
@@ -259,34 +293,27 @@ export default function opencodeUsageExtension(pi: ExtensionAPI): void {
 
   /** Repaint from cached state; the timer calls only this. */
   function render(ctx: ExtensionContext): void {
-    if (activeModelId === undefined || !usageSettled) return;
+    if (!selection.usageSettled) return;
 
-    if (isUnknownUsage(lastUsage) && usageError === undefined) {
+    if (isUnknownUsage(selection.usage) && selection.usageError === undefined) {
       // No opencode-go key configured: clear the slot silently.
       clearTimer();
       ctx.ui.setStatus(STATUS_KEY, undefined);
       return;
     }
 
-    const schedule =
-      catalog === null ? null : scheduleForModel(catalog, activeModelId);
-    let text = formatUsage(lastUsage);
-    let peak = false;
-    if (schedule !== null) {
-      const now = new Date();
-      const countdown = formatCountdown(schedule, now);
-      if (countdown !== null) {
-        peak = isPeakActive(schedule, now);
-        text += ` · ${peak ? "peak" : "off-peak"} · ${countdown}`;
-      }
+    const meters = ctx.ui.theme.fg("dim", formatUsage(selection.usage));
+    const status = peakStatus(selection.catalog, selection.modelId, new Date());
+    if (status === null) {
+      ctx.ui.setStatus(STATUS_KEY, meters);
+      clearTimer();
+      return;
     }
 
-    ctx.ui.setStatus(
-      STATUS_KEY,
-      ctx.ui.theme.fg(peak ? "warning" : "dim", text),
-    );
-    if (schedule === null) clearTimer();
-    else scheduleTimer(ctx, schedule);
+    const tag = `${status.peak ? "peak" : "off-peak"} · ${status.countdown}`;
+    const coloredTag = ctx.ui.theme.fg(status.peak ? "warning" : "dim", tag);
+    ctx.ui.setStatus(STATUS_KEY, `${meters} · ${coloredTag}`);
+    scheduleTimer(ctx, status.schedule);
   }
 
   /** Arm the one repaint timer at the next visual change. Never fetches. */
@@ -306,54 +333,61 @@ export default function opencodeUsageExtension(pi: ExtensionAPI): void {
   }
 
   /**
-   * One sync path for every model trigger: fetch usage and the catalog for
-   * opencode-go, or clear the slot (and timer) for anything else.
+   * One sync path for every trigger. Automatic triggers clear the slot for
+   * non-opencode-go models; an explicit refresh instead fetches and paints
+   * usage for whatever model is selected, and only adds the catalog tag when
+   * the model is eligible.
    */
   function sync(
     ctx: ExtensionContext,
     model: ExtensionContext["model"],
+    explicit = false,
   ): Promise<RefreshOutcome | null> {
     if (!ctx.hasUI) return Promise.resolve(null);
     clearTimer();
 
-    if (model?.provider !== PROVIDER_ID) {
+    const eligible = model?.provider === PROVIDER_ID;
+    if (!eligible && !explicit) {
       refreshGeneration++; // invalidate any in-flight fetch
-      activeModelId = undefined;
-      catalog = null;
-      forgetUsage();
+      resetSelection();
       ctx.ui.setStatus(STATUS_KEY, undefined);
       return Promise.resolve(null);
     }
 
-    activeModelId = model.id;
-    catalog = catalogCache ?? null;
     const generation = ++refreshGeneration;
+    selection = {
+      ...emptySelection(),
+      modelId: model?.id,
+      catalog: eligible ? (catalogCache ?? null) : null,
+    };
 
-    const usagePromise = fetchUsage(ctx)
-      .catch((err: unknown) => ({
-        usage: UNKNOWN_USAGE,
-        error: err instanceof Error ? err.message : String(err),
-      }))
-      .then((result) => {
-        if (generation === refreshGeneration) {
-          lastUsage = result.usage;
-          usageError = result.error;
-          usageSettled = true;
-          render(ctx);
-        }
-        return result;
-      });
-
-    const catalogPromise = ensureCatalog(ctx).then((result) => {
+    const usagePromise = fetchUsage(ctx).then((result) => {
       if (generation === refreshGeneration) {
-        catalog = result.catalog;
+        selection.usage = result.usage;
+        selection.usageError = result.error;
+        selection.usageSettled = true;
         render(ctx);
       }
       return result;
     });
 
+    const catalogPromise: Promise<CatalogRead> = eligible
+      ? ensureCatalog(ctx).then((result) => {
+          if (generation === refreshGeneration) {
+            selection.catalog = result.catalog;
+            render(ctx);
+          }
+          return result;
+        })
+      : Promise.resolve({ catalog: null });
+
     return Promise.all([usagePromise, catalogPromise]).then(
-      ([usage, catalog]) => ({ usage, catalog }),
+      ([usage, catalog]) => ({
+        usage: usage.usage,
+        usageError: usage.error,
+        catalog: catalog.catalog,
+        catalogError: catalog.error,
+      }),
     );
   }
 
@@ -365,8 +399,8 @@ export default function opencodeUsageExtension(pi: ExtensionAPI): void {
     void sync(ctx, ctx.model).catch(() => {});
   });
 
-  // Primary trigger: selection of an opencode-go model (via /model, cycling,
-  // or session restore). Selecting anything else clears the slot.
+  // Primary automatic trigger: selection of an opencode-go model (via /model,
+  // cycling, or session restore). Selecting anything else clears the slot.
   pi.on("model_select", (event, ctx) => {
     void sync(ctx, event.model).catch(() => {});
   });
@@ -377,66 +411,70 @@ export default function opencodeUsageExtension(pi: ExtensionAPI): void {
     refreshGeneration++;
     clearTimer();
     timerCtx = undefined;
-    activeModelId = undefined;
-    catalog = null;
-    forgetUsage();
+    resetSelection();
   });
 
-  // Manual refresh. Since the user asked explicitly, report the absolute
-  // window when the meters are available, then any failures. Automatic
-  // refreshes above stay silent.
+  // Manual refresh. The user asked explicitly, so this always refreshes usage
+  // for the selected model even when it is not opencode-go; the peak tag and
+  // absolute window appear only when that model is eligible. Report usage once
+  // and add at most one catalog warning. Automatic refreshes stay silent.
   pi.registerCommand("opencode-usage-refresh", {
-    description: "Refresh the OpenCode Go usage shown in the status bar",
+    description:
+      "Refresh the OpenCode Go usage shown in the footer status slot",
     handler: async (_args, ctx) => {
       if (!ctx.hasUI) return;
       const model = ctx.model;
-      const outcome = await sync(ctx, model).catch(() => null);
+      const outcome = await sync(ctx, model, true).catch(() => null);
       if (outcome === null) return;
 
-      const modelId = model?.id;
-      const schedule =
-        modelId !== undefined && outcome.catalog.catalog !== null
-          ? scheduleForModel(outcome.catalog.catalog, modelId)
-          : null;
+      const now = new Date();
+      const status = peakStatus(outcome.catalog, model?.id, now);
       const window =
-        schedule === null ? null : formatWindow(schedule, new Date());
+        status === null ? null : formatWindow(status.schedule, now);
 
-      if (!isUnknownUsage(outcome.usage.usage) || window !== null) {
-        let message = formatUsage(outcome.usage.usage);
-        if (window !== null) message += ` · ${window}`;
-        ctx.ui.notify(message, "info");
-      }
+      const report = usageReport(outcome, window);
+      ctx.ui.notify(report.message, report.level);
 
-      for (const notification of [
-        usageNotification(outcome.usage),
-        catalogNotification(outcome.catalog),
-      ]) {
-        if (notification !== null) {
-          ctx.ui.notify(notification.message, notification.level);
-        }
-      }
+      const warning = catalogNotification(outcome);
+      if (warning !== null) ctx.ui.notify(warning.message, warning.level);
     },
   });
 }
 
-function usageNotification(result: FetchResult): Notification | null {
-  if (!isUnknownUsage(result.usage)) return null;
-  if (result.error === undefined) {
+/** One usage-window report, using `?` meters when only the window is known. */
+function usageReport(
+  outcome: RefreshOutcome,
+  window: string | null,
+): Notification {
+  const meters = formatUsage(outcome.usage);
+  if (!isUnknownUsage(outcome.usage) || window !== null) {
+    return {
+      message: window === null ? meters : `${meters} · ${window}`,
+      level: "info",
+    };
+  }
+  if (outcome.usageError === undefined) {
     return {
       message: "opencode-go provider is not configured.",
       level: "warning",
     };
   }
   return {
-    message: `Failed to fetch OpenCode usage (${result.error}).`,
+    message: `Failed to fetch OpenCode usage (${outcome.usageError}).`,
     level: "error",
   };
 }
 
-function catalogNotification(result: CatalogResult): Notification | null {
-  if (result.catalog !== null || result.error === undefined) return null;
+function catalogNotification(outcome: RefreshOutcome): Notification | null {
+  if (outcome.catalog !== null || outcome.catalogError === undefined) {
+    return null;
+  }
   return {
-    message: `OpenCode peak schedule unavailable (${result.error}).`,
+    message: `OpenCode peak schedule unavailable (${outcome.catalogError}).`,
     level: "warning",
   };
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }

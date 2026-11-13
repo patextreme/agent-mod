@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
-  effectiveFactor,
+  effectiveMultiplier,
   formatCountdown,
   formatWindow,
   isPeakActive,
@@ -56,6 +56,17 @@ function deepseekSchedule() {
   return schedule;
 }
 
+function withTimeZone(timeZone: string, run: () => void): void {
+  const previous = process.env.TZ;
+  process.env.TZ = timeZone;
+  try {
+    run();
+  } finally {
+    if (previous === undefined) delete process.env.TZ;
+    else process.env.TZ = previous;
+  }
+}
+
 describe("parseCatalog and scheduleForModel", () => {
   it("keeps recurring weekday/hour multipliers for their model", () => {
     assert.ok(deepseekSchedule().length > 0);
@@ -86,11 +97,60 @@ describe("parseCatalog and scheduleForModel", () => {
     assert.strictEqual(scheduleForModel(catalog, "anything"), null);
   });
 
+  it("accepts a valid catalog whose models have no recurring multipliers", () => {
+    const catalog = parseCatalog(
+      JSON.stringify({
+        data: [{ id: "plain", cost: { multipliers: [] } }, { id: "no-cost" }],
+      }),
+    );
+    assert.ok(catalog !== null);
+    assert.strictEqual(scheduleForModel(catalog, "plain"), null);
+    assert.strictEqual(scheduleForModel(catalog, "no-cost"), null);
+  });
+
+  it("rejects a non-empty catalog with no usable model id", () => {
+    assert.strictEqual(
+      parseCatalog(
+        JSON.stringify({
+          data: [null, { id: 42 }, { id: "" }, { cost: { multipliers: [] } }],
+        }),
+      ),
+      null,
+    );
+  });
+
   it("rejects a malformed catalog body", () => {
     assert.strictEqual(parseCatalog("{not json"), null);
     assert.strictEqual(parseCatalog('{"object":"list"}'), null);
     assert.strictEqual(parseCatalog('{"object":"list","data":{}}'), null);
     assert.strictEqual(parseCatalog("[]"), null);
+  });
+
+  it("ignores a multiplier that mixes a date clause with a recurring clause", () => {
+    const catalog = parseCatalog(
+      JSON.stringify({
+        data: [
+          {
+            id: "mixed",
+            cost: {
+              multipliers: [
+                {
+                  when: {
+                    any: [
+                      { utc_days: { in: ["mon"] } },
+                      { date: { gte: "2026-12-01" } },
+                    ],
+                  },
+                  factor: 2,
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    );
+    assert.ok(catalog !== null);
+    assert.strictEqual(scheduleForModel(catalog, "mixed"), null);
   });
 
   it("ignores malformed entries without losing valid models", () => {
@@ -151,7 +211,7 @@ describe("isPeakActive on weekends", () => {
   }
 });
 
-describe("effectiveFactor", () => {
+describe("effectiveMultiplier", () => {
   it("multiplies every matching rule", () => {
     const catalog = parseCatalog(
       JSON.stringify({
@@ -175,7 +235,7 @@ describe("effectiveFactor", () => {
     const schedule = scheduleForModel(catalog, "stacked");
     assert.ok(schedule !== null);
     assert.strictEqual(
-      effectiveFactor(schedule, at("2026-11-16T02:00:00Z")),
+      effectiveMultiplier(schedule, at("2026-11-16T02:00:00Z")),
       4,
     );
     assert.strictEqual(
@@ -183,15 +243,15 @@ describe("effectiveFactor", () => {
       true,
     );
     assert.strictEqual(
-      effectiveFactor(schedule, at("2026-11-16T05:00:00Z")),
+      effectiveMultiplier(schedule, at("2026-11-16T05:00:00Z")),
       2,
     );
     assert.strictEqual(
-      effectiveFactor(schedule, at("2026-11-17T02:00:00Z")),
+      effectiveMultiplier(schedule, at("2026-11-17T02:00:00Z")),
       2,
     );
     assert.strictEqual(
-      effectiveFactor(schedule, at("2026-11-17T05:00:00Z")),
+      effectiveMultiplier(schedule, at("2026-11-17T05:00:00Z")),
       1,
     );
   });
@@ -215,7 +275,7 @@ describe("effectiveFactor", () => {
     const schedule = scheduleForModel(catalog, "discount");
     assert.ok(schedule !== null);
     assert.strictEqual(
-      effectiveFactor(schedule, at("2026-11-16T02:00:00Z")),
+      effectiveMultiplier(schedule, at("2026-11-16T02:00:00Z")),
       0.5,
     );
     assert.strictEqual(
@@ -311,37 +371,84 @@ describe("formatCountdown", () => {
 
 describe("formatWindow", () => {
   const schedule = deepseekSchedule();
-  const localSuffix = "\\(\\d{2}:\\d{2} [+-]\\d{2}(?::\\d{2})?\\)";
 
-  it("reports a weekday peak window absolutely", () => {
-    assert.match(
-      formatWindow(schedule, at("2026-11-16T09:13:00Z")) ?? "",
-      new RegExp(`^peak until 10:00 UTC ${localSuffix}$`),
-    );
+  it("keeps the same-day peak format from the spec", () => {
+    withTimeZone("Etc/GMT-7", () => {
+      assert.strictEqual(
+        formatWindow(schedule, at("2026-11-16T09:13:00Z")),
+        "peak until 10:00 UTC (17:00 +07)",
+      );
+    });
   });
 
-  it("reports a weekend off-peak window absolutely", () => {
-    assert.match(
-      formatWindow(schedule, at("2026-11-13T10:00:00Z")) ?? "",
-      new RegExp(`^off-peak until 01:00 UTC ${localSuffix}$`),
-    );
+  it("names the UTC and local weekday across the Friday-to-Monday gap", () => {
+    withTimeZone("Etc/GMT-7", () => {
+      assert.strictEqual(
+        formatWindow(schedule, at("2026-11-13T10:00:00Z")),
+        "off-peak until Mon 01:00 UTC (Mon 08:00 +07)",
+      );
+    });
+  });
+
+  it("names the local weekday when the boundary falls on the previous local date", () => {
+    withTimeZone("Etc/GMT+5", () => {
+      assert.strictEqual(
+        formatWindow(schedule, at("2026-11-13T10:00:00Z")),
+        "off-peak until Mon 01:00 UTC (Sun 20:00 -05)",
+      );
+    });
+  });
+
+  it("names the local weekday when its date differs from the UTC date", () => {
+    withTimeZone("Etc/GMT+10", () => {
+      assert.strictEqual(
+        formatWindow(schedule, at("2026-11-16T00:30:00Z")),
+        "off-peak until 01:00 UTC (Sun 15:00 -10)",
+      );
+    });
   });
 });
 
 describe("nextRepaintAt", () => {
   const schedule = deepseekSchedule();
 
+  const cases: Array<[string, string]> = [
+    ["2026-11-13T10:00:30Z", "2026-11-13T11:00:00.001Z"],
+    ["2026-11-15T01:00:00Z", "2026-11-15T01:00:00.001Z"],
+    ["2026-11-16T06:59:30Z", "2026-11-16T07:00:00.001Z"],
+    ["2026-11-16T09:13:30Z", "2026-11-16T09:14:00.001Z"],
+    ["2026-11-16T09:59:30Z", "2026-11-16T10:00:00.000Z"],
+    ["2026-11-16T03:59:30Z", "2026-11-16T04:00:00.000Z"],
+  ];
+
+  for (const [iso, expected] of cases) {
+    it(`repaints exactly when the countdown text changes at ${iso}`, () => {
+      const now = at(iso);
+      const repaint = nextRepaintAt(schedule, now);
+      assert.ok(repaint !== null);
+      assert.strictEqual(repaint.toISOString(), expected);
+      assert.strictEqual(
+        formatCountdown(schedule, new Date(repaint.getTime() - 1)),
+        formatCountdown(schedule, now),
+      );
+      assert.notStrictEqual(
+        formatCountdown(schedule, repaint),
+        formatCountdown(schedule, now),
+      );
+    });
+  }
+
   it("repaints at the next hour while the countdown shows days and hours", () => {
     assert.strictEqual(
       nextRepaintAt(schedule, at("2026-11-13T10:00:30Z"))?.toISOString(),
-      "2026-11-13T11:00:00.000Z",
+      "2026-11-13T11:00:00.001Z",
     );
   });
 
   it("repaints at the next minute while the countdown shows hours and minutes", () => {
     assert.strictEqual(
       nextRepaintAt(schedule, at("2026-11-16T06:59:30Z"))?.toISOString(),
-      "2026-11-16T07:00:00.000Z",
+      "2026-11-16T07:00:00.001Z",
     );
   });
 

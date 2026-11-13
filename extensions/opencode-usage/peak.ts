@@ -1,7 +1,6 @@
 // ─── OpenCode Go pricing multipliers → peak status ──────────────────────────
 //
-// Pure helpers split out for unit testing (see peak.test.ts). The extension
-// (index.ts) is the only intended runtime consumer. The gateway publishes a
+// Pure helpers shared by the extension (index.ts). The gateway publishes a
 // model catalog whose `cost.multipliers` describe when a price multiplier
 // applies; this module reads the recurring weekday/hour rules, not any
 // hardcoded schedule, so a changed catalog changes the tag without a release.
@@ -24,7 +23,7 @@ const UTC_DAY_INDEX: Readonly<Record<string, number>> = {
 };
 
 /** One multiplier whose `when` is a recurring weekday/hour predicate. */
-export interface PeakRule {
+export interface PricingMultiplier {
   /** Multiplier applied while the predicate matches. */
   readonly factor: number;
   /** Raw `when` predicate from the catalog (recurring clauses only). */
@@ -32,7 +31,7 @@ export interface PeakRule {
 }
 
 /** Recurring pricing rules for one catalog model. */
-export type PeakSchedule = readonly PeakRule[];
+export type PeakSchedule = readonly PricingMultiplier[];
 
 /** Catalog model id → its recurring pricing rules. */
 export interface Catalog {
@@ -42,11 +41,11 @@ export interface Catalog {
 /**
  * Parse a `GET /inference/go/v1/models` response body (raw JSON text) into the
  * recurring pricing rules per model. Returns null when the envelope itself is
- * unusable; malformed entries are skipped individually. Date-based promo
- * multipliers are intentionally ignored: they do not describe a recurring
- * peak window, so they must never make a model eligible for the tag.
- *
- * @internal Exported for testing only.
+ * unusable, or when a non-empty model list contains no usable model id (shape
+ * drift must not cache as an empty success). Malformed entries are skipped
+ * individually. Date-based promo multipliers are intentionally ignored: they
+ * do not describe a recurring peak window, so they must never make a model
+ * eligible for the tag.
  */
 export function parseCatalog(text: string): Catalog | null {
   let body: unknown;
@@ -62,24 +61,25 @@ export function parseCatalog(text: string): Catalog | null {
   if (!Array.isArray(data)) return null;
 
   const models = new Map<string, PeakSchedule>();
+  let sawModelId = false;
   for (const entry of data) {
     if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
       continue;
     }
     const id = (entry as { id?: unknown }).id;
     if (typeof id !== "string" || id.length === 0) continue;
+    sawModelId = true;
     const cost = (entry as { cost?: unknown }).cost;
     const rules = recurringRules(cost);
     if (rules.length > 0) models.set(id, rules);
   }
+  if (data.length > 0 && !sawModelId) return null;
   return { models };
 }
 
 /**
  * Recurring rules for a model id, or null when the model is absent or has no
  * recurring weekday/hour multiplier. Date-only models always return null.
- *
- * @internal Exported for testing only.
  */
 export function scheduleForModel(
   catalog: Catalog,
@@ -90,7 +90,10 @@ export function scheduleForModel(
 }
 
 /** Product of every rule whose predicate matches the instant. */
-export function effectiveFactor(schedule: PeakSchedule, instant: Date): number {
+export function effectiveMultiplier(
+  schedule: PeakSchedule,
+  instant: Date,
+): number {
   let factor = 1;
   for (const rule of schedule) {
     if (matchesWhen(rule.when, instant)) factor *= rule.factor;
@@ -100,7 +103,7 @@ export function effectiveFactor(schedule: PeakSchedule, instant: Date): number {
 
 /** True when the effective multiplier is greater than one. */
 export function isPeakActive(schedule: PeakSchedule, instant: Date): boolean {
-  return effectiveFactor(schedule, instant) > 1;
+  return effectiveMultiplier(schedule, instant) > 1;
 }
 
 /**
@@ -124,6 +127,52 @@ export function nextTransition(
   return null;
 }
 
+interface CountdownStep {
+  /** Smallest remaining time this step renders. */
+  readonly minimum: number;
+  /** Repaint quantum at which the rendered text advances, or 0 at the boundary. */
+  readonly quantum: number;
+  readonly render: (remaining: number) => string;
+}
+
+/**
+ * The single countdown ladder: formatCountdown renders through it, and
+ * nextRepaintAt derives its repaint quantum from the same step.
+ */
+const COUNTDOWN_LADDER: readonly CountdownStep[] = [
+  { minimum: DAY_MS, quantum: HOUR_MS, render: renderDays },
+  { minimum: HOUR_MS, quantum: MINUTE_MS, render: renderHours },
+  { minimum: MINUTE_MS, quantum: MINUTE_MS, render: renderMinutes },
+  { minimum: 0, quantum: 0, render: () => "under a minute left" },
+];
+
+function countdownStep(remaining: number): CountdownStep {
+  return (
+    COUNTDOWN_LADDER.find((step) => remaining >= step.minimum) ??
+    COUNTDOWN_LADDER[COUNTDOWN_LADDER.length - 1]
+  );
+}
+
+function countdownText(remaining: number): string {
+  return countdownStep(remaining).render(remaining);
+}
+
+function renderDays(remaining: number): string {
+  const days = Math.floor(remaining / DAY_MS);
+  const hours = Math.floor((remaining % DAY_MS) / HOUR_MS);
+  return hours === 0 ? `${days}d left` : `${days}d${hours}h left`;
+}
+
+function renderHours(remaining: number): string {
+  const hours = Math.floor(remaining / HOUR_MS);
+  const minutes = Math.floor((remaining % HOUR_MS) / MINUTE_MS);
+  return `${hours}h${pad2(minutes)}m left`;
+}
+
+function renderMinutes(remaining: number): string {
+  return `${Math.floor(remaining / MINUTE_MS)}m left`;
+}
+
 /**
  * Countdown text to the next state boundary: `2d15h left`, `1d left`,
  * `3h01m left`, `47m left`, or `under a minute left`.
@@ -134,19 +183,7 @@ export function formatCountdown(
 ): string | null {
   const next = nextTransition(schedule, instant);
   if (next === null) return null;
-  const remaining = next.getTime() - instant.getTime();
-  if (remaining < MINUTE_MS) return "under a minute left";
-  if (remaining < HOUR_MS) {
-    return `${Math.floor(remaining / MINUTE_MS)}m left`;
-  }
-  if (remaining < DAY_MS) {
-    const hours = Math.floor(remaining / HOUR_MS);
-    const minutes = Math.floor((remaining % HOUR_MS) / MINUTE_MS);
-    return `${hours}h${pad2(minutes)}m left`;
-  }
-  const days = Math.floor(remaining / DAY_MS);
-  const hours = Math.floor((remaining % DAY_MS) / HOUR_MS);
-  return hours === 0 ? `${days}d left` : `${days}d${hours}h left`;
+  return countdownText(next.getTime() - instant.getTime());
 }
 
 /**
@@ -161,16 +198,20 @@ export function nextRepaintAt(
   if (next === null) return null;
   const now = instant.getTime();
   const remaining = next.getTime() - now;
-  const unit =
-    remaining >= DAY_MS ? HOUR_MS : remaining >= MINUTE_MS ? MINUTE_MS : 0;
-  if (unit === 0) return next;
-  const boundary = next.getTime() - Math.floor(remaining / unit) * unit;
-  return boundary > now ? new Date(boundary) : new Date(now + 1);
+  const quantum = countdownStep(remaining).quantum;
+  if (quantum === 0) return next;
+  // The displayed component drops just after the quantum boundary where the
+  // remaining time becomes an exact multiple; at the boundary itself the text
+  // still shows the previous unit.
+  const boundary = next.getTime() - Math.floor(remaining / quantum) * quantum;
+  return new Date(boundary + 1);
 }
 
 /**
  * Absolute window description for the explicit refresh command, e.g.
- * `peak until 10:00 UTC (17:00 +07)`.
+ * `peak until 10:00 UTC (17:00 +07)`. A weekday prefix marks a boundary
+ * outside today's UTC or local date, or a local date that differs from its UTC
+ * date, so a Friday-to-Monday gap cannot read as same-day.
  */
 export function formatWindow(
   schedule: PeakSchedule,
@@ -179,7 +220,14 @@ export function formatWindow(
   const next = nextTransition(schedule, instant);
   if (next === null) return null;
   const state = isPeakActive(schedule, instant) ? "peak" : "off-peak";
-  return `${state} until ${formatClock(next, false)} UTC (${formatClock(next, true)} ${formatOffset(next)})`;
+  const utcDay = sameUtcDate(instant, next)
+    ? ""
+    : `${WEEKDAYS[next.getUTCDay()]} `;
+  const localDay =
+    sameLocalDate(instant, next) && sameLocalDateAsUtc(next)
+      ? ""
+      : `${WEEKDAYS[next.getDay()]} `;
+  return `${state} until ${utcDay}${formatClock(next, false)} UTC (${localDay}${formatClock(next, true)} ${formatOffset(next)})`;
 }
 
 function recurringRules(cost: unknown): PeakSchedule {
@@ -188,7 +236,7 @@ function recurringRules(cost: unknown): PeakSchedule {
   }
   const multipliers = (cost as { multipliers?: unknown }).multipliers;
   if (!Array.isArray(multipliers)) return [];
-  const rules: PeakRule[] = [];
+  const rules: PricingMultiplier[] = [];
   for (const multiplier of multipliers) {
     const rule = parseRule(multiplier);
     if (rule !== null) rules.push(rule);
@@ -196,7 +244,7 @@ function recurringRules(cost: unknown): PeakSchedule {
   return rules;
 }
 
-function parseRule(value: unknown): PeakRule | null {
+function parseRule(value: unknown): PricingMultiplier | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return null;
   }
@@ -205,26 +253,18 @@ function parseRule(value: unknown): PeakRule | null {
   if (typeof when !== "object" || when === null || Array.isArray(when)) {
     return null;
   }
-  if (!hasRecurringClause(when) || hasDateClause(when)) return null;
+  const recurring = hasClause(when, "utc_days") || hasClause(when, "utc_hours");
+  if (!recurring || hasClause(when, "date")) return null;
   return { factor, when };
 }
 
-function hasRecurringClause(value: unknown): boolean {
+function hasClause(value: unknown, key: string): boolean {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return false;
   }
   const record = value as Record<string, unknown>;
-  if ("utc_days" in record || "utc_hours" in record) return true;
-  return nestedConditions(record).some(hasRecurringClause);
-}
-
-function hasDateClause(value: unknown): boolean {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return false;
-  }
-  const record = value as Record<string, unknown>;
-  if ("date" in record) return true;
-  return nestedConditions(record).some(hasDateClause);
+  if (key in record) return true;
+  return nestedConditions(record).some((clause) => hasClause(clause, key));
 }
 
 function nestedConditions(record: Record<string, unknown>): unknown[] {
@@ -265,10 +305,6 @@ function matchesWhen(when: unknown, instant: Date): boolean {
       matched &&
       Array.isArray(record.all) &&
       record.all.every((clause) => matchesWhen(clause, instant));
-  }
-  if ("date" in record) {
-    constrained = true;
-    matched = matched && matchesDate(record.date, instant);
   }
   return constrained && matched;
 }
@@ -319,29 +355,36 @@ function parseClock(value: unknown): number | null {
   return hours * 60 + minutes;
 }
 
-function matchesDate(value: unknown, instant: Date): boolean {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return false;
-  }
-  const record = value as Record<string, unknown>;
-  const today = instant.toISOString().slice(0, 10);
-  let matched = true;
-  let constrained = false;
-  if ("gte" in record) {
-    constrained = true;
-    matched = matched && typeof record.gte === "string" && today >= record.gte;
-  }
-  if ("lt" in record) {
-    constrained = true;
-    matched = matched && typeof record.lt === "string" && today < record.lt;
-  }
-  return constrained && matched;
-}
-
 function formatClock(date: Date, local: boolean): string {
   const hours = local ? date.getHours() : date.getUTCHours();
   const minutes = local ? date.getMinutes() : date.getUTCMinutes();
   return `${pad2(hours)}:${pad2(minutes)}`;
+}
+
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+function sameUtcDate(left: Date, right: Date): boolean {
+  return (
+    left.getUTCFullYear() === right.getUTCFullYear() &&
+    left.getUTCMonth() === right.getUTCMonth() &&
+    left.getUTCDate() === right.getUTCDate()
+  );
+}
+
+function sameLocalDate(left: Date, right: Date): boolean {
+  return (
+    left.getFullYear() === right.getFullYear() &&
+    left.getMonth() === right.getMonth() &&
+    left.getDate() === right.getDate()
+  );
+}
+
+function sameLocalDateAsUtc(date: Date): boolean {
+  return (
+    date.getFullYear() === date.getUTCFullYear() &&
+    date.getMonth() === date.getUTCMonth() &&
+    date.getDate() === date.getUTCDate()
+  );
 }
 
 function formatOffset(date: Date): string {

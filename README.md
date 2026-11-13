@@ -25,7 +25,7 @@ Each extension is a Nix flake output named `pi-<name>` and is not installed by `
 | Extension | What it does |
 |-----------|--------------|
 | [Permission](./extensions/permission/README.md) | Intercepts `bash` tool calls, asks before destructive commands, reports blocked panes to Herdr, and offers an opt-in session-scoped `/permission-yolo` bypass |
-| [OpenCode Usage](./extensions/opencode-usage/README.md) | Shows OpenCode Go rolling, weekly, and monthly allowance usage plus the catalog-driven peak/off-peak tag in the status bar |
+| [OpenCode Usage](./extensions/opencode-usage/README.md) | Shows OpenCode Go rolling, weekly, and monthly allowance usage plus the catalog-driven peak/off-peak tag in the footer status slot |
 | [Codex Alias](./extensions/codex-alias/README.md) | Registers `openai-codex-secondary` as an independently authenticated alias of the built-in `openai-codex` provider, so two Codex accounts share one agent directory |
 | [Notify Me](./extensions/notify-me/README.md) | Arms a session-scoped, one-shot Discord reminder for final handback, with its configuration, privacy, and retry contracts |
 
