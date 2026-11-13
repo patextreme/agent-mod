@@ -31,9 +31,16 @@ const packagedSkills = {
   "pr-review-repair": [
     "references/pseudocode.md",
     "references/report-contracts.md",
+    "references/audit-publication.md",
+    "references/audit-publication.mjs",
     "references/policy.md",
     "references/prepare.md",
     "references/review-scope.md",
+    "references/lifecycle.md",
+    "references/lifecycle.mjs",
+    "references/coverage-evidence.md",
+    "references/coverage-evidence.mjs",
+    "references/coverage-fixtures.json",
   ],
 };
 const externalSkills = [
@@ -101,10 +108,26 @@ function checkInstalledSkill(installedRoot, name, references) {
     `${name} must stay model-invocable`,
   );
 
+  // Disclosed contracts may link resources transitively rather than bloating
+  // SKILL.md with every helper. Require reachability from its actual links.
+  const linked = new Set([skillPath]);
+  const documents = [skillPath];
+  for (const document of documents) {
+    for (const target of localMarkdownTargets(readFileSync(document, "utf8"))) {
+      const destination = resolve(
+        dirname(document),
+        decodeURIComponent(target.split(/[?#]/)[0]),
+      );
+      assertWithin(skillDir, destination);
+      if (linked.has(destination)) continue;
+      linked.add(destination);
+      if (destination.endsWith(".md")) documents.push(destination);
+    }
+  }
   for (const reference of references) {
     assert.ok(
-      content.includes(reference),
-      `${name} must reference ${reference}`,
+      linked.has(join(skillDir, reference)),
+      `${name} must reference ${reference} directly or transitively`,
     );
     assert.ok(lstatSync(join(skillDir, reference)).isFile());
   }
@@ -254,8 +277,8 @@ for (const [name, kind] of [
     );
     assert.match(
       example.visible,
-      /Rounds:\*\* \d\/3/,
-      `${name} must show the three-round window`,
+      /Rounds:\*\* \d\/[1-3]/,
+      `${name} must show consumed rounds and its effective window`,
     );
   });
 }
@@ -347,7 +370,7 @@ test("capped example reports only out-of-scope deferred findings and closed disc
     "only repair-worthy out-of-scope findings are enumerated; report-only findings stay in the audit",
   );
   assert.ok(
-    example.visible.includes("no fourth review round"),
+    example.visible.includes("no review beyond the accepted window"),
     "the visible summary must state the closed-window limitation",
   );
   assert.match(example.visible, /Deferred:\*\* 1/);
@@ -402,7 +425,7 @@ test("report contracts require complete collapsed audits without new storage", (
     "kind=<summary|escalation>",
     "report the unrecorded state directly to the user",
     "never invent a receipt or link",
-    "`Rounds: n/3`",
+    "`Rounds: n/L`",
     "`Repair cycles: n`",
   ]) {
     assert.ok(
@@ -485,11 +508,11 @@ test("discovery is capped at three full review rounds", () => {
   );
   assert.ok(
     prReviewPseudocode.includes("window = 3") &&
-      prReviewPseudocode.includes("IF rounds < window:"),
+      prReviewPseudocode.includes("IF rounds < window OR state.roundPending:"),
     "control flow must gate discovery on the round window",
   );
   assert.ok(
-    prReviewPseudocode.includes("IF rounds < window:") &&
+    prReviewPseudocode.includes("IF rounds < window OR state.roundPending:") &&
       prReviewPseudocode.includes("no fourth review ever runs"),
     "a converged round must finish rather than start another",
   );

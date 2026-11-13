@@ -22,7 +22,7 @@ Each deferred entry names the ticket, decision, or measurement that unblocks it.
 
 ## Closed discovery
 
-Discovery closes after round three. From then on, repair only IDs already open and classify everything else under Report contracts. A correction may deepen or narrow its own ID; it may not add a new one, and it never reopens review.
+Discovery closes at the effective accepted limit (default three rounds; a maintainer may select one or two), or earlier on complete clean convergence. From then on, repair only IDs already open and classify everything else under Report contracts. A correction may deepen or narrow its own ID; it may not add a new one, and it never reopens review.
 
 In scope during verification:
 

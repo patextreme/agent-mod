@@ -291,3 +291,26 @@ test("post-window routing classifies findings instead of deferring everything", 
     "both outcome definitions must agree",
   );
 });
+
+test("outcome definitions match every reachable finish state", () => {
+  for (const [file, content] of [
+    ["SKILL.md", skill],
+    ["references/report-contracts.md", reportContracts],
+  ]) {
+    assert.match(
+      content,
+      /required checks (?:pass|passed)/,
+      `${file}: verified must require passing required checks`,
+    );
+    assert.match(
+      content,
+      /(?:discovery ended|window closed) with (?:repair work|repairs), deferred findings/,
+      `${file}: limited coverage must cover the deferred-only round`,
+    );
+    assert.match(
+      content,
+      /a required check that did not pass/,
+      `${file}: limited coverage must cover a non-passing required check`,
+    );
+  }
+});
