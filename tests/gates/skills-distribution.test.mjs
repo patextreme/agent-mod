@@ -34,6 +34,9 @@ const packagedSkills = {
     "references/policy.md",
     "references/prepare.md",
     "references/review-scope.md",
+    "references/coverage-evidence.md",
+    "references/coverage-evidence.mjs",
+    "references/coverage-fixtures.json",
   ],
 };
 const externalSkills = [
@@ -101,10 +104,26 @@ function checkInstalledSkill(installedRoot, name, references) {
     `${name} must stay model-invocable`,
   );
 
+  // Disclosed contracts may link resources transitively rather than bloating
+  // SKILL.md with every helper. Require reachability from its actual links.
+  const linked = new Set([skillPath]);
+  const documents = [skillPath];
+  for (const document of documents) {
+    for (const target of localMarkdownTargets(readFileSync(document, "utf8"))) {
+      const destination = resolve(
+        dirname(document),
+        decodeURIComponent(target.split(/[?#]/)[0]),
+      );
+      assertWithin(skillDir, destination);
+      if (linked.has(destination)) continue;
+      linked.add(destination);
+      if (destination.endsWith(".md")) documents.push(destination);
+    }
+  }
   for (const reference of references) {
     assert.ok(
-      content.includes(reference),
-      `${name} must reference ${reference}`,
+      linked.has(join(skillDir, reference)),
+      `${name} must reference ${reference} directly or transitively`,
     );
     assert.ok(lstatSync(join(skillDir, reference)).isFile());
   }
