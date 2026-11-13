@@ -1,0 +1,92 @@
+{
+  "completeClipped": {
+    "stage": "review",
+    "axis": "Spec",
+    "pin": { "mergeBase": "base-a", "head": "head-a" },
+    "coverage": [
+      {
+        "id": "full-diff",
+        "kind": "diff",
+        "evidence": {
+          "requested": true,
+          "original": "complete",
+          "ref": "saved/diff-result.txt",
+          "delivered": true,
+          "summaryClipped": true
+        }
+      },
+      {
+        "id": "issue-spec",
+        "kind": "spec",
+        "basis": {
+          "kind": "requirement",
+          "detail": "Issue #101 acceptance criteria"
+        },
+        "evidence": {
+          "requested": true,
+          "original": "complete",
+          "ref": "saved/spec-result.txt",
+          "delivered": true,
+          "summaryClipped": true
+        }
+      },
+      { "id": "old-version", "kind": "history" }
+    ],
+    "handoff": {
+      "head": "head-a",
+      "mergeBase": "base-a",
+      "coverage": [
+        {
+          "id": "full-diff",
+          "complete": true,
+          "account": "Compared every hunk to the requirements, checked recovery paths and affected callers; no open investigation."
+        },
+        {
+          "id": "issue-spec",
+          "complete": true,
+          "account": "Mapped each acceptance criterion to the diff and checked missing-evidence behavior."
+        }
+      ],
+      "investigations": []
+    },
+    "reuse": []
+  },
+  "matchingReuse": [
+    {
+      "id": "source-discovery",
+      "kind": "preparation",
+      "head": "head-a",
+      "inputs": {
+        "source": "sources-and-pinned-refs-a",
+        "configuration": "config-a",
+        "dependencies": "deps-a",
+        "environment": "env-a"
+      },
+      "currentInputs": {
+        "source": "sources-and-pinned-refs-a",
+        "configuration": "config-a",
+        "dependencies": "deps-a",
+        "environment": "env-a"
+      }
+    },
+    {
+      "id": "node-tests",
+      "kind": "check",
+      "head": "head-a",
+      "command": "npm test",
+      "result": "passed",
+      "inputs": {
+        "source": "checked-source-a",
+        "configuration": "config-a",
+        "dependencies": "deps-a",
+        "environment": "env-a"
+      },
+      "currentInputs": {
+        "source": "checked-source-a",
+        "configuration": "config-a",
+        "dependencies": "deps-a",
+        "environment": "env-a"
+      }
+    }
+  ]
+}
