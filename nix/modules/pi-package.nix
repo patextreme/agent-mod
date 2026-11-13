@@ -35,6 +35,7 @@
           mkdir -p $out
           cp $src/index.ts $out/index.ts
           cp $src/parse.ts $out/parse.ts
+          cp $src/peak.ts $out/peak.ts
         '';
       };
 
