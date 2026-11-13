@@ -34,6 +34,8 @@ const packagedSkills = {
     "references/policy.md",
     "references/prepare.md",
     "references/review-scope.md",
+    "references/lifecycle.md",
+    "references/lifecycle.mjs",
   ],
 };
 const externalSkills = [
@@ -485,11 +487,11 @@ test("discovery is capped at three full review rounds", () => {
   );
   assert.ok(
     prReviewPseudocode.includes("window = 3") &&
-      prReviewPseudocode.includes("IF rounds < window:"),
+      prReviewPseudocode.includes("IF rounds < window OR state.roundPending:"),
     "control flow must gate discovery on the round window",
   );
   assert.ok(
-    prReviewPseudocode.includes("IF rounds < window:") &&
+    prReviewPseudocode.includes("IF rounds < window OR state.roundPending:") &&
       prReviewPseudocode.includes("no fourth review ever runs"),
     "a converged round must finish rather than start another",
   );
