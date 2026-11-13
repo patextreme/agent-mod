@@ -16,6 +16,13 @@ RUN(stage, inputs):
   APPLY start(stage) to saved journal BEFORE dispatch; reject -> ESCALATE
   DELEGATE exactly the recorded stage with the accepted finite max_turns
   INSPECT actual stage artifacts; accept no summary-only substitute
+  EVALUATE coverage under Review scope BEFORE a complete review/verify result:
+    use both independent axis evaluations for review, the per-ID evaluation for verify
+    require exit zero, no gaps, matching pins/manifest and substantive acceptance
+    incomplete coverage follows the SAME charged continuation/escalation budgets
+  PASS actual absolute report, coverage input/output and stage-manifest paths
+       in the handoff; result.record locates that accepted manifest
+  # The lifecycle guard does not read or evaluate coverage artifacts.
   APPLY result to journal with current observed heads and evidence locator
   IF incomplete:
     preserve artifacts and charged attempt
@@ -30,7 +37,8 @@ IF new run:
   INIT original identity, pinned base/head, limit (default 3, accepted integer 1..3),
        finite stage budgets and turn bound BEFORE preparation dispatch
 ELSE:
-  RECOVER original journal from local state and verified paginated PR records
+  RECOVER publication inventory/links under Report contracts before accepting history
+  RECOVER original full journal prefix from its inline accounting item and local state
   RECONCILE unpublished suffix; ambiguous identity/accounting -> ESCALATE
   SHOW/replay journal; never initialize a replacement or reset counts
   RECOVER any completed but unacknowledged delivery effect by actual read-back
@@ -64,7 +72,7 @@ CONTINUE saved stage through the following accepted boundaries:
     # First start consumes a round; interruptions cannot refund it. At most two
     # attempts per round, further constrained by the original total stage budget.
     IF review is incomplete: ESCALATE unless RUN can continue within those bounds
-    judgment = RUN judge current reports against the complete ledger
+    judgment = RUN judge current reports and accepted evidence locators against the complete ledger
     WHILE judgment needs investigation:
       RUN investigate uncertain classifications within original finite budget
       judgment = RUN judge again, spending another judgment attempt
@@ -120,7 +128,9 @@ DELIVER:
     RUN deliver(commit): stage authorized hunks only, sign, inspect entire outgoing
                          range and record signed SHA(s); preserve operation ID
     RUN deliver(push): push without force to exact PR head branch; read-back remote SHA
-  RUN deliver(comment): publish summary/audit with journal prefix and read-back URL/ID
+  RUN deliver(comment): after persisted start, PLAN and RECOVER audit under Report contracts
+                        publish full journal prefix/replayed state inline in accounting
+                        pass actual input/plan/receipt paths and URL/ID in result.record manifest
   # Completed effects cannot repeat. An uncertain effect is inspected before retry.
   # No merge transition exists. A repair delivery is not final validation at its
   # new commit head: the next accepted review/verification supplies that evidence.
@@ -129,6 +139,7 @@ ESCALATE:
   APPLY pause with exact reason; preserve active attempt and authorized operation
   PRESERVE safe work, ledger, counts, and exact operation state
   APPLY notice-start within the same finite delivery/turn budgets
+  PLAN and RECOVER audit under Report contracts within that charged notice attempt
   POST and VERIFY escalation record when possible
   APPLY notice-result with actual receipt (or known failed publication)
   REPORT missing receipts directly if recording fails

@@ -277,8 +277,8 @@ for (const [name, kind] of [
     );
     assert.match(
       example.visible,
-      /Rounds:\*\* \d\/3/,
-      `${name} must show the three-round window`,
+      /Rounds:\*\* \d\/[1-3]/,
+      `${name} must show consumed rounds and its effective window`,
     );
   });
 }
@@ -370,7 +370,7 @@ test("capped example reports only out-of-scope deferred findings and closed disc
     "only repair-worthy out-of-scope findings are enumerated; report-only findings stay in the audit",
   );
   assert.ok(
-    example.visible.includes("no fourth review round"),
+    example.visible.includes("no review beyond the accepted window"),
     "the visible summary must state the closed-window limitation",
   );
   assert.match(example.visible, /Deferred:\*\* 1/);
@@ -425,7 +425,7 @@ test("report contracts require complete collapsed audits without new storage", (
     "kind=<summary|escalation>",
     "report the unrecorded state directly to the user",
     "never invent a receipt or link",
-    "`Rounds: n/3`",
+    "`Rounds: n/L`",
     "`Repair cycles: n`",
   ]) {
     assert.ok(
