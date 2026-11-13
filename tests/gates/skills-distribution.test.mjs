@@ -31,6 +31,8 @@ const packagedSkills = {
   "pr-review-repair": [
     "references/pseudocode.md",
     "references/report-contracts.md",
+    "references/audit-publication.md",
+    "references/audit-publication.mjs",
     "references/policy.md",
     "references/prepare.md",
     "references/review-scope.md",
