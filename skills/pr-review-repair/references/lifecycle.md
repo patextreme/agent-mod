@@ -37,6 +37,8 @@ Accept any maintainer-selected positive finite integer stage budgets at creation
 
 Every event supplies `revision` equal to the current journal event count and `observed: {base, head, remoteHead}` freshly checked against the expected phase-specific git/PR state. A complete commit/push result observes its authorized new local/remote head, not the old one. A `pause` can record mismatching actual heads without accepting them. The validator compares these assertions; it does not execute git or fetch GitHub. Dirty files during repair must be attributable to the preserved authorized operation; unrelated changes pause the run.
 
+Event prose is published accounting: `pause` reasons, `resume` authorizations and `progress` units carry the exact state and the recovery input, not a narrative, because the complete journal prefix is republished inline in every record under the publication budget.
+
 | Event | Required data and effect |
 | --- | --- |
 | `start` | `stage`, and for `deliver`, `effect`. Persist **before** dispatch; charges the attempt immediately. Only the expected stage may start. |
